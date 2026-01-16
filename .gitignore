@@ -52,3 +52,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Glance runtime data
+data/
+blobs/
+
+# Frontend dependencies and build output
+ui/node_modules/
+ui/dist/
