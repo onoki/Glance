@@ -27,8 +27,8 @@ internal static class Program
         var window = new PhotinoWindow()
             .SetTitle("Glance")
             .SetUseOsDefaultSize(false)
-            .SetSize(800, 600)
-            .SetMinSize(800, 600)
+            .SetSize(1200, 800)
+            .SetMinSize(1200, 800)
             .SetResizable(true)
             .Center();
 

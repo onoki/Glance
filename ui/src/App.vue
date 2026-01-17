@@ -35,33 +35,34 @@
             </header>
 
             <div class="task-list">
-              <div
-                v-for="task in newTasks"
-                :key="task.id"
-                class="task-item"
-                :class="{ completed: task.completedAt }"
-              >
+              <div class="task-item draft">
                 <label class="task-check">
-                  <input type="checkbox" :checked="!!task.completedAt" @change="toggleComplete(task)" />
+                  <input type="checkbox" disabled />
                   <span></span>
                 </label>
                 <div class="task-body">
                   <input
                     class="task-title"
-                    v-model="task.title"
-                    @input="scheduleSave(task)"
-                    placeholder="Task title"
+                    v-model="draftTitle"
+                    @input="createDraftIfNeeded"
+                    placeholder="New task"
                   />
                   <textarea
                     class="task-content"
-                    v-model="task.contentText"
-                    @input="scheduleSave(task)"
+                    v-model="draftContent"
                     rows="2"
-                    placeholder="Add details"
+                    placeholder="Start typing to create"
                   ></textarea>
                 </div>
               </div>
-              <button class="add-task" @click="createTask('dashboard:new')">Add task</button>
+              <TaskItem
+                v-for="task in newTasks"
+                :key="task.id"
+                :task="task"
+                :on-save="saveTask"
+                :on-complete="toggleComplete"
+                :on-dirty="handleDirtyChange"
+              />
             </div>
           </section>
         </div>
@@ -76,32 +77,14 @@
             </header>
 
             <div class="task-list">
-              <div
+              <TaskItem
                 v-for="task in mainTasks"
                 :key="task.id"
-                class="task-item"
-                :class="{ completed: task.completedAt }"
-              >
-                <label class="task-check">
-                  <input type="checkbox" :checked="!!task.completedAt" @change="toggleComplete(task)" />
-                  <span></span>
-                </label>
-                <div class="task-body">
-                  <input
-                    class="task-title"
-                    v-model="task.title"
-                    @input="scheduleSave(task)"
-                    placeholder="Task title"
-                  />
-                  <textarea
-                    class="task-content"
-                    v-model="task.contentText"
-                    @input="scheduleSave(task)"
-                    rows="2"
-                    placeholder="Add details"
-                  ></textarea>
-                </div>
-              </div>
+                :task="task"
+                :on-save="saveTask"
+                :on-complete="toggleComplete"
+                :on-dirty="handleDirtyChange"
+              />
               <button class="add-task" @click="createTask('dashboard:main')">Add task</button>
             </div>
           </section>
@@ -119,6 +102,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { apiGet, apiPost, apiPut } from "./api";
+import TaskItem from "./components/TaskItem.vue";
 
 const tabs = ["Dashboard", "History", "Search", "Settings"];
 const activeTab = ref("Dashboard");
@@ -128,8 +112,12 @@ const mainTasks = ref([]);
 const expandedNew = ref(false);
 const lastChangeId = ref(0);
 
-const saveTimers = new Map();
 let pollTimer = null;
+const dirtySnapshots = new Map();
+
+const draftTitle = ref("");
+const draftContent = ref("");
+const creatingDraft = ref(false);
 
 const extractText = (node) => {
   if (!node) return "";
@@ -169,37 +157,46 @@ const normalizeTask = (task) => ({
 
 const loadDashboard = async () => {
   const data = await apiGet("/api/dashboard");
-  newTasks.value = data.newTasks.map(normalizeTask);
-  mainTasks.value = data.mainTasks.map(normalizeTask);
+  newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
+  mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
 };
 
-const createTask = async (page) => {
+const mergeTasks = (tasks, page) => {
+  const merged = tasks.map((task) => {
+    const snapshot = dirtySnapshots.get(task.id);
+    return snapshot && snapshot.dirty ? snapshot.task : task;
+  });
+
+  for (const [id, snapshot] of dirtySnapshots.entries()) {
+    if (!snapshot.dirty || snapshot.task.page !== page) {
+      continue;
+    }
+    if (!merged.some((task) => task.id === id)) {
+      merged.push(snapshot.task);
+    }
+  }
+
+  return merged;
+};
+
+const createTask = async (page, titleOverride, contentOverride) => {
   await apiPost("/api/tasks", {
     page,
-    title: "New task",
-    content: toContentDoc(""),
+    title: titleOverride || "New task",
+    content: toContentDoc(contentOverride || ""),
     position: Date.now()
   });
   await loadDashboard();
 };
 
-const scheduleSave = (task) => {
-  if (saveTimers.has(task.id)) {
-    clearTimeout(saveTimers.get(task.id));
-  }
-  const timer = setTimeout(() => saveTask(task), 400);
-  saveTimers.set(task.id, timer);
-};
-
-const saveTask = async (task) => {
-  saveTimers.delete(task.id);
-  const response = await apiPut(`/api/tasks/${task.id}`, {
-    baseUpdatedAt: task.updatedAt,
-    title: task.title,
-    content: toContentDoc(task.contentText),
-    page: task.page
+const saveTask = async ({ id, title, contentText, baseUpdatedAt, page }) => {
+  const response = await apiPut(`/api/tasks/${id}`, {
+    baseUpdatedAt,
+    title,
+    content: toContentDoc(contentText),
+    page
   });
-  task.updatedAt = response.updatedAt;
+  updateTaskLocal(id, { title, contentText, updatedAt: response.updatedAt });
   if (response.externalUpdate) {
     await loadDashboard();
   }
@@ -223,6 +220,43 @@ const moveNewToMain = async () => {
   );
   await Promise.all(updates);
   await loadDashboard();
+};
+
+const updateTaskLocal = (id, patch) => {
+  const apply = (list) => {
+    const task = list.find((item) => item.id === id);
+    if (task) {
+      Object.assign(task, patch);
+    }
+  };
+  apply(newTasks.value);
+  apply(mainTasks.value);
+};
+
+const handleDirtyChange = (id, dirty, snapshot) => {
+  if (!id) {
+    return;
+  }
+  if (!dirty) {
+    dirtySnapshots.delete(id);
+    return;
+  }
+  dirtySnapshots.set(id, { dirty: true, task: snapshot });
+};
+
+const createDraftIfNeeded = async () => {
+  if (creatingDraft.value) {
+    return;
+  }
+  const title = draftTitle.value.trim();
+  if (!title) {
+    return;
+  }
+  creatingDraft.value = true;
+  await createTask("dashboard:new", title, draftContent.value);
+  draftTitle.value = "";
+  draftContent.value = "";
+  creatingDraft.value = false;
 };
 
 const pollChanges = async () => {
@@ -370,6 +404,11 @@ onBeforeUnmount(() => {
 .task-item.completed {
   color: #8a8177;
   text-decoration: line-through;
+}
+
+.task-item.draft {
+  border-style: dashed;
+  background: #fff7eb;
 }
 
 .task-check {
