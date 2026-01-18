@@ -115,3 +115,7 @@ mark[data-color="yellow"] {
 mark[data-color="red"] {
   background: #ffd6d6;
 }
+
+mark[data-color="search"] {
+  background: #ffe08a;
+}

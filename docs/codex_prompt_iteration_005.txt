@@ -1,0 +1,133 @@
+You are continuing development of the app “glance”.
+
+Current capabilities:
+- Photino desktop app
+- ASP.NET Core backend
+- Vue UI
+- Tiptap editor with rich subcontent
+- Image attachments stored on disk
+- SQLite persistence with FTS5
+- task_search updated from title + content_json
+- Multi-instance sync via /api/changes polling
+
+DO NOT BREAK EXISTING FUNCTIONALITY.
+
+==================================================
+AUTHORITATIVE DOCUMENTS (DO NOT MODIFY)
+==================================================
+
+- docs/architecture.md
+- docs/requirements.feature
+- docs/api.md
+- docs/schema.sql
+- docs/migrations/*
+
+==================================================
+GOAL: ITERATION 5
+==================================================
+
+Implement the **Search tab** as specified in requirements.feature:
+
+- Search input + button
+- Query via SQLite FTS5
+- Show results across all tasks regardless of status
+- Read-only rendering of results
+- Highlight only the matching text in results
+- Correct empty / no-results states
+
+==================================================
+SEARCH BEHAVIOR (MANDATORY)
+==================================================
+
+UI states:
+
+1) Before any search:
+   - Show empty results area (no placeholder text)
+
+2) After search with no matches:
+   - Show text: "No results"
+
+3) After search with matches:
+   - Show a list of matching tasks
+   - Tasks are rendered read-only
+   - Matching text is highlighted
+   - Both title and subcontent may contain highlights
+
+==================================================
+BACKEND REQUIREMENTS
+==================================================
+
+Use existing endpoint:
+- GET /api/search?q=term
+
+Ensure:
+- Search uses FTS5 (task_search)
+- Results include:
+  - full task data
+  - list of matched terms (strings)
+- Results include tasks regardless of completed state
+
+If needed:
+- Improve plain-text extraction from content_json
+- Ensure FTS index is updated on every task save
+
+DO NOT add new search endpoints.
+
+==================================================
+FRONTEND REQUIREMENTS
+==================================================
+
+- Implement Search tab UI.
+- Use a simple search bar + button.
+- On submit:
+  - call /api/search
+  - store query + results in state
+- Render tasks using the same task component in read-only mode.
+
+Highlighting:
+- Highlight only matching substrings.
+- Do NOT modify stored content.
+- Do NOT highlight non-matching text.
+- Highlight styling should be visually distinct but simple.
+
+==================================================
+READ-ONLY RENDERING RULES
+==================================================
+
+- No editing allowed in Search results.
+- Images render normally.
+- Formatting renders normally.
+- Completion checkboxes are disabled.
+
+==================================================
+MULTI-INSTANCE BEHAVIOR
+==================================================
+
+- Search does NOT need to live-update while open.
+- A new search reflects current DB state.
+
+==================================================
+NON-GOALS (DO NOT IMPLEMENT)
+==================================================
+
+- Search-as-you-type
+- Advanced ranking or scoring
+- Filtering by category or date
+- Highlight navigation
+- Editing from search results
+
+==================================================
+DELIVERABLES
+==================================================
+
+- Search tab works end-to-end.
+- FTS queries return correct tasks.
+- Matching text is highlighted.
+- Empty and no-result states behave as specified.
+- Brief notes describing:
+  - how highlighting is implemented
+  - any known limitations
+
+Proceed by implementing backend search correctness first,
+then the Search tab UI, then highlighting.
+Do not refactor unrelated code.

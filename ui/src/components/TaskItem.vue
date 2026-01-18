@@ -1,7 +1,7 @@
 <template>
   <div class="task-item" :class="{ completed: !!task.completedAt }">
     <label class="task-check">
-      <input type="checkbox" :checked="!!task.completedAt" @change="toggleComplete" />
+      <input type="checkbox" :checked="!!task.completedAt" :disabled="readOnly" @change="toggleComplete" />
       <span></span>
     </label>
     <div class="task-body">
@@ -11,15 +11,17 @@
           class="title-editor"
           v-model="title"
           mode="title"
+          :editable="!readOnly"
           :on-dirty="handleTitleDirty"
           :on-split-to-new-task="noopSplit"
           :on-key-down="handleTitleKeydown"
         />
-        <span v-if="dirty" class="dirty-badge">dirty</span>
+        <span v-if="dirty && !readOnly" class="dirty-badge">dirty</span>
       </div>
       <RichTextEditor
         ref="contentEditorRef"
         v-model="content"
+        :editable="!readOnly"
         :on-dirty="handleContentDirty"
         :on-split-to-new-task="handleSplitToNewTask"
         :on-key-down="handleContentKeydown"
@@ -36,6 +38,10 @@ const props = defineProps({
   task: {
     type: Object,
     required: true
+  },
+  readOnly: {
+    type: Boolean,
+    default: false
   },
   focusTitleId: {
     type: String,
@@ -101,6 +107,9 @@ const markDirty = () => {
 };
 
 const scheduleSave = () => {
+  if (props.readOnly) {
+    return;
+  }
   markDirty();
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -109,6 +118,9 @@ const scheduleSave = () => {
 };
 
 const saveNow = async () => {
+  if (props.readOnly) {
+    return;
+  }
   if (!dirty.value) {
     return;
   }
@@ -138,10 +150,16 @@ const saveNow = async () => {
 };
 
 const handleTitleDirty = () => {
+  if (props.readOnly) {
+    return;
+  }
   scheduleSave();
 };
 
 const handleContentDirty = () => {
+  if (props.readOnly) {
+    return;
+  }
   scheduleSave();
 };
 
@@ -168,6 +186,9 @@ const isSelectionAtStart = (editor) => {
 };
 
 const handleTitleKeydown = (event, editor) => {
+  if (props.readOnly) {
+    return false;
+  }
   if (event.key === "Tab") {
     if (pendingCreateTimer) {
       clearTimeout(pendingCreateTimer);
@@ -246,6 +267,9 @@ const getListContext = (editor) => {
 };
 
 const handleContentKeydown = (event, editor) => {
+  if (props.readOnly) {
+    return false;
+  }
   if (event.key === "ArrowDown") {
     const ctx = getListContext(editor);
     if (ctx && ctx.listIndex === ctx.listCount - 1 && ctx.atEnd) {
@@ -266,10 +290,16 @@ const handleContentKeydown = (event, editor) => {
 };
 
 const toggleComplete = () => {
+  if (props.readOnly) {
+    return;
+  }
   props.onComplete(props.task);
 };
 
 const handleSplitToNewTask = async (payload) => {
+  if (props.readOnly) {
+    return;
+  }
   if (payload?.remainingContent) {
     content.value = payload.remainingContent;
     markDirty();

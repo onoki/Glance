@@ -86,6 +86,40 @@
         </div>
       </section>
 
+      <section v-else-if="activeTab === 'Search'" class="search-view">
+        <div class="search-bar">
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="Search tasks"
+            @keydown.enter.prevent="searchTasks"
+          />
+          <button class="add-task" :disabled="isSearching" @click="searchTasks">Search</button>
+        </div>
+        <div class="search-results">
+          <div v-if="!hasSearched" class="search-empty"></div>
+          <div v-else-if="searchResults.length === 0" class="search-empty">No results</div>
+          <div v-else class="search-list">
+            <TaskItem
+              v-for="result in searchResults"
+              :key="result.task.id"
+              :task="result.task"
+              :read-only="true"
+              :focus-title-id="null"
+              :focus-content-target="null"
+              :on-save="noop"
+              :on-complete="noop"
+              :on-dirty="noop"
+              :on-create-below="noop"
+              :on-tab-to-previous="noopAsync"
+              :on-split-to-new-task="noop"
+              :on-focus-prev-task-from-title="noop"
+              :on-focus-next-task-from-content="noop"
+            />
+          </div>
+        </div>
+      </section>
+
       <section v-else class="placeholder">
         <h2>{{ activeTab }}</h2>
         <p>This section will be implemented in the next iteration.</p>
@@ -108,6 +142,10 @@ const expandedNew = ref(false);
 const lastChangeId = ref(0);
 const focusTaskId = ref(null);
 const focusContentTarget = ref(null);
+const searchQuery = ref("");
+const searchResults = ref([]);
+const hasSearched = ref(false);
+const isSearching = ref(false);
 
 let pollTimer = null;
 const dirtySnapshots = new Map();
@@ -198,10 +236,98 @@ const titleDocToListItem = (titleDoc) => {
   };
 };
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const tokenizeQuery = (query) =>
+  query
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+
+const buildSearchRegex = (terms) => {
+  const unique = Array.from(new Set(terms));
+  if (unique.length === 0) {
+    return null;
+  }
+  const pattern = unique.map(escapeRegex).join("|");
+  return new RegExp(pattern, "gi");
+};
+
+const addSearchMark = (marks) => {
+  const next = marks ? [...marks] : [];
+  if (next.some((mark) => mark.type === "highlight" && mark.attrs?.color === "search")) {
+    return next;
+  }
+  next.push({ type: "highlight", attrs: { color: "search" } });
+  return next;
+};
+
+const highlightTextNode = (node, regex) => {
+  if (!node.text || !regex) {
+    return [node];
+  }
+  const text = node.text;
+  const matches = [...text.matchAll(regex)];
+  if (matches.length === 0) {
+    return [node];
+  }
+  const parts = [];
+  let lastIndex = 0;
+  for (const match of matches) {
+    const index = match.index ?? 0;
+    const value = match[0] ?? "";
+    if (index > lastIndex) {
+      parts.push({ ...node, text: text.slice(lastIndex, index), marks: node.marks });
+    }
+    parts.push({ ...node, text: value, marks: addSearchMark(node.marks) });
+    lastIndex = index + value.length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ ...node, text: text.slice(lastIndex), marks: node.marks });
+  }
+  return parts;
+};
+
+const highlightNode = (node, regex) => {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  if (node.type === "text") {
+    return highlightTextNode(node, new RegExp(regex.source, regex.flags));
+  }
+  if (!node.content) {
+    return { ...node };
+  }
+  const nextContent = [];
+  for (const child of node.content) {
+    const transformed = highlightNode(child, regex);
+    if (Array.isArray(transformed)) {
+      nextContent.push(...transformed);
+    } else {
+      nextContent.push(transformed);
+    }
+  }
+  return { ...node, content: nextContent };
+};
+
+const highlightDoc = (doc, terms) => {
+  const regex = buildSearchRegex(terms);
+  if (!regex || !doc) {
+    return doc;
+  }
+  return highlightNode(doc, regex);
+};
+
 const normalizeTask = (task) => ({
   ...task,
   title: normalizeTitle(task.title),
   content: normalizeContent(task.content)
+});
+
+const highlightTask = (task, terms) => ({
+  ...task,
+  title: highlightDoc(task.title, terms),
+  content: highlightDoc(task.content, terms)
 });
 
 const mergeTasks = (tasks, page) => {
@@ -416,6 +542,33 @@ const createEmptyTask = async (page) => {
   focusTaskId.value = newId;
 };
 
+const searchTasks = async () => {
+  const query = searchQuery.value.trim();
+  if (!query) {
+    hasSearched.value = false;
+    searchResults.value = [];
+    return;
+  }
+  isSearching.value = true;
+  try {
+    const data = await apiGet(`/api/search?q=${encodeURIComponent(query)}`);
+    const terms = tokenizeQuery(data.query || query);
+    searchResults.value = data.results.map((result) => {
+      const task = highlightTask(normalizeTask(result.task), terms);
+      return { ...result, task };
+    });
+    hasSearched.value = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Search failed";
+    window.alert(message);
+  } finally {
+    isSearching.value = false;
+  }
+};
+
+const noop = () => {};
+const noopAsync = async () => false;
+
 const pollChanges = async () => {
   const previous = lastChangeId.value;
   const data = await apiGet(`/api/changes?since=${previous}`);
@@ -516,6 +669,47 @@ watch(focusContentTarget, (target) => {
   background: #fbf6ef;
   border-radius: 16px;
   padding: 12px 16px;
+}
+
+.search-view {
+  background: #fbf6ef;
+  border-radius: 16px;
+  padding: 16px;
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.search-bar {
+  display: flex;
+  gap: 8px;
+}
+
+.search-bar input {
+  flex: 1;
+  border: 1px solid #d8c7b3;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  background: #fffaf3;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-empty {
+  color: #6f665f;
+  font-size: 0.95rem;
+  padding: 8px 2px;
+}
+
+.search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .list-column.expanded {
