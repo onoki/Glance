@@ -5,7 +5,7 @@ namespace Glance.Server;
 public sealed record TaskItem(
     string Id,
     string Page,
-    string Title,
+    JsonElement Title,
     JsonElement Content,
     double Position,
     long CreatedAt,
@@ -15,7 +15,7 @@ public sealed record TaskItem(
 
 public sealed record TaskCreateRequest(
     string Page,
-    string Title,
+    JsonElement Title,
     JsonElement Content,
     double Position
 );
@@ -27,7 +27,7 @@ public sealed record TaskCreateResponse(
 
 public sealed record TaskUpdateRequest(
     long BaseUpdatedAt,
-    string? Title,
+    JsonElement? Title,
     JsonElement? Content,
     string? Page
 );

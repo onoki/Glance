@@ -16,13 +16,15 @@ public sealed class TaskRepository
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var taskId = Guid.NewGuid().ToString("D");
+        var titleJson = request.Title.GetRawText();
+        var titleText = TaskTextExtractor.ExtractPlainText(request.Title);
         var contentJson = request.Content.GetRawText();
 
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await InsertTaskAsync(connection, transaction, taskId, request.Page, request.Title, contentJson, request.Position, now);
+        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now);
         await UpdateSearchAsync(connection, transaction, taskId, request.Title, request.Content);
         await InsertChangeAsync(connection, transaction, taskId, "create", now);
         await transaction.CommitAsync(cancellationToken);
@@ -44,7 +46,10 @@ public sealed class TaskRepository
         var externalUpdate = request.BaseUpdatedAt < existing.UpdatedAt;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        var newTitle = request.Title ?? existing.Title;
+        var newTitleJson = request.Title.HasValue
+            ? request.Title.Value
+            : ParseTitleJson(existing.TitleJson, existing.TitleText);
+        var newTitleText = TaskTextExtractor.ExtractPlainText(newTitleJson);
         var newContentJson = request.Content.HasValue ? request.Content.Value.GetRawText() : existing.ContentJson;
         var newPage = request.Page ?? existing.Page;
 
@@ -60,8 +65,8 @@ public sealed class TaskRepository
         }
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await UpdateTaskAsync(connection, transaction, taskId, newPage, newTitle, newContentJson, now);
-        await UpdateSearchAsync(connection, transaction, taskId, newTitle, contentElement);
+        await UpdateTaskAsync(connection, transaction, taskId, newPage, newTitleText, newTitleJson.GetRawText(), newContentJson, now);
+        await UpdateSearchAsync(connection, transaction, taskId, newTitleJson, contentElement);
         await InsertChangeAsync(connection, transaction, taskId, "update", now);
         await transaction.CommitAsync(cancellationToken);
 
@@ -112,7 +117,7 @@ public sealed class TaskRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, content_json, position, created_at, updated_at, completed_at
+            SELECT id, page, title, title_json, content_json, position, created_at, updated_at, completed_at
             FROM tasks
             WHERE page = $page AND completed_at IS NULL
             ORDER BY position ASC;
@@ -136,7 +141,7 @@ public sealed class TaskRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT t.id, t.page, t.title, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at
+            SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at
             FROM task_search ts
             JOIN tasks t ON t.id = ts.task_id
             WHERE task_search MATCH $query
@@ -153,17 +158,18 @@ public sealed class TaskRepository
         return results;
     }
 
-    private static async Task InsertTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string title, string contentJson, double position, long now)
+    private static async Task InsertTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, double position, long now)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO tasks (id, page, title, content_json, position, created_at, updated_at)
-            VALUES ($id, $page, $title, $content, $position, $createdAt, $updatedAt);
+            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at)
+            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt);
             """;
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$page", page);
-        command.Parameters.AddWithValue("$title", title);
+        command.Parameters.AddWithValue("$title", titleText);
+        command.Parameters.AddWithValue("$titleJson", titleJson);
         command.Parameters.AddWithValue("$content", contentJson);
         command.Parameters.AddWithValue("$position", position);
         command.Parameters.AddWithValue("$createdAt", now);
@@ -171,7 +177,7 @@ public sealed class TaskRepository
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task UpdateTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string title, string contentJson, long now)
+    private static async Task UpdateTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, long now)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -179,21 +185,23 @@ public sealed class TaskRepository
             UPDATE tasks
             SET page = $page,
                 title = $title,
+                title_json = $titleJson,
                 content_json = $content,
                 updated_at = $updatedAt
             WHERE id = $id;
             """;
         command.Parameters.AddWithValue("$page", page);
-        command.Parameters.AddWithValue("$title", title);
+        command.Parameters.AddWithValue("$title", titleText);
+        command.Parameters.AddWithValue("$titleJson", titleJson);
         command.Parameters.AddWithValue("$content", contentJson);
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task UpdateSearchAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string title, JsonElement content)
+    private static async Task UpdateSearchAsync(SqliteConnection connection, SqliteTransaction transaction, string id, JsonElement title, JsonElement content)
     {
-        var text = $"{title}\n{TaskTextExtractor.ExtractPlainText(content)}";
+        var text = $"{TaskTextExtractor.ExtractPlainText(title)}\n{TaskTextExtractor.ExtractPlainText(content)}";
 
         await using (var delete = connection.CreateCommand())
         {
@@ -231,7 +239,7 @@ public sealed class TaskRepository
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, content_json, updated_at
+            SELECT id, page, title, title_json, content_json, updated_at
             FROM tasks
             WHERE id = $id;
             """;
@@ -247,8 +255,9 @@ public sealed class TaskRepository
             reader.GetString(0),
             reader.GetString(1),
             reader.GetString(2),
-            reader.GetString(3),
-            reader.GetInt64(4)
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.GetString(4),
+            reader.GetInt64(5)
         );
     }
 
@@ -263,27 +272,58 @@ public sealed class TaskRepository
 
     private static TaskItem ReadTask(SqliteDataReader reader)
     {
-        var contentJson = reader.GetString(3);
+        var titleJson = reader.IsDBNull(3) ? null : reader.GetString(3);
+        var contentJson = reader.GetString(4);
+        var title = ParseTitleJson(titleJson, reader.GetString(2));
         using var doc = JsonDocument.Parse(contentJson);
         var content = doc.RootElement.Clone();
 
         return new TaskItem(
             reader.GetString(0),
             reader.GetString(1),
-            reader.GetString(2),
+            title,
             content,
-            reader.GetDouble(4),
-            reader.GetInt64(5),
+            reader.GetDouble(5),
             reader.GetInt64(6),
-            reader.IsDBNull(7) ? null : reader.GetInt64(7)
+            reader.GetInt64(7),
+            reader.IsDBNull(8) ? null : reader.GetInt64(8)
         );
     }
 
     private sealed record TaskRow(
         string Id,
         string Page,
-        string Title,
+        string TitleText,
+        string? TitleJson,
         string ContentJson,
         long UpdatedAt
     );
+
+    private static JsonElement ParseTitleJson(string? titleJson, string fallbackText)
+    {
+        if (!string.IsNullOrWhiteSpace(titleJson))
+        {
+            using var doc = JsonDocument.Parse(titleJson);
+            return doc.RootElement.Clone();
+        }
+
+        var fallback = new
+        {
+            type = "doc",
+            content = new[]
+            {
+                new
+                {
+                    type = "paragraph",
+                    content = string.IsNullOrWhiteSpace(fallbackText)
+                        ? Array.Empty<object>()
+                        : new[] { new { type = "text", text = fallbackText } }
+                }
+            }
+        };
+        var json = JsonSerializer.Serialize(fallback);
+        using var fallbackDoc = JsonDocument.Parse(json);
+        return fallbackDoc.RootElement.Clone();
+    }
 }
+

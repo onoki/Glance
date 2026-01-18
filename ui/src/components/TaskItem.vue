@@ -6,34 +6,44 @@
     </label>
     <div class="task-body">
       <div class="title-row">
-        <input
-          ref="titleInput"
-          class="task-title"
+        <RichTextEditor
+          ref="titleEditorRef"
+          class="title-editor"
           v-model="title"
-          @input="scheduleSave"
-          @blur="handleTitleBlur"
-          @keydown="handleTitleKeydown"
-          placeholder="Task title"
+          mode="title"
+          :on-dirty="handleTitleDirty"
+          :on-split-to-new-task="noopSplit"
+          :on-key-down="handleTitleKeydown"
         />
         <span v-if="dirty" class="dirty-badge">dirty</span>
       </div>
       <RichTextEditor
-        ref="editorRef"
+        ref="contentEditorRef"
         v-model="content"
-        :on-dirty="handleEditorDirty"
+        :on-dirty="handleContentDirty"
+        :on-split-to-new-task="handleSplitToNewTask"
+        :on-key-down="handleContentKeydown"
       />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 import RichTextEditor from "./RichTextEditor.vue";
 
 const props = defineProps({
   task: {
     type: Object,
     required: true
+  },
+  focusTitleId: {
+    type: String,
+    default: null
+  },
+  focusContentTarget: {
+    type: Object,
+    default: null
   },
   onSave: {
     type: Function,
@@ -50,14 +60,30 @@ const props = defineProps({
   onCreateBelow: {
     type: Function,
     required: true
+  },
+  onTabToPrevious: {
+    type: Function,
+    required: true
+  },
+  onSplitToNewTask: {
+    type: Function,
+    required: true
+  },
+  onFocusPrevTaskFromTitle: {
+    type: Function,
+    required: true
+  },
+  onFocusNextTaskFromContent: {
+    type: Function,
+    required: true
   }
 });
 
 const title = ref(props.task.title);
 const content = ref(props.task.content);
 const dirty = ref(false);
-const editorRef = ref(null);
-const titleInput = ref(null);
+const titleEditorRef = ref(null);
+const contentEditorRef = ref(null);
 let saveTimer = null;
 let pendingCreateTimer = null;
 
@@ -90,9 +116,11 @@ const saveNow = async () => {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  const trimmed = title.value.trim();
-  if (!trimmed) {
-    title.value = "Untitled";
+  if (!title.value || !title.value.content || title.value.content.length === 0) {
+    title.value = {
+      type: "doc",
+      content: [{ type: "paragraph" }]
+    };
   }
   try {
     await props.onSave({
@@ -109,53 +137,173 @@ const saveNow = async () => {
   }
 };
 
-const handleEditorDirty = () => {
+const handleTitleDirty = () => {
   scheduleSave();
 };
 
-const handleTitleBlur = () => {
-  saveNow();
+const handleContentDirty = () => {
+  scheduleSave();
 };
 
-const handleTitleKeydown = (event) => {
+const isSelectionAtEnd = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { selection } = editor.state;
+  if (!selection.empty) {
+    return false;
+  }
+  return selection.$from.pos === selection.$from.end();
+};
+
+const isSelectionAtStart = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { selection } = editor.state;
+  if (!selection.empty) {
+    return false;
+  }
+  return selection.$from.pos === selection.$from.start();
+};
+
+const handleTitleKeydown = (event, editor) => {
   if (event.key === "Tab") {
-    event.preventDefault();
     if (pendingCreateTimer) {
       clearTimeout(pendingCreateTimer);
       pendingCreateTimer = null;
     }
-    editorRef.value?.insertParagraphIfEmpty();
-    return;
+    saveNow();
+    props.onTabToPrevious(props.task).then((moved) => {
+      if (!moved) {
+        contentEditorRef.value?.insertParagraphIfEmpty();
+      }
+    });
+    return true;
   }
 
-  if (event.key !== "Enter" && event.key !== "NumpadEnter") {
-    return;
+  if (event.key === "ArrowDown") {
+    if (!isSelectionAtEnd(editor)) {
+      return false;
+    }
+    event.preventDefault();
+    contentEditorRef.value?.focusListItem(0, "start");
+    return true;
   }
 
-  event.preventDefault();
-  const input = titleInput.value;
-  if (!input) {
-    return;
-  }
-  if (input.selectionStart !== input.value.length) {
-    return;
-  }
-
-  saveNow();
-
-  if (pendingCreateTimer) {
-    clearTimeout(pendingCreateTimer);
+  if (event.key === "ArrowUp") {
+    if (!isSelectionAtStart(editor)) {
+      return false;
+    }
+    event.preventDefault();
+    props.onFocusPrevTaskFromTitle(props.task);
+    return true;
   }
 
-  pendingCreateTimer = setTimeout(() => {
-    pendingCreateTimer = null;
-    props.onCreateBelow(props.task);
-  }, 250);
+  if (event.key === "Enter" && !event.shiftKey) {
+    if (pendingCreateTimer) {
+      clearTimeout(pendingCreateTimer);
+    }
+    saveNow();
+    pendingCreateTimer = setTimeout(() => {
+      pendingCreateTimer = null;
+      props.onCreateBelow(props.task);
+    }, 250);
+    return true;
+  }
+
+  return false;
+};
+
+const getListContext = (editor) => {
+  if (!editor) {
+    return null;
+  }
+  const { $from, empty } = editor.state.selection;
+  if (!empty) {
+    return null;
+  }
+  let listItemDepth = null;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "listItem") {
+      listItemDepth = depth;
+      break;
+    }
+  }
+  if (!listItemDepth) {
+    return null;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || listNode.type.name !== "bulletList" || listDepth !== 1) {
+    return null;
+  }
+  const listIndex = $from.index(listDepth);
+  const listCount = listNode.childCount;
+  const atStart = $from.parentOffset === 0;
+  const atEnd = $from.parentOffset === $from.parent.content.size;
+  return { listIndex, listCount, atStart, atEnd };
+};
+
+const handleContentKeydown = (event, editor) => {
+  if (event.key === "ArrowDown") {
+    const ctx = getListContext(editor);
+    if (ctx && ctx.listIndex === ctx.listCount - 1 && ctx.atEnd) {
+      event.preventDefault();
+      props.onFocusNextTaskFromContent(props.task);
+      return true;
+    }
+  }
+  if (event.key === "ArrowUp") {
+    const ctx = getListContext(editor);
+    if (ctx && ctx.listIndex === 0 && ctx.atStart) {
+      event.preventDefault();
+      titleEditorRef.value?.focus();
+      return true;
+    }
+  }
+  return false;
 };
 
 const toggleComplete = () => {
   props.onComplete(props.task);
 };
+
+const handleSplitToNewTask = async (payload) => {
+  if (payload?.remainingContent) {
+    content.value = payload.remainingContent;
+    markDirty();
+  }
+  await saveNow();
+  props.onSplitToNewTask(props.task, {
+    title: payload?.title,
+    content: payload?.content
+  });
+};
+
+const noopSplit = () => {};
+
+watch(
+  () => props.focusTitleId,
+  async (id) => {
+    if (!id || id !== props.task.id) {
+      return;
+    }
+    await nextTick();
+    titleEditorRef.value?.focus();
+  }
+);
+
+watch(
+  () => props.focusContentTarget,
+  async (target) => {
+    if (!target || target.taskId !== props.task.id) {
+      return;
+    }
+    await nextTick();
+    contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
+  }
+);
 
 watch(
   () => props.task,
@@ -174,11 +322,11 @@ watch(
 .task-item {
   display: grid;
   grid-template-columns: 28px 1fr;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 16px;
-  background: #fef7ed;
-  border: 1px solid #efe1d0;
+  gap: 8px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  align-items: start;
 }
 
 .task-item.completed {
@@ -189,6 +337,8 @@ watch(
 .task-check {
   display: grid;
   place-items: center;
+  align-self: start;
+  padding-top: 2px;
 }
 
 .task-check input {
@@ -215,23 +365,27 @@ watch(
 .task-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.task-title {
-  border: none;
-  background: transparent;
+.title-editor {
+  flex: 1;
+}
+
+.title-editor :deep(.editor-surface) {
+  padding: 0;
+}
+
+.title-editor :deep(.ProseMirror) {
   font-weight: 600;
   font-size: 1rem;
-  padding: 0;
-  outline: none;
-  flex: 1;
+  min-height: 1.2em;
 }
 
 .dirty-badge {

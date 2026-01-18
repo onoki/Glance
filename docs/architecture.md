@@ -51,7 +51,7 @@ Multiple instances may run simultaneously and share the same data directory.
 A **task** is the atomic unit of organization.
 
 Each task consists of:
-- a single-line, non-deletable title
+- a non-deletable title (formatted text)
 - structured rich-text subcontent
 - completion state
 - optional scheduling and recurrence metadata
@@ -67,7 +67,8 @@ The editor must enforce:
 
 - Exactly one title node per task
 - Title:
-  - single line
+  - formatted text (same marks as subcontent)
+  - line breaks allowed
   - cannot be deleted
 - Subcontent:
   - may contain nested lists

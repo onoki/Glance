@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   page TEXT NOT NULL,               -- e.g. 'dashboard'
-  title TEXT NOT NULL,              -- single-line, non-deletable
+  title TEXT NOT NULL,              -- plain text title (derived)
+  title_json TEXT NOT NULL,         -- rich title (JSON)
   content_json TEXT NOT NULL,       -- rich subcontent (JSON)
   position REAL NOT NULL,           -- ordering within derived category
   created_at INTEGER NOT NULL,      -- UTC ms
@@ -63,4 +64,4 @@ ON tasks (completed_at);
 -- Record baseline migration as version 1 (for fresh installs)
 ------------------------------------------------------------
 INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-VALUES (1, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+VALUES (2, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));

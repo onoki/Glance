@@ -15,7 +15,15 @@ TASK MODEL (API REPRESENTATION)
 {
   "id": "uuid",
   "page": "dashboard",
-  "title": "Implement cybersecurity",
+  "title": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Implement cybersecurity" }]
+      }
+    ]
+  },
   "content": { ... },
   "position": 1234.5,
   "createdAt": 1710000000000,
@@ -32,7 +40,15 @@ POST /api/tasks
 REQUEST
 {
   "page": "dashboard",
-  "title": "Implement cybersecurity",
+  "title": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Implement cybersecurity" }]
+      }
+    ]
+  },
   "content": {
     "type": "doc",
     "content": []
@@ -47,7 +63,7 @@ RESPONSE
 }
 
 VALIDATION
-- title must be single-line and non-empty
+- title must be a ProseMirror doc node without list or heading nodes
 - content must not contain heading nodes
 
 ==================================================
@@ -59,7 +75,15 @@ PUT /api/tasks/{taskId}
 REQUEST
 {
   "baseUpdatedAt": 1710000000000,
-  "title": "Implement cybersecurity",
+  "title": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Implement cybersecurity" }]
+      }
+    ]
+  },
   "content": {
     "type": "doc",
     "content": [ ... ]

@@ -17,6 +17,11 @@ public static class TaskTextExtractor
         return HasHeading(content);
     }
 
+    public static bool ContainsList(JsonElement content)
+    {
+        return HasList(content);
+    }
+
     private static void AppendText(JsonElement element, StringBuilder builder)
     {
         switch (element.ValueKind)
@@ -62,6 +67,39 @@ public static class TaskTextExtractor
             foreach (var child in element.EnumerateArray())
             {
                 if (HasHeading(child))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasList(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("type", out var typeProperty))
+            {
+                var type = typeProperty.GetString();
+                if (string.Equals(type, "bulletList", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(type, "orderedList", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            if (element.TryGetProperty("content", out var content))
+            {
+                return HasList(content);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray())
+            {
+                if (HasList(child))
                 {
                     return true;
                 }

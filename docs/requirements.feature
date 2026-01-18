@@ -164,3 +164,73 @@ Feature: Multi-instance consistency
     And a task exists
     When the task is completed in one instance
     Then the task completion state is updated in the other instance
+
+
+Feature: Subcontent list editing
+
+  Scenario: Subcontent lines and soft line breaks
+    Given a task has subcontent
+    When I press Shift+Enter inside a subcontent line
+    Then a line break is inserted within the same subcontent item
+
+  Scenario: Creating a new subcontent item with Enter
+    Given a task has subcontent
+    When I press Enter inside a subcontent line
+    Then a new subcontent list item is created below
+    And if the cursor was in the middle of the line the trailing text moves to the new item
+
+  Scenario: Merging subcontent items with Backspace
+    Given a task has multiple subcontent list items
+    When I press Backspace at the start of a subcontent item
+    Then the current item merges with the item above
+
+  Scenario: Indenting and outdenting subcontent items
+    Given a task has subcontent list items
+    When I press Tab inside a subcontent item
+    Then the item is indented one level
+    When I press Shift+Tab inside a subcontent item
+    Then the item is outdented one level
+
+
+Feature: Task restructuring via Tab
+
+  Scenario: Tab in title converts to subcontent of previous task
+    Given multiple tasks exist in a list
+    And a task title has focus
+    When I press Tab in the task title
+    Then the task becomes subcontent of the previous task
+    And any existing subcontent is moved under the previous task
+
+  Scenario: Shift+Tab at outermost level splits subcontent into a new task
+    Given a task has subcontent items at the outermost level
+    And the cursor is within a subcontent item
+    When I press Shift+Tab
+    Then a new task is created below the current task
+    And the sibling-level subcontent is moved to the new task
+
+
+Feature: Arrow key navigation
+
+  Scenario: Down arrow from title enters subcontent
+    Given a task title has focus
+    When I press the down arrow key
+    Then the focus moves to the beginning of the first subcontent line
+
+  Scenario: Up arrow from title jumps to previous task
+    Given a task title has focus
+    And there is a task above
+    When I press the up arrow key
+    Then the focus moves to the end of the last subcontent line of the task above
+
+  Scenario: Down arrow from subcontent to next title or new task
+    Given a task has subcontent
+    And the cursor is at the end of the subcontent
+    When I press the down arrow key
+    Then the focus moves to the beginning of the next task title if one exists
+    And if no task exists below a new task is created with an empty title
+
+  Scenario: Up arrow from subcontent to title
+    Given a task has subcontent
+    And the cursor is at the beginning of the subcontent
+    When I press the up arrow key
+    Then the focus moves to the task title

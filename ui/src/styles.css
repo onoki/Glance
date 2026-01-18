@@ -26,10 +26,9 @@ textarea {
 }
 
 .rich-editor {
-  border: 1px solid #efe1d0;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .rich-editor .toolbar {
@@ -63,17 +62,17 @@ textarea {
 }
 
 .editor-surface {
-  padding: 8px 10px;
+  padding: 2px 0;
 }
 
 .ProseMirror {
-  min-height: 60px;
+  min-height: 0;
   outline: none;
   font-size: 0.9rem;
 }
 
 .ProseMirror p {
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .ProseMirror strong {
@@ -86,7 +85,11 @@ textarea {
 
 .ProseMirror ul,
 .ProseMirror ol {
-  padding-left: 20px;
+  padding-left: 16px;
+}
+
+.ProseMirror ul {
+  list-style: disc;
 }
 
 mark[data-color="green"] {

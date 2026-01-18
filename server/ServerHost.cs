@@ -94,6 +94,11 @@ public static class ServerHost
 
         app.MapPost("/api/tasks", async (TaskCreateRequest request, TaskRepository tasks, CancellationToken token) =>
         {
+            if (request.Title.ValueKind == JsonValueKind.Undefined)
+            {
+                return Results.BadRequest(new { error = "ValidationError", message = "Task title is required" });
+            }
+
             if (request.Content.ValueKind == JsonValueKind.Undefined)
             {
                 return Results.BadRequest(new { error = "ValidationError", message = "Task content is required" });
@@ -111,10 +116,9 @@ public static class ServerHost
 
         app.MapPut("/api/tasks/{taskId}", async (string taskId, TaskUpdateRequest request, TaskRepository tasks, CancellationToken token) =>
         {
-            var title = request.Title;
-            if (title != null)
+            if (request.Title.HasValue)
             {
-                var validation = ValidateTaskInput(title, request.Content);
+                var validation = ValidateTaskInput(request.Title.Value, request.Content);
                 if (validation != null)
                 {
                     return validation;
@@ -158,16 +162,21 @@ public static class ServerHost
         });
     }
 
-    private static IResult? ValidateTaskInput(string title, JsonElement? content)
+    private static IResult? ValidateTaskInput(JsonElement title, JsonElement? content)
     {
-        if (string.IsNullOrWhiteSpace(title))
+        if (title.ValueKind == JsonValueKind.Undefined)
         {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task title must be a single line" });
+            return Results.BadRequest(new { error = "ValidationError", message = "Task title is required" });
         }
 
-        if (title.Contains('\n') || title.Contains('\r'))
+        if (TaskTextExtractor.ContainsHeading(title))
         {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task title must be a single line" });
+            return Results.BadRequest(new { error = "ValidationError", message = "Task title must not contain heading nodes" });
+        }
+
+        if (TaskTextExtractor.ContainsList(title))
+        {
+            return Results.BadRequest(new { error = "ValidationError", message = "Task title must not contain list nodes" });
         }
 
         if (content.HasValue && TaskTextExtractor.ContainsHeading(content.Value))

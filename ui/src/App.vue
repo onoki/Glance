@@ -35,29 +35,22 @@
             </header>
 
             <div class="task-list">
-              <div class="task-item draft">
-                <label class="task-check">
-                  <input type="checkbox" disabled />
-                  <span></span>
-                </label>
-                <div class="task-body">
-                  <input
-                    class="task-title"
-                    v-model="draftTitle"
-                    @input="createDraftIfNeeded"
-                    placeholder="New task"
-                  />
-                </div>
-              </div>
               <TaskItem
                 v-for="task in newTasks"
                 :key="task.id"
                 :task="task"
+                :focus-title-id="focusTaskId"
+                :focus-content-target="focusContentTarget"
                 :on-save="saveTask"
                 :on-complete="toggleComplete"
                 :on-dirty="handleDirtyChange"
                 :on-create-below="createTaskBelow"
+                :on-tab-to-previous="moveTaskToPrevious"
+                :on-split-to-new-task="splitSubcontentToNewTask"
+                :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
+                :on-focus-next-task-from-content="focusNextTaskFromContent"
               />
+              <button class="add-task" @click="createEmptyTask('dashboard:new')">Add task</button>
             </div>
           </section>
         </div>
@@ -76,12 +69,18 @@
                 v-for="task in mainTasks"
                 :key="task.id"
                 :task="task"
+                :focus-title-id="focusTaskId"
+                :focus-content-target="focusContentTarget"
                 :on-save="saveTask"
                 :on-complete="toggleComplete"
                 :on-dirty="handleDirtyChange"
                 :on-create-below="createTaskBelow"
+                :on-tab-to-previous="moveTaskToPrevious"
+                :on-split-to-new-task="splitSubcontentToNewTask"
+                :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
+                :on-focus-next-task-from-content="focusNextTaskFromContent"
               />
-              <button class="add-task" @click="createTask('dashboard:main')">Add task</button>
+              <button class="add-task" @click="createEmptyTask('dashboard:main')">Add task</button>
             </div>
           </section>
         </div>
@@ -96,7 +95,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { apiGet, apiPost, apiPut } from "./api";
 import TaskItem from "./components/TaskItem.vue";
 
@@ -107,21 +106,102 @@ const newTasks = ref([]);
 const mainTasks = ref([]);
 const expandedNew = ref(false);
 const lastChangeId = ref(0);
+const focusTaskId = ref(null);
+const focusContentTarget = ref(null);
 
 let pollTimer = null;
 const dirtySnapshots = new Map();
 
-const draftTitle = ref("");
-const creatingDraft = ref(false);
-
-const emptyDoc = () => ({
+const emptyTitleDoc = () => ({
   type: "doc",
   content: [{ type: "paragraph" }]
 });
 
+const emptyDoc = () => ({
+  type: "doc",
+  content: [
+    {
+      type: "bulletList",
+      content: [
+        {
+          type: "listItem",
+          content: [{ type: "paragraph" }]
+        }
+      ]
+    }
+  ]
+});
+
+const normalizeContent = (content) => {
+  if (!content || content.type !== "doc") {
+    return emptyDoc();
+  }
+  const list = content.content?.[0];
+  if (!list || list.type !== "bulletList") {
+    return emptyDoc();
+  }
+  if (!list.content || list.content.length === 0) {
+    return emptyDoc();
+  }
+  return content;
+};
+
+const titleFromText = (text) => ({
+  type: "doc",
+  content: [
+    {
+      type: "paragraph",
+      content: text ? [{ type: "text", text }] : []
+    }
+  ]
+});
+
+const normalizeTitle = (title) => {
+  if (typeof title === "string") {
+    return titleFromText(title);
+  }
+  if (!title || title.type !== "doc") {
+    return emptyTitleDoc();
+  }
+  if (!title.content || title.content.length === 0) {
+    return emptyTitleDoc();
+  }
+  return title;
+};
+
+const titleDocToListItem = (titleDoc) => {
+  const paragraphs = [];
+  if (titleDoc?.content) {
+    for (const node of titleDoc.content) {
+      if (node.type === "paragraph") {
+        paragraphs.push(node);
+      }
+    }
+  }
+  const inlineContent = [];
+  paragraphs.forEach((para, index) => {
+    if (para.content) {
+      inlineContent.push(...para.content);
+    }
+    if (index < paragraphs.length - 1) {
+      inlineContent.push({ type: "hardBreak" });
+    }
+  });
+  return {
+    type: "listItem",
+    content: [
+      {
+        type: "paragraph",
+        content: inlineContent.length ? inlineContent : []
+      }
+    ]
+  };
+};
+
 const normalizeTask = (task) => ({
   ...task,
-  content: task.content ?? emptyDoc()
+  title: normalizeTitle(task.title),
+  content: normalizeContent(task.content)
 });
 
 const mergeTasks = (tasks, page) => {
@@ -161,8 +241,8 @@ const insertTaskLocal = (task) => {
 const createTask = async (page, titleOverride, contentOverride, positionOverride) => {
   const payload = {
     page,
-    title: titleOverride || "New task",
-    content: contentOverride || emptyDoc(),
+    title: normalizeTitle(titleOverride ?? emptyTitleDoc()),
+    content: normalizeContent(contentOverride || emptyDoc()),
     position: positionOverride || Date.now()
   };
   const response = await apiPost("/api/tasks", payload);
@@ -177,6 +257,7 @@ const createTask = async (page, titleOverride, contentOverride, positionOverride
     completedAt: null
   });
   await loadDashboard();
+  return response.taskId;
 };
 
 const createTaskBelow = async (task) => {
@@ -184,14 +265,104 @@ const createTaskBelow = async (task) => {
   const index = list.findIndex((item) => item.id === task.id);
   const next = index >= 0 ? list[index + 1] : null;
   const position = next ? (task.position + next.position) / 2 : task.position + 1;
-  await createTask(task.page, "New task", emptyDoc(), position);
+  return await createTask(task.page, emptyTitleDoc(), emptyDoc(), position);
+};
+
+const moveTaskToPrevious = async (task) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const index = list.findIndex((item) => item.id === task.id);
+  if (index <= 0) {
+    return false;
+  }
+
+  const previous = list[index - 1];
+  const prevContent = normalizeContent(previous.content);
+  const prevList = prevContent.content?.[0]?.content ?? [];
+  const currentContent = normalizeContent(task.content);
+  const currentList = currentContent.content?.[0]?.content ?? [];
+  const titleItem = titleDocToListItem(task.title);
+
+  const merged = {
+    type: "doc",
+    content: [
+      {
+        type: "bulletList",
+        content: [...prevList, titleItem, ...currentList]
+      }
+    ]
+  };
+
+  await saveTask({
+    id: previous.id,
+    title: previous.title,
+    content: merged,
+    baseUpdatedAt: previous.updatedAt,
+    page: previous.page
+  });
+
+  await saveTask({
+    id: task.id,
+    title: task.title || "Untitled",
+    content: currentContent,
+    baseUpdatedAt: task.updatedAt,
+    page: "dashboard:hidden"
+  });
+
+  focusContentTarget.value = {
+    taskId: previous.id,
+    listIndex: prevList.length,
+    atEnd: true
+  };
+
+  newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
+  mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
+
+  return true;
+};
+
+const focusPrevTaskFromTitle = async (task) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const index = list.findIndex((item) => item.id === task.id);
+  if (index <= 0) {
+    return;
+  }
+  const previous = list[index - 1];
+  const prevContent = normalizeContent(previous.content);
+  const prevList = prevContent.content?.[0]?.content ?? [];
+  const listIndex = Math.max(prevList.length - 1, 0);
+  focusContentTarget.value = {
+    taskId: previous.id,
+    listIndex,
+    atEnd: true
+  };
+};
+
+const focusNextTaskFromContent = async (task) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const index = list.findIndex((item) => item.id === task.id);
+  const next = index >= 0 ? list[index + 1] : null;
+  if (next) {
+    focusTaskId.value = next.id;
+    return;
+  }
+  const newId = await createTaskBelow(task);
+  focusTaskId.value = newId;
+};
+
+const splitSubcontentToNewTask = async (task, payload) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const index = list.findIndex((item) => item.id === task.id);
+  const next = index >= 0 ? list[index + 1] : null;
+  const position = next ? (task.position + next.position) / 2 : task.position + 1;
+  const newId = await createTask(task.page, payload.title, payload.content, position);
+  focusTaskId.value = newId;
 };
 
 const saveTask = async ({ id, title, content, baseUpdatedAt, page }) => {
   const response = await apiPut(`/api/tasks/${id}`, {
     baseUpdatedAt,
-    title,
-    content,
+    title: normalizeTitle(title),
+    content: normalizeContent(content),
     page
   });
   updateTaskLocal(id, { title, content, updatedAt: response.updatedAt });
@@ -240,18 +411,9 @@ const handleDirtyChange = (id, dirty, snapshot) => {
   dirtySnapshots.set(id, { dirty: true, task: snapshot });
 };
 
-const createDraftIfNeeded = async () => {
-  if (creatingDraft.value) {
-    return;
-  }
-  const title = draftTitle.value.trim();
-  if (!title) {
-    return;
-  }
-  creatingDraft.value = true;
-  await createTask("dashboard:new", title, emptyDoc(), Date.now());
-  draftTitle.value = "";
-  creatingDraft.value = false;
+const createEmptyTask = async (page) => {
+  const newId = await createTask(page, emptyTitleDoc(), emptyDoc(), Date.now());
+  focusTaskId.value = newId;
 };
 
 const pollChanges = async () => {
@@ -272,6 +434,28 @@ onBeforeUnmount(() => {
   if (pollTimer) {
     clearInterval(pollTimer);
   }
+});
+
+watch(focusTaskId, (id) => {
+  if (!id) {
+    return;
+  }
+  setTimeout(() => {
+    if (focusTaskId.value === id) {
+      focusTaskId.value = null;
+    }
+  }, 0);
+});
+
+watch(focusContentTarget, (target) => {
+  if (!target) {
+    return;
+  }
+  setTimeout(() => {
+    if (focusContentTarget.value === target) {
+      focusContentTarget.value = null;
+    }
+  }, 0);
 });
 </script>
 
@@ -321,14 +505,17 @@ onBeforeUnmount(() => {
 
 .content {
   flex: 1;
-  padding: 28px 32px 40px;
+  padding: 16px 24px 24px;
 }
 
 .dashboard {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 24px;
+  gap: 16px;
   align-items: start;
+  background: #fbf6ef;
+  border-radius: 16px;
+  padding: 12px 16px;
 }
 
 .list-column.expanded {
@@ -336,17 +523,17 @@ onBeforeUnmount(() => {
 }
 
 .list-card {
-  background: #fffaf3;
-  border-radius: 20px;
-  padding: 20px;
-  box-shadow: 0 10px 30px rgba(31, 27, 22, 0.08);
+  background: transparent;
+  border-radius: 12px;
+  padding: 8px 4px;
+  box-shadow: none;
 }
 
 .list-header {
   display: flex;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 16px;
+  margin-bottom: 4px;
 }
 
 .list-header h2 {
@@ -384,85 +571,7 @@ onBeforeUnmount(() => {
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.task-item {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 16px;
-  background: #fef7ed;
-  border: 1px solid #efe1d0;
-}
-
-.task-item.completed {
-  color: #8a8177;
-  text-decoration: line-through;
-}
-
-.task-item.draft {
-  border-style: dashed;
-  background: #fff7eb;
-}
-
-.task-check {
-  display: grid;
-  place-items: center;
-}
-
-.task-check input {
-  display: none;
-}
-
-.task-check span {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #6f665f;
-  border-radius: 6px;
-  display: inline-block;
-  position: relative;
-}
-
-.task-check input:checked + span::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  background: #6f665f;
-  border-radius: 3px;
-}
-
-.task-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-title {
-  border: none;
-  background: transparent;
-  font-weight: 600;
-  font-size: 1rem;
-  padding: 0;
-  outline: none;
-  flex: 1;
-}
-
-.dirty-badge {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: #f6d7a7;
-  color: #5a3f1b;
+  gap: 2px;
 }
 
 .add-task {
