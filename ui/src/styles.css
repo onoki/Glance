@@ -24,3 +24,79 @@ input,
 textarea {
   font-family: inherit;
 }
+
+.rich-editor {
+  border: 1px solid #efe1d0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+
+.rich-editor .toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid #efe1d0;
+  background: #fff3e2;
+}
+
+.rich-editor .tool {
+  border: 1px solid #c6b8a9;
+  background: #fff;
+  color: #3a3129;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.rich-editor .tool.active {
+  background: #1f1b16;
+  color: #f9f4ee;
+  border-color: #1f1b16;
+}
+
+.rich-editor .tool-sep {
+  width: 1px;
+  background: #d8c7b3;
+  margin: 0 4px;
+}
+
+.editor-surface {
+  padding: 8px 10px;
+}
+
+.ProseMirror {
+  min-height: 60px;
+  outline: none;
+  font-size: 0.9rem;
+}
+
+.ProseMirror p {
+  margin: 0 0 8px;
+}
+
+.ProseMirror strong {
+  font-weight: 700;
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 20px;
+}
+
+mark[data-color="green"] {
+  background: #d6f5d6;
+}
+
+mark[data-color="yellow"] {
+  background: #fff2b3;
+}
+
+mark[data-color="red"] {
+  background: #ffd6d6;
+}

@@ -47,12 +47,6 @@
                     @input="createDraftIfNeeded"
                     placeholder="New task"
                   />
-                  <textarea
-                    class="task-content"
-                    v-model="draftContent"
-                    rows="2"
-                    placeholder="Start typing to create"
-                  ></textarea>
                 </div>
               </div>
               <TaskItem
@@ -62,6 +56,7 @@
                 :on-save="saveTask"
                 :on-complete="toggleComplete"
                 :on-dirty="handleDirtyChange"
+                :on-create-below="createTaskBelow"
               />
             </div>
           </section>
@@ -84,6 +79,7 @@
                 :on-save="saveTask"
                 :on-complete="toggleComplete"
                 :on-dirty="handleDirtyChange"
+                :on-create-below="createTaskBelow"
               />
               <button class="add-task" @click="createTask('dashboard:main')">Add task</button>
             </div>
@@ -116,50 +112,17 @@ let pollTimer = null;
 const dirtySnapshots = new Map();
 
 const draftTitle = ref("");
-const draftContent = ref("");
 const creatingDraft = ref(false);
 
-const extractText = (node) => {
-  if (!node) return "";
-  if (Array.isArray(node)) {
-    return node.map(extractText).join(" ");
-  }
-  if (typeof node === "object") {
-    if (node.text) {
-      return node.text;
-    }
-    if (node.content) {
-      return extractText(node.content);
-    }
-  }
-  return "";
-};
-
-const toContentDoc = (text) => {
-  if (!text) {
-    return { type: "doc", content: [] };
-  }
-  return {
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text }]
-      }
-    ]
-  };
-};
+const emptyDoc = () => ({
+  type: "doc",
+  content: [{ type: "paragraph" }]
+});
 
 const normalizeTask = (task) => ({
   ...task,
-  contentText: extractText(task.content)
+  content: task.content ?? emptyDoc()
 });
-
-const loadDashboard = async () => {
-  const data = await apiGet("/api/dashboard");
-  newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
-  mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
-};
 
 const mergeTasks = (tasks, page) => {
   const merged = tasks.map((task) => {
@@ -179,27 +142,60 @@ const mergeTasks = (tasks, page) => {
   return merged;
 };
 
-const createTask = async (page, titleOverride, contentOverride) => {
-  await apiPost("/api/tasks", {
+const loadDashboard = async () => {
+  const data = await apiGet("/api/dashboard");
+  newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
+  mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
+};
+
+const insertTaskLocal = (task) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const next = [...list, task].sort((a, b) => a.position - b.position);
+  if (task.page === "dashboard:new") {
+    newTasks.value = next;
+  } else {
+    mainTasks.value = next;
+  }
+};
+
+const createTask = async (page, titleOverride, contentOverride, positionOverride) => {
+  const payload = {
     page,
     title: titleOverride || "New task",
-    content: toContentDoc(contentOverride || ""),
-    position: Date.now()
+    content: contentOverride || emptyDoc(),
+    position: positionOverride || Date.now()
+  };
+  const response = await apiPost("/api/tasks", payload);
+  insertTaskLocal({
+    id: response.taskId,
+    page: payload.page,
+    title: payload.title,
+    content: payload.content,
+    position: payload.position,
+    createdAt: Date.now(),
+    updatedAt: response.updatedAt,
+    completedAt: null
   });
   await loadDashboard();
 };
 
-const saveTask = async ({ id, title, contentText, baseUpdatedAt, page }) => {
+const createTaskBelow = async (task) => {
+  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const index = list.findIndex((item) => item.id === task.id);
+  const next = index >= 0 ? list[index + 1] : null;
+  const position = next ? (task.position + next.position) / 2 : task.position + 1;
+  await createTask(task.page, "New task", emptyDoc(), position);
+};
+
+const saveTask = async ({ id, title, content, baseUpdatedAt, page }) => {
   const response = await apiPut(`/api/tasks/${id}`, {
     baseUpdatedAt,
     title,
-    content: toContentDoc(contentText),
+    content,
     page
   });
-  updateTaskLocal(id, { title, contentText, updatedAt: response.updatedAt });
-  if (response.externalUpdate) {
-    await loadDashboard();
-  }
+  updateTaskLocal(id, { title, content, updatedAt: response.updatedAt });
+  await loadDashboard();
 };
 
 const toggleComplete = async (task) => {
@@ -214,7 +210,7 @@ const moveNewToMain = async () => {
     apiPut(`/api/tasks/${task.id}`, {
       baseUpdatedAt: task.updatedAt,
       title: task.title,
-      content: toContentDoc(task.contentText),
+      content: task.content,
       page: "dashboard:main"
     })
   );
@@ -253,16 +249,16 @@ const createDraftIfNeeded = async () => {
     return;
   }
   creatingDraft.value = true;
-  await createTask("dashboard:new", title, draftContent.value);
+  await createTask("dashboard:new", title, emptyDoc(), Date.now());
   draftTitle.value = "";
-  draftContent.value = "";
   creatingDraft.value = false;
 };
 
 const pollChanges = async () => {
-  const data = await apiGet(`/api/changes?since=${lastChangeId.value}`);
+  const previous = lastChangeId.value;
+  const data = await apiGet(`/api/changes?since=${previous}`);
   lastChangeId.value = data.lastId;
-  if (data.changes.length > 0) {
+  if (data.lastId > previous) {
     await loadDashboard();
   }
 };
@@ -440,7 +436,13 @@ onBeforeUnmount(() => {
 .task-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .task-title {
@@ -450,16 +452,17 @@ onBeforeUnmount(() => {
   font-size: 1rem;
   padding: 0;
   outline: none;
+  flex: 1;
 }
 
-.task-content {
-  border: none;
-  resize: vertical;
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: 10px;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-  outline: none;
+.dirty-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f6d7a7;
+  color: #5a3f1b;
 }
 
 .add-task {

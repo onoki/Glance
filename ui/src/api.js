@@ -6,7 +6,8 @@ const request = async (method, path, body) => {
     headers: {
       "Content-Type": "application/json"
     },
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store"
   });
 
   if (!response.ok) {

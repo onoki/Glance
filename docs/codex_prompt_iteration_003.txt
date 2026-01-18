@@ -1,0 +1,165 @@
+You are continuing development of the app “glance”.
+
+The application already supports:
+- Photino desktop host
+- ASP.NET Core backend
+- Vue UI (Vite dev server in development)
+- SQLite persistence with migrations
+- Editable tasks (title + subcontent)
+- Autosave and multi-instance sync via /api/changes
+
+DO NOT BREAK EXISTING FUNCTIONALITY.
+
+==================================================
+AUTHORITATIVE DOCUMENTS (DO NOT MODIFY)
+==================================================
+
+- docs/architecture.md
+- docs/requirements.feature
+- docs/api.md
+- docs/schema.sql
+- docs/migrations/*
+
+These documents define the rules. If unsure, prefer the strictest interpretation.
+
+==================================================
+GOAL: ITERATION 3
+==================================================
+
+Replace the temporary editor with a **real rich-text editor** using
+Tiptap (ProseMirror), and enforce the editor invariants defined in
+docs/architecture.md.
+
+After this iteration, tasks must support:
+- structured rich text subcontent
+- limited formatting
+- correct editor behavior for title vs subcontent
+- safe persistence and reload
+
+==================================================
+EDITOR TECHNOLOGY (MANDATORY)
+==================================================
+
+- Use Tiptap (Vue integration)
+- ProseMirror JSON is stored in tasks.content_json
+- Plain text editor must be fully removed
+
+==================================================
+EDITOR STRUCTURE (MANDATORY)
+==================================================
+
+Each task editor consists of:
+
+1) Title editor
+   - Single line
+   - Editable
+   - Cannot be deleted
+   - Stored separately as tasks.title
+   - Must NOT allow line breaks
+   - No images allowed
+
+2) Subcontent editor
+   - Rich text
+   - Stored as ProseMirror JSON in tasks.content_json
+   - Supports nested lists and paragraphs
+
+==================================================
+FORMATTING RULES (ONLY THESE)
+==================================================
+
+Implement ONLY the following marks:
+- bold
+- italic
+- highlight-green
+- highlight-yellow
+- highlight-red
+
+DO NOT implement:
+- underline
+- strikethrough (except via task completion styling)
+- code blocks
+- headings inside subcontent
+
+==================================================
+KEYBOARD BEHAVIOR (MANDATORY)
+==================================================
+
+Title editor:
+- Enter at end of title:
+  - creates a new task below (same behavior as Iteration 2)
+- Tab immediately after Enter:
+  - cancels new task creation
+  - converts the new line into the first subcontent paragraph
+- Tab inside title:
+  - moves focus to subcontent editor
+
+Subcontent editor:
+- Enter creates new paragraph or list item
+- Tab / Shift+Tab indents or outdents list items
+
+==================================================
+PERSISTENCE RULES
+==================================================
+
+- Title changes:
+  - saved via PUT /api/tasks/{id}
+- Subcontent changes:
+  - saved via PUT /api/tasks/{id}
+- Autosave with debounce (reuse existing mechanism)
+- On reload:
+  - content_json must round-trip exactly (no loss)
+
+==================================================
+SEARCH PREPARATION (PARTIAL)
+==================================================
+
+- On save, backend must extract plain text from content_json
+- Update task_search accordingly
+- UI search highlighting is NOT implemented yet
+
+==================================================
+MULTI-INSTANCE SAFETY
+==================================================
+
+- Continue last-write-wins model
+- If external update arrives while editor is dirty:
+  - do not overwrite local edits
+- If editor is clean:
+  - replace editor content with remote content
+
+==================================================
+NON-GOALS (DO NOT IMPLEMENT)
+==================================================
+
+- Images or paste handling
+- Recurrence logic
+- History charts
+- Search UI highlighting
+- Category derivation changes
+
+==================================================
+IMPLEMENTATION GUIDANCE
+==================================================
+
+Frontend:
+- Encapsulate Tiptap editor in a reusable component
+- Ensure editor teardown/reinit does not leak memory
+- Use ProseMirror transactions to enforce invariants
+
+Backend:
+- Treat content_json as opaque JSON
+- Validate title remains single-line
+- Update FTS index from extracted text
+
+==================================================
+DELIVERABLES
+==================================================
+
+- Tasks use Tiptap editor for subcontent
+- Formatting works as specified
+- Title invariants are enforced
+- Data persists correctly across restarts
+- Multi-instance sync still works
+- Brief notes describing changes and known limitations
+
+Proceed carefully. Do not refactor unrelated code.

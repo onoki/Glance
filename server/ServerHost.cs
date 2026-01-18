@@ -32,6 +32,14 @@ public static class ServerHost
             options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         });
 
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+                policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+                    .AllowAnyHeader()
+                    .AllowAnyMethod());
+        });
+
         var paths = new AppPaths(appRoot);
         builder.Services.AddSingleton(paths);
         builder.Services.AddSingleton<DatabaseInitializer>();
@@ -48,6 +56,8 @@ public static class ServerHost
 
         var initializer = app.Services.GetRequiredService<DatabaseInitializer>();
         initializer.Initialize();
+
+        app.UseCors();
 
         MapEndpoints(app);
 
