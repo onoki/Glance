@@ -92,6 +92,18 @@ textarea {
   list-style: disc;
 }
 
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 4px 0;
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid #8b6a4f;
+  outline-offset: 2px;
+}
+
 mark[data-color="green"] {
   background: #d6f5d6;
 }

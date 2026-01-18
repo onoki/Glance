@@ -57,6 +57,8 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
+import Image from "@tiptap/extension-image";
+import { apiUpload } from "../api";
 
 const props = defineProps({
   modelValue: {
@@ -110,9 +112,43 @@ const editorRef = useEditor({
     }),
     Highlight.configure({
       multicolor: true
+    }),
+    Image.configure({
+      inline: true,
+      allowBase64: false
     })
   ],
   editorProps: {
+    handlePaste(view, event) {
+      const editor = editorRef?.value ?? editorRef;
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const imageItem = items.find((item) => item.type && item.type.startsWith("image/"));
+      if (!imageItem) {
+        return false;
+      }
+      const file = imageItem.getAsFile();
+      if (!file) {
+        return false;
+      }
+      event.preventDefault();
+      void insertImageFromFile(editor, file);
+      return true;
+    },
+    handleDrop(view, event) {
+      const editor = editorRef?.value ?? editorRef;
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      const imageFile = files.find((file) => file.type && file.type.startsWith("image/"));
+      if (!imageFile) {
+        return false;
+      }
+      event.preventDefault();
+      const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+      if (coords?.pos) {
+        editor?.commands.setTextSelection(coords.pos);
+      }
+      void insertImageFromFile(editor, imageFile);
+      return true;
+    },
     handleKeyDown(view, event) {
       const editor = editorRef?.value ?? editorRef;
       if (props.onKeyDown) {
@@ -187,6 +223,24 @@ const editorRef = useEditor({
 
 const editor = editorRef;
 const editorInstance = computed(() => editorRef?.value);
+
+const insertImageFromFile = async (editor, file) => {
+  if (!editor) {
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", file, file.name || "image");
+  try {
+    const response = await apiUpload("/api/attachments", formData);
+    if (!response?.url) {
+      throw new Error("Upload failed");
+    }
+    editor.chain().focus().setImage({ src: response.url }).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Image upload failed";
+    window.alert(message);
+  }
+};
 
 const toggleBold = () => {
   editorInstance.value?.chain().focus().toggleBold().run();

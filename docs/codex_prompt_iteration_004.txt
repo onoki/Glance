@@ -1,0 +1,116 @@
+You are continuing development of the app “glance”.
+
+Current capabilities:
+- Photino desktop app
+- ASP.NET Core backend
+- Vue + Tiptap editor
+- SQLite persistence with migrations
+- Tasks: title + rich subcontent (ProseMirror JSON)
+- Allowed marks: bold, italic, highlight (green/yellow/red)
+- Autosave and multi-instance sync via /api/changes
+- Backend updates task_search by extracting plain text from content_json
+
+DO NOT BREAK EXISTING FUNCTIONALITY.
+
+==================================================
+AUTHORITATIVE DOCUMENTS (DO NOT MODIFY)
+==================================================
+
+- docs/architecture.md
+- docs/requirements.feature
+- docs/api.md
+- docs/schema.sql
+- docs/migrations/*
+
+==================================================
+GOAL: ITERATION 4
+==================================================
+
+Implement image attachments in task subcontent:
+- Paste images with Ctrl+V into the subcontent editor
+- Drag-and-drop images into the subcontent editor (optional but preferred)
+- Images are stored as files under: app/blobs/attachments/
+- The editor stores references to images in ProseMirror JSON
+- Attachments persist across restarts
+- Multi-instance updates reflect attachments (content_json updates)
+
+==================================================
+EDITOR REQUIREMENTS
+==================================================
+
+- Images are allowed both in title and in subcontent.
+- Insert images as a ProseMirror node (or Tiptap Image extension) with src pointing to a backend-served URL.
+- Subcontent editing must remain stable and not regress formatting.
+
+Clipboard paste:
+- If clipboard contains an image, upload it and insert an image node at selection.
+- If clipboard contains text, keep existing behavior.
+
+==================================================
+BACKEND REQUIREMENTS
+==================================================
+
+1) Add attachment storage
+- Store files under app/blobs/attachments/
+- Use deterministic naming:
+  - attachmentId is a UUID
+  - preserve extension when possible; default to .png
+- Do not store images inside SQLite as BLOB.
+
+2) Add API endpoint
+- POST /api/attachments (multipart/form-data)
+  - accepts one image file
+  - returns { attachmentId, url }
+- Serve attachments via:
+  - GET /attachments/{attachmentId} (or /attachments/{attachmentId}.{ext})
+  - must be readable by the WebView
+
+3) Security / correctness
+- Only allow local requests.
+- Validate max file size (reasonable limit, e.g. 10MB). Display an error message if the file is larger.
+- Allow common image types: png, jpg, jpeg, webp, gif (static). 
+- Reject other content types. Display an error message which explains the reason of rejection.
+
+==================================================
+SCHEMA / MIGRATIONS
+==================================================
+
+Prefer no schema change for Iteration 4.
+Attachments are file-based; content_json references the URL.
+If a schema change is truly necessary, add a migration file.
+
+==================================================
+MULTI-INSTANCE BEHAVIOR
+==================================================
+
+- Pasting an image updates content_json and triggers a change entry in `changes`.
+- Other instance reloads the task and displays the image.
+- If two instances paste images simultaneously, last-write-wins is acceptable.
+
+==================================================
+NON-GOALS (DO NOT IMPLEMENT)
+==================================================
+
+- Image resizing UI
+- Image captioning UI
+- Attachment garbage collection
+- Search highlighting
+- Recurrence logic
+- History chart work
+- Any new formatting marks
+
+==================================================
+DELIVERABLES
+==================================================
+
+- Ctrl+V image paste works in subcontent editor.
+- Image is stored on disk in app/blobs/attachments/.
+- Reloading the app shows the image.
+- Second running instance shows the image after sync.
+- Provide brief notes on:
+  - new endpoints
+  - folder locations
+  - known limitations
+
+Proceed with backend attachment API first, then integrate editor paste handling.
+Do not refactor unrelated parts.
