@@ -19,12 +19,16 @@ public sealed class TaskRepository
         var titleJson = request.Title.GetRawText();
         var titleText = TaskTextExtractor.ExtractPlainText(request.Title);
         var contentJson = request.Content.GetRawText();
+        var scheduledDate = request.ScheduledDate.HasValue
+            ? NormalizeScheduledDate(ParseScheduledDate(request.ScheduledDate.Value))
+            : null;
+        var recurrenceJson = NormalizeRecurrenceJson(request.Recurrence);
 
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now);
+        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now, scheduledDate, recurrenceJson);
         await UpdateSearchAsync(connection, transaction, taskId, request.Title, request.Content);
         await InsertChangeAsync(connection, transaction, taskId, "create", now);
         await transaction.CommitAsync(cancellationToken);
@@ -52,6 +56,12 @@ public sealed class TaskRepository
         var newTitleText = TaskTextExtractor.ExtractPlainText(newTitleJson);
         var newContentJson = request.Content.HasValue ? request.Content.Value.GetRawText() : existing.ContentJson;
         var newPage = request.Page ?? existing.Page;
+        var newScheduledDate = request.ScheduledDate.HasValue
+            ? NormalizeScheduledDate(ParseScheduledDate(request.ScheduledDate.Value))
+            : existing.ScheduledDate;
+        var newRecurrenceJson = request.Recurrence.HasValue
+            ? NormalizeRecurrenceJson(request.Recurrence)
+            : existing.RecurrenceJson;
 
         JsonElement contentElement;
         if (request.Content.HasValue)
@@ -65,7 +75,7 @@ public sealed class TaskRepository
         }
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await UpdateTaskAsync(connection, transaction, taskId, newPage, newTitleText, newTitleJson.GetRawText(), newContentJson, now);
+        await UpdateTaskAsync(connection, transaction, taskId, newPage, newTitleText, newTitleJson.GetRawText(), newContentJson, now, newScheduledDate, newRecurrenceJson);
         await UpdateSearchAsync(connection, transaction, taskId, newTitleJson, contentElement);
         await InsertChangeAsync(connection, transaction, taskId, "update", now);
         await transaction.CommitAsync(cancellationToken);
@@ -117,7 +127,7 @@ public sealed class TaskRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, title_json, content_json, position, created_at, updated_at, completed_at
+            SELECT id, page, title, title_json, content_json, position, created_at, updated_at, completed_at, scheduled_date, recurrence_json
             FROM tasks
             WHERE page = $page AND completed_at IS NULL
             ORDER BY position ASC;
@@ -131,6 +141,81 @@ public sealed class TaskRepository
         }
 
         return tasks;
+    }
+
+    public async Task<IReadOnlyList<TaskItem>> GetDashboardMainTasksAsync(long startOfToday, CancellationToken cancellationToken)
+    {
+        var tasks = new List<TaskItem>();
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, page, title, title_json, content_json, position, created_at, updated_at, completed_at, scheduled_date, recurrence_json
+            FROM tasks
+            WHERE page = 'dashboard:main'
+              AND (completed_at IS NULL OR completed_at >= $startOfToday)
+            ORDER BY position ASC;
+            """;
+        command.Parameters.AddWithValue("$startOfToday", startOfToday);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            tasks.Add(ReadTask(reader));
+        }
+
+        return tasks;
+    }
+
+    public async Task<IReadOnlyList<TaskItem>> GetHistoryTasksAsync(CancellationToken cancellationToken)
+    {
+        var tasks = new List<TaskItem>();
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, page, title, title_json, content_json, position, created_at, updated_at, completed_at, scheduled_date, recurrence_json
+            FROM tasks
+            WHERE completed_at IS NOT NULL
+            ORDER BY completed_at DESC;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            tasks.Add(ReadTask(reader));
+        }
+
+        return tasks;
+    }
+
+    public async Task<IReadOnlyList<HistoryDayStat>> GetHistoryStatsAsync(long startOfWindow, CancellationToken cancellationToken)
+    {
+        var stats = new List<HistoryDayStat>();
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT date(completed_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS count
+            FROM tasks
+            WHERE completed_at IS NOT NULL AND completed_at >= $start
+            GROUP BY day
+            ORDER BY day ASC;
+            """;
+        command.Parameters.AddWithValue("$start", startOfWindow);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var day = reader.GetString(0);
+            var count = reader.GetInt32(1);
+            stats.Add(new HistoryDayStat(day, count));
+        }
+
+        return stats;
     }
 
     public async Task<IReadOnlyList<TaskItem>> SearchAsync(string query, CancellationToken cancellationToken)
@@ -148,7 +233,7 @@ public sealed class TaskRepository
 
         await using var command = connection.CreateCommand();
         var selectBase = """
-            SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at
+            SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json
             FROM task_search ts
             JOIN tasks t ON t.id = ts.task_id
             """;
@@ -262,13 +347,13 @@ public sealed class TaskRepository
         return input.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
     }
 
-    private static async Task InsertTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, double position, long now)
+    private static async Task InsertTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, double position, long now, string? scheduledDate, string? recurrenceJson)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at)
-            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt);
+            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at, scheduled_date, recurrence_json)
+            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt, $scheduledDate, $recurrenceJson);
             """;
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$page", page);
@@ -278,10 +363,12 @@ public sealed class TaskRepository
         command.Parameters.AddWithValue("$position", position);
         command.Parameters.AddWithValue("$createdAt", now);
         command.Parameters.AddWithValue("$updatedAt", now);
+        command.Parameters.AddWithValue("$scheduledDate", (object?)scheduledDate ?? DBNull.Value);
+        command.Parameters.AddWithValue("$recurrenceJson", (object?)recurrenceJson ?? DBNull.Value);
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task UpdateTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, long now)
+    private static async Task UpdateTaskAsync(SqliteConnection connection, SqliteTransaction transaction, string id, string page, string titleText, string titleJson, string contentJson, long now, string? scheduledDate, string? recurrenceJson)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -291,6 +378,8 @@ public sealed class TaskRepository
                 title = $title,
                 title_json = $titleJson,
                 content_json = $content,
+                scheduled_date = $scheduledDate,
+                recurrence_json = $recurrenceJson,
                 updated_at = $updatedAt
             WHERE id = $id;
             """;
@@ -298,6 +387,8 @@ public sealed class TaskRepository
         command.Parameters.AddWithValue("$title", titleText);
         command.Parameters.AddWithValue("$titleJson", titleJson);
         command.Parameters.AddWithValue("$content", contentJson);
+        command.Parameters.AddWithValue("$scheduledDate", (object?)scheduledDate ?? DBNull.Value);
+        command.Parameters.AddWithValue("$recurrenceJson", (object?)recurrenceJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync();
@@ -343,7 +434,7 @@ public sealed class TaskRepository
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, title_json, content_json, updated_at
+            SELECT id, page, title, title_json, content_json, updated_at, scheduled_date, recurrence_json
             FROM tasks
             WHERE id = $id;
             """;
@@ -361,7 +452,9 @@ public sealed class TaskRepository
             reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
             reader.GetString(4),
-            reader.GetInt64(5)
+            reader.GetInt64(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7)
         );
     }
 
@@ -381,6 +474,14 @@ public sealed class TaskRepository
         var title = ParseTitleJson(titleJson, reader.GetString(2));
         using var doc = JsonDocument.Parse(contentJson);
         var content = doc.RootElement.Clone();
+        var scheduledDate = reader.IsDBNull(9) ? null : reader.GetString(9);
+        var recurrenceJson = reader.IsDBNull(10) ? null : reader.GetString(10);
+        JsonElement? recurrence = null;
+        if (!string.IsNullOrWhiteSpace(recurrenceJson))
+        {
+            using var recurrenceDoc = JsonDocument.Parse(recurrenceJson);
+            recurrence = recurrenceDoc.RootElement.Clone();
+        }
 
         return new TaskItem(
             reader.GetString(0),
@@ -390,7 +491,9 @@ public sealed class TaskRepository
             reader.GetDouble(5),
             reader.GetInt64(6),
             reader.GetInt64(7),
-            reader.IsDBNull(8) ? null : reader.GetInt64(8)
+            reader.IsDBNull(8) ? null : reader.GetInt64(8),
+            scheduledDate,
+            recurrence
         );
     }
 
@@ -400,7 +503,9 @@ public sealed class TaskRepository
         string TitleText,
         string? TitleJson,
         string ContentJson,
-        long UpdatedAt
+        long UpdatedAt,
+        string? ScheduledDate,
+        string? RecurrenceJson
     );
 
     private static JsonElement ParseTitleJson(string? titleJson, string fallbackText)
@@ -428,6 +533,39 @@ public sealed class TaskRepository
         var json = JsonSerializer.Serialize(fallback);
         using var fallbackDoc = JsonDocument.Parse(json);
         return fallbackDoc.RootElement.Clone();
+    }
+
+    private static string? NormalizeScheduledDate(string? scheduledDate)
+    {
+        if (string.IsNullOrWhiteSpace(scheduledDate))
+        {
+            return null;
+        }
+        return scheduledDate.Trim();
+    }
+
+    private static string? ParseScheduledDate(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Null => null,
+            JsonValueKind.Undefined => null,
+            _ => null
+        };
+    }
+
+    private static string? NormalizeRecurrenceJson(JsonElement? recurrence)
+    {
+        if (!recurrence.HasValue)
+        {
+            return null;
+        }
+        if (recurrence.Value.ValueKind == JsonValueKind.Null || recurrence.Value.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+        return recurrence.Value.GetRawText();
     }
 }
 

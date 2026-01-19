@@ -10,14 +10,18 @@ public sealed record TaskItem(
     double Position,
     long CreatedAt,
     long UpdatedAt,
-    long? CompletedAt
+    long? CompletedAt,
+    string? ScheduledDate,
+    JsonElement? Recurrence
 );
 
 public sealed record TaskCreateRequest(
     string Page,
     JsonElement Title,
     JsonElement Content,
-    double Position
+    double Position,
+    JsonElement? ScheduledDate,
+    JsonElement? Recurrence
 );
 
 public sealed record TaskCreateResponse(
@@ -29,7 +33,9 @@ public sealed record TaskUpdateRequest(
     long BaseUpdatedAt,
     JsonElement? Title,
     JsonElement? Content,
-    string? Page
+    string? Page,
+    JsonElement? ScheduledDate,
+    JsonElement? Recurrence
 );
 
 public sealed record TaskUpdateResponse(
@@ -70,4 +76,19 @@ public sealed record SearchResult(
 public sealed record SearchResponse(
     string Query,
     IReadOnlyList<SearchResult> Results
+);
+
+public sealed record HistoryDayStat(
+    string Date,
+    int Count
+);
+
+public sealed record HistoryGroup(
+    string Date,
+    IReadOnlyList<TaskItem> Tasks
+);
+
+public sealed record HistoryResponse(
+    IReadOnlyList<HistoryDayStat> Stats,
+    IReadOnlyList<HistoryGroup> Groups
 );

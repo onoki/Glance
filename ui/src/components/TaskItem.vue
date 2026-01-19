@@ -1,10 +1,18 @@
 <template>
   <div class="task-item" :class="{ completed: !!task.completedAt }">
     <label class="task-check">
-      <input type="checkbox" :checked="!!task.completedAt" :disabled="readOnly" @change="toggleComplete" />
+      <input type="checkbox" :checked="!!task.completedAt" :disabled="!allowToggle" @change="toggleComplete" />
       <span></span>
     </label>
     <div class="task-body">
+      <div v-if="showCategoryActions" class="task-actions" @click.stop>
+        <button type="button" class="task-action" @click="setCategory('uncategorized')">Uncategorized</button>
+        <button type="button" class="task-action" @click="setCategory('this-week')">This week</button>
+        <button type="button" class="task-action" @click="setCategory('next-week')">Next week</button>
+        <button type="button" class="task-action" @click="setCategory('no-date')">No date</button>
+        <button type="button" class="task-action" @click="setCategory('repeatable')">Repeatable</button>
+        <button type="button" class="task-action" @click="setCategory('notes')">Notes</button>
+      </div>
       <div class="title-row">
         <RichTextEditor
           ref="titleEditorRef"
@@ -42,6 +50,18 @@ const props = defineProps({
   readOnly: {
     type: Boolean,
     default: false
+  },
+  allowToggle: {
+    type: Boolean,
+    default: true
+  },
+  showCategoryActions: {
+    type: Boolean,
+    default: false
+  },
+  onSetCategory: {
+    type: Function,
+    default: null
   },
   focusTitleId: {
     type: String,
@@ -290,7 +310,7 @@ const handleContentKeydown = (event, editor) => {
 };
 
 const toggleComplete = () => {
-  if (props.readOnly) {
+  if (!props.allowToggle) {
     return;
   }
   props.onComplete(props.task);
@@ -312,6 +332,13 @@ const handleSplitToNewTask = async (payload) => {
 };
 
 const noopSplit = () => {};
+
+const setCategory = (category) => {
+  if (props.readOnly || !props.onSetCategory) {
+    return;
+  }
+  props.onSetCategory(props.task, category);
+};
 
 watch(
   () => props.focusTitleId,
@@ -357,6 +384,7 @@ watch(
   border: none;
   background: transparent;
   align-items: start;
+  position: relative;
 }
 
 .task-item.completed {
@@ -396,6 +424,35 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 2px;
+  position: relative;
+}
+
+.task-actions {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  z-index: 2;
+}
+
+.task-item:hover .task-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.task-action {
+  border: 1px solid #d8c7b3;
+  background: #fffaf3;
+  color: #3a3129;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  cursor: pointer;
 }
 
 .title-row {

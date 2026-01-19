@@ -1,4 +1,5 @@
 using System.Net;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.StaticFiles;
@@ -169,7 +170,7 @@ public static class ServerHost
         app.MapGet("/api/dashboard", async (TaskRepository tasks, CancellationToken token) =>
         {
             var newTasks = await tasks.GetTasksByPageAsync("dashboard:new", token);
-            var mainTasks = await tasks.GetTasksByPageAsync("dashboard:main", token);
+            var mainTasks = await tasks.GetDashboardMainTasksAsync(GetStartOfToday(), token);
             return Results.Ok(new DashboardResponse(newTasks, mainTasks));
         });
 
@@ -191,6 +192,18 @@ public static class ServerHost
                 return validation;
             }
 
+            var scheduleValidation = ValidateScheduledDate(request.ScheduledDate);
+            if (scheduleValidation != null)
+            {
+                return scheduleValidation;
+            }
+
+            var recurrenceValidation = ValidateRecurrence(request.Recurrence);
+            if (recurrenceValidation != null)
+            {
+                return recurrenceValidation;
+            }
+
             var response = await tasks.CreateTaskAsync(request, token);
             return Results.Ok(response);
         });
@@ -208,6 +221,18 @@ public static class ServerHost
             else if (request.Content.HasValue && TaskTextExtractor.ContainsHeading(request.Content.Value))
             {
                 return Results.BadRequest(new { error = "ValidationError", message = "Task content must not contain heading nodes" });
+            }
+
+            var scheduleValidation = ValidateScheduledDate(request.ScheduledDate.HasValue ? request.ScheduledDate.Value : null);
+            if (scheduleValidation != null)
+            {
+                return scheduleValidation;
+            }
+
+            var recurrenceValidation = ValidateRecurrence(request.Recurrence);
+            if (recurrenceValidation != null)
+            {
+                return recurrenceValidation;
             }
 
             var response = await tasks.UpdateTaskAsync(taskId, request, token);
@@ -241,6 +266,19 @@ public static class ServerHost
             var results = matches.Select(task => new SearchResult(task, new[] { q })).ToList();
             return Results.Ok(new SearchResponse(q, results));
         });
+
+        app.MapGet("/api/history", async (TaskRepository tasks, CancellationToken token) =>
+        {
+            var completedTasks = await tasks.GetHistoryTasksAsync(token);
+            var stats = await tasks.GetHistoryStatsAsync(GetHistoryStart(180), token);
+
+            var groups = completedTasks
+                .GroupBy(task => FormatDate(task.CompletedAt))
+                .Select(group => new HistoryGroup(group.Key, group.ToList()))
+                .ToList();
+
+            return Results.Ok(new HistoryResponse(stats, groups));
+        });
     }
 
     private static IResult? ValidateTaskInput(JsonElement title, JsonElement? content)
@@ -266,6 +304,62 @@ public static class ServerHost
         }
 
         return null;
+    }
+
+    private static IResult? ValidateScheduledDate(JsonElement? scheduledDate)
+    {
+        if (!scheduledDate.HasValue)
+        {
+            return null;
+        }
+
+        return scheduledDate.Value.ValueKind switch
+        {
+            JsonValueKind.String => null,
+            JsonValueKind.Null => null,
+            JsonValueKind.Undefined => null,
+            _ => Results.BadRequest(new { error = "ValidationError", message = "Scheduled date must be a string or null" })
+        };
+    }
+
+    private static IResult? ValidateRecurrence(JsonElement? recurrence)
+    {
+        if (!recurrence.HasValue)
+        {
+            return null;
+        }
+
+        return recurrence.Value.ValueKind switch
+        {
+            JsonValueKind.Object => null,
+            JsonValueKind.Null => null,
+            JsonValueKind.Undefined => null,
+            _ => Results.BadRequest(new { error = "ValidationError", message = "Recurrence must be an object or null" })
+        };
+    }
+
+    private static long GetStartOfToday()
+    {
+        var now = DateTimeOffset.Now;
+        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
+        return start.ToUnixTimeMilliseconds();
+    }
+
+    private static long GetHistoryStart(int days)
+    {
+        var now = DateTimeOffset.Now;
+        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddDays(-days + 1);
+        return start.ToUnixTimeMilliseconds();
+    }
+
+    private static string FormatDate(long? timestamp)
+    {
+        if (!timestamp.HasValue)
+        {
+            return "Unknown";
+        }
+        var date = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().Date;
+        return date.ToString("yyyy-MM-dd");
     }
 
     private static bool IsLocalRequest(HttpContext context)

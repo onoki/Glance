@@ -1,0 +1,156 @@
+You are continuing development of the app “glance”.
+
+Current capabilities:
+- Photino desktop app
+- ASP.NET Core backend
+- Vue UI
+- Tiptap editor with formatting and images
+- SQLite persistence with migrations
+- Multi-instance sync via /api/changes
+- Search tab with read-only results and highlighting
+
+DO NOT BREAK EXISTING FUNCTIONALITY.
+
+==================================================
+AUTHORITATIVE DOCUMENTS (DO NOT MODIFY)
+==================================================
+
+- docs/architecture.md
+- docs/requirements.feature
+- docs/api.md
+- docs/schema.sql
+- docs/migrations/*
+
+==================================================
+GOAL: ITERATION 6
+==================================================
+
+Implement:
+1) Full Dashboard category derivation
+2) History tab (task list + bar chart)
+3) Day-boundary behavior (hiding completed tasks)
+
+This iteration is about **deriving views from data**, not changing how tasks are stored.
+
+==================================================
+DASHBOARD CATEGORY DERIVATION (MANDATORY)
+==================================================
+
+Tasks must be grouped into derived categories as specified:
+
+Categories:
+- New
+- Uncategorized
+- Week starting YYYY-MM-DD (Monday-based)
+- No date
+- Repeatable
+- Notes
+
+Rules:
+- “New” tasks appear only in the New tasks list.
+- “New” category is hidden from the main task list.
+- Only show:
+  - next 4 future weeks
+  - any past weeks that still have tasks
+- Category assignment is derived from existing task fields:
+  - scheduled_date
+  - recurrence_json
+  - completed_at
+  - creation time / age
+
+DO NOT introduce a categories table.
+
+==================================================
+DAILY HIDING RULE (MANDATORY)
+==================================================
+
+- Tasks completed on a day earlier than today:
+  - must be hidden from the Dashboard main task list
+- This rule applies:
+  - on app startup
+  - when the day changes while the app is running
+
+The task remains visible in History and Search.
+
+==================================================
+HISTORY TAB (MANDATORY)
+==================================================
+
+Implement the History tab as specified:
+
+Layout:
+- Top: bar chart showing number of completed tasks per day
+- Middle: list of completed tasks grouped by completion date
+
+Rules:
+- Show only the last 180 days in the chart
+- Tasks are grouped by the day they were completed
+- Tasks in History are editable only in one way:
+  - unchecking a task marks it as not completed
+  - the task returns to the Dashboard
+
+==================================================
+BACKEND REQUIREMENTS
+==================================================
+
+Add or finalize backend queries to support:
+- Dashboard grouping (derived)
+- History listing (completed tasks by date)
+- History stats (count per day, last 180 days)
+
+Prefer:
+- SQL queries that return already-grouped data
+- No background jobs required
+
+DO NOT add new tables unless strictly necessary.
+
+==================================================
+FRONTEND REQUIREMENTS
+==================================================
+
+Dashboard:
+- Render grouped categories in main task list
+- Maintain existing New tasks list behavior
+- Ensure category headers are stable and predictable
+
+History:
+- Implement a simple bar chart (any reasonable charting lib)
+- Render completed tasks grouped by date
+- Allow unchecking tasks to restore them
+
+==================================================
+MULTI-INSTANCE BEHAVIOR
+==================================================
+
+- Category derivation and History must reflect external changes
+- Polling /api/changes must trigger refresh of:
+  - Dashboard
+  - History (if visible)
+
+==================================================
+NON-GOALS (DO NOT IMPLEMENT)
+==================================================
+
+- Recurrence generation logic
+- Editing recurrence rules
+- History filtering or search
+- Dashboard reordering UX improvements
+
+==================================================
+DELIVERABLES
+==================================================
+
+- Dashboard categories behave exactly per requirements.feature
+- Completed tasks hide correctly across day boundaries
+- History tab shows correct data and chart
+- Unchecking a History task restores it
+- Brief notes describing:
+  - category derivation logic
+  - day-change detection approach
+  - charting library used
+
+Proceed by implementing backend queries first,
+then Dashboard grouping,
+then History list,
+then History chart.
+Do not refactor unrelated code.

@@ -65,24 +65,79 @@
             </header>
 
             <div class="task-list">
-              <TaskItem
-                v-for="task in mainTasks"
-                :key="task.id"
-                :task="task"
-                :focus-title-id="focusTaskId"
-                :focus-content-target="focusContentTarget"
-                :on-save="saveTask"
-                :on-complete="toggleComplete"
-                :on-dirty="handleDirtyChange"
-                :on-create-below="createTaskBelow"
-                :on-tab-to-previous="moveTaskToPrevious"
-                :on-split-to-new-task="splitSubcontentToNewTask"
-                :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
-                :on-focus-next-task-from-content="focusNextTaskFromContent"
-              />
+              <div v-for="category in mainCategories" :key="category.id" class="category-block">
+                <h3 class="category-title">{{ category.label }}</h3>
+                <TaskItem
+                  v-for="task in category.tasks"
+                  :key="task.id"
+                  :task="task"
+                  :show-category-actions="true"
+                  :on-set-category="setTaskCategory"
+                  :focus-title-id="focusTaskId"
+                  :focus-content-target="focusContentTarget"
+                  :on-save="saveTask"
+                  :on-complete="toggleComplete"
+                  :on-dirty="handleDirtyChange"
+                  :on-create-below="createTaskBelow"
+                  :on-tab-to-previous="moveTaskToPrevious"
+                  :on-split-to-new-task="splitSubcontentToNewTask"
+                  :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
+                  :on-focus-next-task-from-content="focusNextTaskFromContent"
+                />
+              </div>
               <button class="add-task" @click="createEmptyTask('dashboard:main')">Add task</button>
             </div>
           </section>
+        </div>
+      </section>
+
+      <section v-else-if="activeTab === 'History'" class="history-view">
+        <div class="history-chart">
+          <div class="chart-area">
+            <div class="chart-bars">
+            <div
+              v-for="day in historyBars"
+              :key="day.date"
+              class="chart-bar"
+              :style="{ height: `${day.height}%` }"
+              :title="`${day.date}: ${day.count}`"
+            ></div>
+            </div>
+            <div class="chart-scale">
+              <span v-for="tick in historyScale" :key="tick.label">{{ tick.label }}</span>
+            </div>
+          </div>
+          <div class="chart-axis">
+            <span>{{ historySeries[0]?.date }}</span>
+            <span>{{ historySeries[historySeries.length - 1]?.date }}</span>
+          </div>
+        </div>
+        <div class="history-list">
+          <div v-if="historyGroups.length === 0" class="history-empty">No completed tasks yet.</div>
+          <div v-else>
+            <section v-for="group in historyGroups" :key="group.date" class="history-group">
+              <h3 class="history-date">{{ group.date }}</h3>
+              <div class="task-list">
+                <TaskItem
+                  v-for="task in group.tasks"
+                  :key="task.id"
+                  :task="task"
+                  :read-only="true"
+                  :allow-toggle="true"
+                  :focus-title-id="null"
+                  :focus-content-target="null"
+                  :on-save="noop"
+                  :on-complete="toggleComplete"
+                  :on-dirty="noop"
+                  :on-create-below="noop"
+                  :on-tab-to-previous="noopAsync"
+                  :on-split-to-new-task="noop"
+                  :on-focus-prev-task-from-title="noop"
+                  :on-focus-next-task-from-content="noop"
+                />
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -105,6 +160,7 @@
               :key="result.task.id"
               :task="result.task"
               :read-only="true"
+              :allow-toggle="false"
               :focus-title-id="null"
               :focus-content-target="null"
               :on-save="noop"
@@ -129,7 +185,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { apiGet, apiPost, apiPut } from "./api";
 import TaskItem from "./components/TaskItem.vue";
 
@@ -146,8 +202,12 @@ const searchQuery = ref("");
 const searchResults = ref([]);
 const hasSearched = ref(false);
 const isSearching = ref(false);
+const historyGroups = ref([]);
+const historyStats = ref([]);
+const currentDayKey = ref("");
 
 let pollTimer = null;
+let dayTimer = null;
 const dirtySnapshots = new Map();
 
 const emptyTitleDoc = () => ({
@@ -234,6 +294,137 @@ const titleDocToListItem = (titleDoc) => {
       }
     ]
   };
+};
+
+const formatDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDayKey = () => formatDateKey(new Date());
+
+const getWeekStart = (date) => {
+  const day = date.getDay();
+  const diff = (day + 6) % 7;
+  const start = new Date(date);
+  start.setDate(date.getDate() - diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const parseDateKey = (dateKey) => {
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+};
+
+const deriveCategories = (tasks) => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const currentWeekStart = getWeekStart(now);
+  const futureLimit = new Date(currentWeekStart);
+  futureLimit.setDate(currentWeekStart.getDate() + 28);
+
+  const repeatable = [];
+  const uncategorized = [];
+  const notes = [];
+  const noDate = [];
+  const weekGroups = new Map();
+
+  tasks.forEach((task) => {
+    if (task.recurrence) {
+      if (task.recurrence.type === "notes") {
+        notes.push(task);
+        return;
+      }
+      repeatable.push(task);
+      return;
+    }
+
+    if (task.scheduledDate) {
+      const scheduled = parseDateKey(task.scheduledDate);
+      if (!scheduled) {
+        noDate.push(task);
+        return;
+      }
+      const weekStart = getWeekStart(scheduled);
+      if (weekStart > futureLimit) {
+        return;
+      }
+      const weekKey = formatDateKey(weekStart);
+      if (!weekGroups.has(weekKey)) {
+        weekGroups.set(weekKey, []);
+      }
+      weekGroups.get(weekKey).push(task);
+      return;
+    }
+
+    uncategorized.push(task);
+  });
+
+  const categories = [];
+  if (uncategorized.length) {
+    categories.push({ id: "uncategorized", label: "Uncategorized", tasks: uncategorized });
+  }
+
+  const weekKeys = Array.from(weekGroups.keys()).sort();
+  const pastWeeks = [];
+  const futureWeeks = [];
+  let thisWeekKey = null;
+  let nextWeekKey = null;
+  const nextWeek = new Date(currentWeekStart);
+  nextWeek.setDate(currentWeekStart.getDate() + 7);
+  thisWeekKey = formatDateKey(currentWeekStart);
+  nextWeekKey = formatDateKey(nextWeek);
+
+  weekKeys.forEach((key) => {
+    const weekDate = parseDateKey(key);
+    if (!weekDate) {
+      return;
+    }
+    if (weekDate < currentWeekStart) {
+      pastWeeks.push(key);
+      return;
+    }
+    if (key === thisWeekKey || key === nextWeekKey) {
+      return;
+    }
+    futureWeeks.push(key);
+  });
+
+  pastWeeks.forEach((key) => {
+    categories.push({ id: `week-${key}`, label: `Week starting ${key}`, tasks: weekGroups.get(key) });
+  });
+
+  if (weekGroups.has(thisWeekKey)) {
+    categories.push({ id: `week-${thisWeekKey}`, label: "This week", tasks: weekGroups.get(thisWeekKey) });
+  }
+
+  if (weekGroups.has(nextWeekKey)) {
+    categories.push({ id: `week-${nextWeekKey}`, label: "Next week", tasks: weekGroups.get(nextWeekKey) });
+  }
+
+  futureWeeks.forEach((key) => {
+    categories.push({ id: `week-${key}`, label: `Week starting ${key}`, tasks: weekGroups.get(key) });
+  });
+
+  if (noDate.length) {
+    categories.push({ id: "no-date", label: "No date", tasks: noDate });
+  }
+
+  if (repeatable.length) {
+    categories.push({ id: "repeatable", label: "Repeatable", tasks: repeatable });
+  }
+
+  if (notes.length) {
+    categories.push({ id: "notes", label: "Notes", tasks: notes });
+  }
+
+  return categories;
 };
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -330,6 +521,53 @@ const highlightTask = (task, terms) => ({
   content: highlightDoc(task.content, terms)
 });
 
+const mainCategories = computed(() => deriveCategories(mainTasks.value));
+
+const buildHistorySeries = (stats) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(today.getDate() - 179);
+
+  const map = new Map(stats.map((item) => [item.date, item.count]));
+  const series = [];
+  for (let i = 0; i < 180; i += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    const dateKey = formatDateKey(day);
+    series.push({ date: dateKey, count: map.get(dateKey) || 0 });
+  }
+  return series;
+};
+
+const historySeries = computed(() => buildHistorySeries(historyStats.value || []));
+
+const historyMax = computed(() => {
+  return historySeries.value.reduce((max, item) => Math.max(max, item.count), 0);
+});
+
+const historyBars = computed(() => {
+  const maxCount = historyMax.value || 1;
+  return historySeries.value.map((item) => ({
+    ...item,
+    height: maxCount === 0 ? 0 : (item.count / maxCount) * 100
+  }));
+});
+
+const historyScale = computed(() => {
+  const maxCount = historyMax.value;
+  if (maxCount === 0) {
+    return [{ label: "0" }];
+  }
+  const mid = Math.floor(maxCount / 2);
+  const ticks = [maxCount];
+  if (mid > 0 && mid !== maxCount) {
+    ticks.push(mid);
+  }
+  ticks.push(0);
+  return ticks.map((value) => ({ label: `${value}` }));
+});
+
 const mergeTasks = (tasks, page) => {
   const merged = tasks.map((task) => {
     const snapshot = dirtySnapshots.get(task.id);
@@ -352,6 +590,15 @@ const loadDashboard = async () => {
   const data = await apiGet("/api/dashboard");
   newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
   mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
+};
+
+const loadHistory = async () => {
+  const data = await apiGet("/api/history");
+  historyStats.value = data.stats || [];
+  historyGroups.value = (data.groups || []).map((group) => ({
+    date: group.date,
+    tasks: group.tasks.map(normalizeTask)
+  }));
 };
 
 const insertTaskLocal = (task) => {
@@ -500,6 +747,9 @@ const toggleComplete = async (task) => {
   task.completedAt = completed ? Date.now() : null;
   await apiPost(`/api/tasks/${task.id}/complete`, { completed });
   await loadDashboard();
+  if (activeTab.value === "History") {
+    await loadHistory();
+  }
 };
 
 const moveNewToMain = async () => {
@@ -542,6 +792,51 @@ const createEmptyTask = async (page) => {
   focusTaskId.value = newId;
 };
 
+const setTaskCategory = async (task, category) => {
+  let scheduledDate = undefined;
+  let recurrence = undefined;
+  const weekStart = getWeekStart(new Date());
+
+  switch (category) {
+    case "uncategorized":
+      scheduledDate = null;
+      recurrence = null;
+      break;
+    case "notes":
+      scheduledDate = null;
+      recurrence = { type: "notes" };
+      break;
+    case "no-date":
+      scheduledDate = "no-date";
+      recurrence = null;
+      break;
+    case "this-week":
+      scheduledDate = formatDateKey(weekStart);
+      recurrence = null;
+      break;
+    case "next-week": {
+      const nextWeek = new Date(weekStart);
+      nextWeek.setDate(weekStart.getDate() + 7);
+      scheduledDate = formatDateKey(nextWeek);
+      recurrence = null;
+      break;
+    }
+    case "repeatable":
+      scheduledDate = null;
+      recurrence = { type: "repeatable" };
+      break;
+    default:
+      return;
+  }
+
+  await apiPut(`/api/tasks/${task.id}`, {
+    baseUpdatedAt: task.updatedAt,
+    scheduledDate,
+    recurrence
+  });
+  await loadDashboard();
+};
+
 const searchTasks = async () => {
   const query = searchQuery.value.trim();
   if (!query) {
@@ -575,17 +870,43 @@ const pollChanges = async () => {
   lastChangeId.value = data.lastId;
   if (data.lastId > previous) {
     await loadDashboard();
+    if (activeTab.value === "History") {
+      await loadHistory();
+    }
   }
 };
 
 onMounted(async () => {
   await loadDashboard();
+  if (activeTab.value === "History") {
+    await loadHistory();
+  }
+  currentDayKey.value = getDayKey();
   pollTimer = setInterval(pollChanges, 750);
+  dayTimer = setInterval(() => {
+    const nextDay = getDayKey();
+    if (nextDay !== currentDayKey.value) {
+      currentDayKey.value = nextDay;
+      loadDashboard();
+      if (activeTab.value === "History") {
+        loadHistory();
+      }
+    }
+  }, 60000);
 });
 
 onBeforeUnmount(() => {
   if (pollTimer) {
     clearInterval(pollTimer);
+  }
+  if (dayTimer) {
+    clearInterval(dayTimer);
+  }
+});
+
+watch(activeTab, (tab) => {
+  if (tab === "History") {
+    loadHistory();
   }
 });
 
@@ -766,6 +1087,97 @@ watch(focusContentTarget, (target) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.category-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.category-title {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6f665f;
+  margin: 8px 0 2px;
+}
+
+.history-view {
+  background: #fbf6ef;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.history-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-area {
+  display: grid;
+  grid-template-columns: 1fr 32px;
+  gap: 8px;
+  align-items: end;
+}
+
+.chart-bars {
+  display: grid;
+  grid-template-columns: repeat(180, minmax(1px, 1fr));
+  gap: 2px;
+  align-items: end;
+  height: 120px;
+}
+
+.chart-bar {
+  background: #1f1b16;
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #6f665f;
+}
+
+.chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #6f665f;
+  text-align: right;
+  height: 120px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-date {
+  font-size: 0.9rem;
+  color: #6f665f;
+  margin: 0;
+}
+
+.history-empty {
+  color: #6f665f;
+  font-size: 0.95rem;
 }
 
 .add-task {
