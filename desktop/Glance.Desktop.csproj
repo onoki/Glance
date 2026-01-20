@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>glance</AssemblyName>
+    <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +15,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\server\Glance.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\assets\icon.ico" Link="icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\assets\icon.png" Link="icon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

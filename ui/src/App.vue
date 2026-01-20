@@ -1,7 +1,11 @@
 <template>
   <div class="app-shell">
     <header class="top-nav">
-      <div class="brand">Glance</div>
+      <div class="brand">
+        <img class="brand-icon" src="/icon.png" alt="" />
+        <span class="brand-name">Glance</span>
+        <span class="brand-version">{{ appVersion || "Unknown" }}</span>
+      </div>
       <nav class="tabs">
         <button
           v-for="tab in tabs"
@@ -81,7 +85,6 @@
         <p>This section will be implemented in the next iteration.</p>
       </section>
     </main>
-    <footer class="app-footer">Version {{ appVersion || "Unknown" }} UTC</footer>
   </div>
 </template>
 

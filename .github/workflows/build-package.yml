@@ -1,0 +1,84 @@
+name: Build update package
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}-${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            arch: x64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set build version
+        id: version
+        shell: pwsh
+        run: |
+          $version = Get-Date -Format "yyyy-MM-dd HH:mm"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Publish desktop app (self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish .\desktop\Glance.Desktop.csproj `
+            -c Release `
+            -r ${{ matrix.rid }} `
+            --self-contained true `
+            /p:VersionStamp="${{ steps.version.outputs.version }}"
+
+      - name: Assemble package folder
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path -Path "desktop" -ChildPath "bin/Release/net9.0/${{ matrix.rid }}/publish"
+          $packageRoot = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath "package/glance"
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageRoot -Recurse -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "ui/dist") | Out-Null
+          Copy-Item -Path "ui/dist/*" -Destination (Join-Path $packageRoot "ui/dist") -Recurse -Force
+          if (Test-Path "UPDATING.md") {
+            Copy-Item -Path "UPDATING.md" -Destination (Join-Path $packageRoot "UPDATING.md") -Force
+          }
+
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          $zipName = "glance-${{ matrix.rid }}.zip"
+          $zipPath = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path "package/glance" -DestinationPath $zipPath
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glance-${{ matrix.rid }}-${{ matrix.arch }}
+          path: glance-${{ matrix.rid }}.zip

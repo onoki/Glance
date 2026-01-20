@@ -23,6 +23,7 @@ internal static class Program
         var startUrl = useDevServer
             ? string.IsNullOrWhiteSpace(devServer) ? "http://localhost:5173/" : devServer
             : $"http://127.0.0.1:{port}/";
+        var iconPath = ResolveIconPath();
 
         var window = new PhotinoWindow()
             .SetTitle("Glance")
@@ -31,6 +32,11 @@ internal static class Program
             .SetMinSize(1200, 800)
             .SetResizable(true)
             .Center();
+
+        if (!string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath))
+        {
+            window.SetIconFile(iconPath);
+        }
 
         window.Load(startUrl);
         window.WaitForClose();
@@ -72,5 +78,17 @@ internal static class Program
         Directory.CreateDirectory(Path.Combine(appRoot, "data"));
         Directory.CreateDirectory(Path.Combine(appRoot, "blobs"));
         Directory.CreateDirectory(Path.Combine(appRoot, "blobs", "attachments"));
+    }
+
+    private static string ResolveIconPath()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var icoPath = Path.Combine(baseDir, "icon.ico");
+        if (OperatingSystem.IsWindows() && File.Exists(icoPath))
+        {
+            return icoPath;
+        }
+
+        return Path.Combine(baseDir, "icon.png");
     }
 }
