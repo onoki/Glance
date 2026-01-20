@@ -16,8 +16,6 @@ public sealed class AppMetaRepository
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
-        await EnsureTableAsync(connection, cancellationToken);
-
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT value FROM app_meta WHERE key = $key;";
         command.Parameters.AddWithValue("$key", key);
@@ -29,8 +27,6 @@ public sealed class AppMetaRepository
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
-
-        await EnsureTableAsync(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -54,15 +50,4 @@ public sealed class AppMetaRepository
         return result is long version ? (int)version : 0;
     }
 
-    private static async Task EnsureTableAsync(SqliteConnection connection, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            CREATE TABLE IF NOT EXISTS app_meta (
-              key TEXT PRIMARY KEY,
-              value TEXT NOT NULL
-            );
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
 }

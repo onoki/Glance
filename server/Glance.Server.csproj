@@ -12,6 +12,10 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Glance.Server.Tests" />
+  </ItemGroup>
+
   <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
     <ItemGroup>
       <Compile Include="$(GeneratedVersionFile)" Visible="false" />

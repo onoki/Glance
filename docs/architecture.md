@@ -51,8 +51,8 @@ Multiple instances may run simultaneously and share the same data directory.
 A **task** is the atomic unit of organization.
 
 Each task consists of:
-- a non-deletable title (formatted text)
-- structured rich-text subcontent
+- a formatted title (may be empty)
+- structured rich-text subcontent (optional)
 - completion state
 - optional scheduling and recurrence metadata
 
@@ -69,13 +69,13 @@ The editor must enforce:
 - Title:
   - formatted text (same marks as subcontent)
   - line breaks allowed
-  - cannot be deleted
 - Subcontent:
   - may contain nested lists
   - may contain bold, italic, and highlight (green/yellow/red)
   - may contain links and images
 - Subcontent has no independent completion state
 - Only tasks are reorderable and completable
+- Tasks can be deleted when both title and subcontent are empty
 
 ### Keyboard behavior
 - Enter at end of title indicates intent to create a new task
@@ -147,9 +147,8 @@ glance/
     ├─ schema.sql
     └─ migrations/
         ├─ 001_init.sql
-        ├─ 002_add_task_color.sql
-        ├─ 003_add_task_archived.sql
-        └─ 004_rebuild_fts.sql
+        ├─ 002_add_title_json.sql
+        ├─ 003_add_app_meta.sql
 ├─ data/
 │  ├─ glance.db
 │  ├─ glance.db-wal
@@ -182,3 +181,4 @@ Copying the `glance/` directory is a valid backup.
 - `api.md` defines external contracts
 
 Implementations must not modify these documents unless explicitly instructed.
+

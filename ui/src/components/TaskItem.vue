@@ -20,26 +20,13 @@
       <span></span>
     </label>
     <div class="task-body" :class="{ 'with-actions': showCategoryActions }">
-      <div class="task-actions-area" @click.stop>
-        <button
-          v-if="draggable && !readOnly"
-          type="button"
-          class="drag-handle"
-          aria-label="Drag task"
-          :draggable="true"
-          @dragstart.stop="handleDragStart"
-        >
-          ::
-        </button>
-        <div v-if="showCategoryActions" class="task-actions">
-          <button type="button" class="task-action" @click="setCategory('uncategorized')">Uncategorized</button>
-          <button type="button" class="task-action" @click="setCategory('this-week')">This week</button>
-          <button type="button" class="task-action" @click="setCategory('next-week')">Next week</button>
-          <button type="button" class="task-action" @click="setCategory('no-date')">No date</button>
-          <button type="button" class="task-action" @click="setCategory('repeatable')">Repeatable</button>
-          <button type="button" class="task-action" @click="setCategory('notes')">Notes</button>
-        </div>
-      </div>
+      <TaskItemActions
+        :show-category-actions="showCategoryActions"
+        :draggable="draggable"
+        :read-only="readOnly"
+        @drag-start="handleDragStart"
+        @set-category="setCategory"
+      />
       <div class="title-row">
         <RichTextEditor
           ref="titleEditorRef"
@@ -56,35 +43,15 @@
         </span>
         <span v-if="dirty && !readOnly" class="dirty-indicator" aria-label="Unsaved changes"></span>
       </div>
-      <div v-if="showRecurrenceControls && !readOnly" class="recurrence-row">
-        <label class="recurrence-label">Frequency</label>
-        <select v-model="recurrenceType" class="recurrence-select" @change="applyRecurrence">
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-        </select>
-        <div v-if="recurrenceType === 'weekly'" class="weekday-row">
-          <button
-            v-for="day in weekdayOptions"
-            :key="day.value"
-            type="button"
-            class="weekday-chip"
-            :class="{ active: weeklyDays.includes(day.value) }"
-            @click="toggleWeekday(day.value)"
-          >
-            {{ day.label }}
-          </button>
-        </div>
-        <div v-if="recurrenceType === 'monthly'" class="monthday-row">
-          <label class="recurrence-label">Days</label>
-          <input
-            v-model="monthDaysInput"
-            class="monthday-input"
-            type="text"
-            placeholder="1, 15, 30"
-            @blur="applyRecurrence"
-          />
-        </div>
-      </div>
+      <RecurrenceControls
+        v-if="showRecurrenceControls && !readOnly"
+        v-model:recurrenceType="recurrenceType"
+        v-model:monthDaysInput="monthDaysInput"
+        :weekly-days="weeklyDays"
+        :weekday-options="weekdayOptions"
+        @apply="applyRecurrence"
+        @toggle-weekday="toggleWeekday"
+      />
       <RichTextEditor
         v-if="hasSubcontent"
         ref="contentEditorRef"
@@ -100,9 +67,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
-import { TextSelection } from "prosemirror-state";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import RichTextEditor from "./RichTextEditor.vue";
+import RecurrenceControls from "./RecurrenceControls.vue";
+import TaskItemActions from "./TaskItemActions.vue";
+import { useTaskEditing } from "../composables/useTaskEditing.js";
 
 const props = defineProps({
   task: {
@@ -232,7 +201,13 @@ const recurrenceType = ref("");
 const weeklyDays = ref([]);
 const monthDaysInput = ref("");
 let saveTimer = null;
-let pendingCreateTimer = null;
+
+onBeforeUnmount(() => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+});
 
 const hasSubcontent = computed(() => {
   const doc = content.value;
@@ -316,52 +291,6 @@ const handleTitleDirty = () => {
   scheduleSave();
 };
 
-const isDocEmptyJson = (node) => {
-  if (!node) {
-    return true;
-  }
-  if (node.type === "text") {
-    return !(node.text || "").trim();
-  }
-  if (node.type === "hardBreak") {
-    return true;
-  }
-  if (node.content && Array.isArray(node.content)) {
-    return node.content.every((child) => isDocEmptyJson(child));
-  }
-  const containerTypes = new Set(["doc", "paragraph", "bulletList", "listItem"]);
-  if (node.type && containerTypes.has(node.type)) {
-    return true;
-  }
-  return false;
-};
-
-const isTitleEmpty = (editor) => {
-  if (!editor) {
-    return isDocEmptyJson(title.value);
-  }
-  return editor.state.doc.textContent.trim().length === 0;
-};
-
-const isContentEmpty = (editor) => {
-  if (!editor) {
-    return isDocEmptyJson(content.value);
-  }
-  let hasContent = false;
-  editor.state.doc.descendants((node) => {
-    if (node.isText && node.text?.trim()) {
-      hasContent = true;
-      return false;
-    }
-    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
-      hasContent = true;
-      return false;
-    }
-    return true;
-  });
-  return !hasContent;
-};
-
 const handleContentDirty = () => {
   if (props.readOnly) {
     return;
@@ -369,263 +298,15 @@ const handleContentDirty = () => {
   scheduleSave();
 };
 
-const isSelectionAtEnd = (editor) => {
-  if (!editor) {
-    return false;
-  }
-  const { selection } = editor.state;
-  if (!selection.empty) {
-    return false;
-  }
-  return selection.$from.pos === selection.$from.end();
-};
-
-const isSelectionAtStart = (editor) => {
-  if (!editor) {
-    return false;
-  }
-  const { selection } = editor.state;
-  if (!selection.empty) {
-    return false;
-  }
-  return selection.$from.pos === selection.$from.start();
-};
-
-const handleTitleKeydown = (event, editor) => {
-  if (props.readOnly) {
-    return false;
-  }
-  if (event.key === "Backspace" && isTitleEmpty(editor) && isContentEmpty(null)) {
-    event.preventDefault();
-    props.onDelete(props.task);
-    return true;
-  }
-  if (event.key === "Tab") {
-    if (pendingCreateTimer) {
-      clearTimeout(pendingCreateTimer);
-      pendingCreateTimer = null;
-    }
-    saveNow();
-    props.onTabToPrevious(props.task).then((moved) => {
-      if (!moved) {
-        contentEditorRef.value?.insertParagraphIfEmpty();
-      }
-    });
-    return true;
-  }
-
-  if (event.key === "ArrowDown") {
-    if (!hasSubcontent.value) {
-      return false;
-    }
-    if (!isSelectionAtEnd(editor)) {
-      return false;
-    }
-    event.preventDefault();
-    contentEditorRef.value?.focusListItem(0, "start");
-    return true;
-  }
-
-  if (event.key === "ArrowUp") {
-    if (!isSelectionAtStart(editor)) {
-      return false;
-    }
-    event.preventDefault();
-    props.onFocusPrevTaskFromTitle(props.task);
-    return true;
-  }
-
-  if (event.key === "Enter" && !event.shiftKey) {
-    if (pendingCreateTimer) {
-      clearTimeout(pendingCreateTimer);
-    }
-    saveNow();
-    pendingCreateTimer = setTimeout(() => {
-      pendingCreateTimer = null;
-      props.onCreateBelow(props.task, props.categoryId);
-    }, 250);
-    return true;
-  }
-
-  return false;
-};
-
-const getListContext = (editor) => {
-  if (!editor) {
-    return null;
-  }
-  const { $from, empty } = editor.state.selection;
-  if (!empty) {
-    return null;
-  }
-  let listItemDepth = null;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
-      listItemDepth = depth;
-      break;
-    }
-  }
-  if (!listItemDepth) {
-    return null;
-  }
-  const listDepth = listItemDepth - 1;
-  const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList" || listDepth !== 1) {
-    return null;
-  }
-  const listIndex = $from.index(listDepth);
-  const listCount = listNode.childCount;
-  const atStart = $from.parentOffset === 0;
-  const atEnd = $from.parentOffset === $from.parent.content.size;
-  return { listIndex, listCount, atStart, atEnd };
-};
-
-const handleContentKeydown = (event, editor) => {
-  if (props.readOnly) {
-    return false;
-  }
-  if (event.key === "Backspace") {
-    if (removeSingleEmptyList(editor)) {
-      event.preventDefault();
-      titleEditorRef.value?.focus();
-      return true;
-    }
-    if (isContentEmpty(editor) && isTitleEmpty(null)) {
-      event.preventDefault();
-      props.onDelete(props.task);
-      return true;
-    }
-  }
-  if (event.key === "Enter" && !event.shiftKey) {
-    if (props.isLastInCategory && removeEmptyLastListItem(editor)) {
-      event.preventDefault();
-      props.onCreateBelow(props.task, props.categoryId);
-      return true;
-    }
-  }
-  if (event.key === "ArrowDown") {
-    const ctx = getListContext(editor);
-    if (ctx && ctx.listIndex === ctx.listCount - 1 && ctx.atEnd) {
-      event.preventDefault();
-      props.onFocusNextTaskFromContent(props.task);
-      return true;
-    }
-  }
-  if (event.key === "ArrowUp") {
-    const ctx = getListContext(editor);
-    if (ctx && ctx.listIndex === 0 && ctx.atStart) {
-      event.preventDefault();
-      titleEditorRef.value?.focus();
-      return true;
-    }
-  }
-  return false;
-};
-
-const isListItemEmpty = (listItem) => {
-  if (!listItem) {
-    return false;
-  }
-  if (listItem.textContent.trim().length > 0) {
-    return false;
-  }
-  let hasInlineNonText = false;
-  listItem.descendants((node) => {
-    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
-      hasInlineNonText = true;
-      return false;
-    }
-    return true;
-  });
-  return !hasInlineNonText;
-};
-
-const removeEmptyLastListItem = (editor) => {
-  if (!editor) {
-    return false;
-  }
-  const { state, view } = editor;
-  const { selection } = state;
-  if (!selection.empty) {
-    return false;
-  }
-  const { $from } = selection;
-  let listItemDepth = null;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
-      listItemDepth = depth;
-      break;
-    }
-  }
-  if (!listItemDepth) {
-    return false;
-  }
-  const listDepth = listItemDepth - 1;
-  const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList") {
-    return false;
-  }
-  const listIndex = $from.index(listDepth);
-  if (listIndex !== listNode.childCount - 1) {
-    return false;
-  }
-  const listItem = $from.node(listItemDepth);
-  if (!isListItemEmpty(listItem)) {
-    return false;
-  }
-  if (listNode.childCount === 1) {
-    editor.commands.setContent({
-      type: "doc",
-      content: [{ type: "paragraph" }]
-    });
-    return true;
-  }
-
-  const from = $from.before(listItemDepth);
-  const to = $from.after(listItemDepth);
-  const tr = state.tr.delete(from, to);
-  const nextPos = Math.max(from - 1, 1);
-  tr.setSelection(TextSelection.create(tr.doc, nextPos));
-  view.dispatch(tr);
-  editor.commands.focus();
-  return true;
-};
-
-const removeSingleEmptyList = (editor) => {
-  if (!editor) {
-    return false;
-  }
-  const { state } = editor;
-  const { selection } = state;
-  if (!selection.empty) {
-    return false;
-  }
-  const { $from } = selection;
-  let listItemDepth = null;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
-      listItemDepth = depth;
-      break;
-    }
-  }
-  if (!listItemDepth) {
-    return false;
-  }
-  const listDepth = listItemDepth - 1;
-  const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList" || listNode.childCount !== 1) {
-    return false;
-  }
-  const listItem = $from.node(listItemDepth);
-  if (!isListItemEmpty(listItem)) {
-    return false;
-  }
-  editor.commands.setContent({
-    type: "doc",
-    content: [{ type: "paragraph" }]
-  });
-  return true;
-};
+const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
+  props,
+  titleRef: title,
+  contentRef: content,
+  titleEditorRef,
+  contentEditorRef,
+  hasSubcontent,
+  saveNow
+});
 
 const toggleComplete = () => {
   if (!props.allowToggle) {
@@ -883,104 +564,6 @@ watch(
   padding-right: 140px;
 }
 
-.task-actions-area {
-  position: absolute;
-  top: -2px;
-  right: 14px;
-  display: flex;
-  gap: 6px;
-  opacity: 0;
-  pointer-events: none;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  z-index: 2;
-}
-
-.task-item:hover .task-actions-area {
-  opacity: 1;
-}
-
-.task-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.task-actions-area .task-action,
-.task-actions-area .drag-handle {
-  pointer-events: auto;
-}
-
-.task-action {
-  border: 1px solid var(--border-panel);
-  background: var(--bg-panel);
-  color: var(--text-main);
-  padding: 2px 6px;
-  border-radius: 0;
-  font-size: 0.7rem;
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.recurrence-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.recurrence-label {
-  font-weight: 600;
-}
-
-.recurrence-select {
-  border: 1px solid var(--border-panel);
-  border-radius: 0;
-  padding: 2px 8px;
-  background: var(--bg-panel);
-  font-size: 0.75rem;
-}
-
-.weekday-row {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.weekday-chip {
-  border: 1px solid var(--border-panel);
-  background: var(--bg-panel);
-  color: var(--text-main);
-  padding: 2px 6px;
-  border-radius: 0;
-  font-size: 0.7rem;
-  cursor: pointer;
-}
-
-.weekday-chip.active {
-  background: var(--text-main);
-  color: var(--text-invert);
-  border-color: var(--text-main);
-}
-
-.monthday-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.monthday-input {
-  border: 1px solid var(--border-panel);
-  border-radius: 0;
-  padding: 2px 8px;
-  background: var(--bg-panel);
-  font-size: 0.75rem;
-  width: 120px;
-}
-
 .title-row {
   display: flex;
   align-items: center;
@@ -991,22 +574,6 @@ watch(
 
 .title-editor {
   flex: 1;
-}
-
-.drag-handle {
-  border: 1px solid var(--border-panel);
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  border-radius: 0;
-  padding: 0 6px;
-  font-size: 0.8rem;
-  line-height: 1.2rem;
-  cursor: grab;
-  user-select: none;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
 }
 
 .title-editor :deep(.editor-surface) {

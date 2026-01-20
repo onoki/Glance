@@ -1,5 +1,3 @@
-using System.Net;
-using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.StaticFiles;
@@ -48,8 +46,11 @@ public static class ServerHost
         builder.Services.AddSingleton<DatabaseInitializer>();
         builder.Services.AddSingleton<TaskRepository>();
         builder.Services.AddSingleton<ChangeLogRepository>();
+        builder.Services.AddSingleton<MaintenanceStateStore>();
+        builder.Services.AddSingleton<AttachmentMaintenance>();
         builder.Services.AddSingleton<MaintenanceService>();
         builder.Services.AddSingleton<AppMetaRepository>();
+        builder.Services.AddHostedService<StartupReporter>();
 
         var app = builder.Build();
 
@@ -62,20 +63,11 @@ public static class ServerHost
         var initializer = app.Services.GetRequiredService<DatabaseInitializer>();
         initializer.Initialize();
 
-        var meta = app.Services.GetRequiredService<AppMetaRepository>();
-        var storedVersion = await meta.GetValueAsync("app_version", cancellationToken);
-        var schemaVersion = await meta.GetSchemaVersionAsync(cancellationToken);
-
         var tasks = app.Services.GetRequiredService<TaskRepository>();
         var maintenance = app.Services.GetRequiredService<MaintenanceService>();
-        logger.LogInformation(
-            "App version {CurrentVersion}, stored app_version {StoredVersion}, schema {SchemaVersion}",
-            BuildInfo.Version,
-            storedVersion ?? "none",
-            schemaVersion);
         await maintenance.RunIntegrityCheckAsync(cancellationToken);
-        await tasks.GenerateRecurringTasksAsync(DateTime.Now, cancellationToken);
-        _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(DateTime.Now, CancellationToken.None));
+        await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, cancellationToken);
+        _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(TimeProvider.Now, CancellationToken.None));
 
         app.UseCors();
 
@@ -100,425 +92,19 @@ public static class ServerHost
         }
 
         await app.StartAsync(cancellationToken);
-        try
-        {
-            await meta.SetValueAsync("app_version", BuildInfo.Version, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to store app version in app_meta.");
-        }
         return app;
     }
 
     private static void MapEndpoints(WebApplication app)
     {
-        app.MapPost("/api/attachments", async (HttpRequest request, HttpContext context, AppPaths paths) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
-            if (!request.HasFormContentType)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Attachment must be sent as multipart form data" });
-            }
-
-            var form = await request.ReadFormAsync();
-            var file = form.Files.FirstOrDefault();
-            if (file is null)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "No attachment was provided" });
-            }
-
-            const long maxBytes = 10 * 1024 * 1024;
-            if (file.Length <= 0)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Attachment is empty" });
-            }
-
-            if (file.Length > maxBytes)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Attachment exceeds the 10MB size limit" });
-            }
-
-            var contentType = file.ContentType?.ToLowerInvariant() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(contentType) && !IsAllowedContentType(contentType))
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = $"Unsupported attachment type: {contentType}" });
-            }
-
-            var extension = GetAllowedExtension(file.FileName) ?? GetExtensionFromContentType(contentType) ?? ".png";
-            var attachmentId = Guid.NewGuid().ToString();
-            var fileName = $"{attachmentId}{extension}";
-
-            Directory.CreateDirectory(paths.AttachmentsDirectory);
-            var filePath = Path.Combine(paths.AttachmentsDirectory, fileName);
-            await using (var stream = File.Create(filePath))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
-            return Results.Ok(new { attachmentId, url = $"{baseUrl}/attachments/{fileName}" });
-        });
-
-        app.MapGet("/attachments/{fileName}", (string fileName, HttpContext context, AppPaths paths) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
-            var safeName = Path.GetFileName(fileName);
-            if (string.IsNullOrWhiteSpace(safeName))
-            {
-                return Results.NotFound();
-            }
-
-            var filePath = Path.Combine(paths.AttachmentsDirectory, safeName);
-            if (!File.Exists(filePath))
-            {
-                return Results.NotFound();
-            }
-
-            var provider = new FileExtensionContentTypeProvider();
-            if (!provider.TryGetContentType(filePath, out var contentType))
-            {
-                contentType = "application/octet-stream";
-            }
-
-            return Results.File(filePath, contentType);
-        });
-
-        app.MapGet("/api/dashboard", async (TaskRepository tasks, CancellationToken token) =>
-        {
-            var newTasks = await tasks.GetTasksByPageAsync("dashboard:new", token);
-            var mainTasks = await tasks.GetDashboardMainTasksAsync(GetStartOfToday(), token);
-            return Results.Ok(new DashboardResponse(newTasks, mainTasks));
-        });
-
-        app.MapGet("/api/version", () => Results.Ok(new { version = BuildInfo.Version }));
-
-        app.MapPost("/api/tasks", async (TaskCreateRequest request, TaskRepository tasks, CancellationToken token) =>
-        {
-            if (request.Title.ValueKind == JsonValueKind.Undefined)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Task title is required" });
-            }
-
-            if (request.Content.ValueKind == JsonValueKind.Undefined)
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Task content is required" });
-            }
-
-            var validation = ValidateTaskInput(request.Title, request.Content);
-            if (validation != null)
-            {
-                return validation;
-            }
-
-            var scheduleValidation = ValidateScheduledDate(request.ScheduledDate);
-            if (scheduleValidation != null)
-            {
-                return scheduleValidation;
-            }
-
-            var recurrenceValidation = ValidateRecurrence(request.Recurrence);
-            if (recurrenceValidation != null)
-            {
-                return recurrenceValidation;
-            }
-
-            var response = await tasks.CreateTaskAsync(request, token);
-            if (request.Recurrence.HasValue)
-            {
-                await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
-            }
-            return Results.Ok(response);
-        });
-
-        app.MapPut("/api/tasks/{taskId}", async (string taskId, TaskUpdateRequest request, TaskRepository tasks, CancellationToken token) =>
-        {
-            if (request.Title.HasValue)
-            {
-                var validation = ValidateTaskInput(request.Title.Value, request.Content);
-                if (validation != null)
-                {
-                    return validation;
-                }
-            }
-            else if (request.Content.HasValue && TaskTextExtractor.ContainsHeading(request.Content.Value))
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Task content must not contain heading nodes" });
-            }
-
-            var scheduleValidation = ValidateScheduledDate(request.ScheduledDate.HasValue ? request.ScheduledDate.Value : null);
-            if (scheduleValidation != null)
-            {
-                return scheduleValidation;
-            }
-
-            var recurrenceValidation = ValidateRecurrence(request.Recurrence);
-            if (recurrenceValidation != null)
-            {
-                return recurrenceValidation;
-            }
-
-            var response = await tasks.UpdateTaskAsync(taskId, request, token);
-            if (response is null)
-            {
-                return Results.NotFound(new { error = "NotFound", message = "Task not found" });
-            }
-            if (request.Recurrence.HasValue)
-            {
-                await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
-            }
-            return Results.Ok(response);
-        });
-
-        app.MapPost("/api/tasks/{taskId}/complete", async (string taskId, TaskCompleteRequest request, TaskRepository tasks, CancellationToken token) =>
-        {
-            var response = await tasks.SetCompletionAsync(taskId, request.Completed, token);
-            return response is null
-                ? Results.NotFound(new { error = "NotFound", message = "Task not found" })
-                : Results.Ok(response);
-        });
-
-        app.MapDelete("/api/tasks/{taskId}", async (string taskId, TaskRepository tasks, CancellationToken token) =>
-        {
-            var deleted = await tasks.DeleteTaskAsync(taskId, token);
-            return deleted
-                ? Results.Ok(new { ok = true })
-                : Results.NotFound(new { error = "NotFound", message = "Task not found" });
-        });
-
-        app.MapGet("/api/changes", async (long? since, ChangeLogRepository changes, CancellationToken token) =>
-        {
-            var response = await changes.GetChangesAsync(since ?? 0, token);
-            return Results.Ok(response);
-        });
-
-        app.MapGet("/api/search", async (string q, TaskRepository tasks, CancellationToken token) =>
-        {
-            if (string.IsNullOrWhiteSpace(q))
-            {
-                return Results.Ok(new SearchResponse(q ?? string.Empty, Array.Empty<SearchResult>()));
-            }
-
-            var matches = await tasks.SearchAsync(q, token);
-            var results = matches.Select(task => new SearchResult(task, new[] { q })).ToList();
-            return Results.Ok(new SearchResponse(q, results));
-        });
-
-        app.MapPost("/api/recurrence/run", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-            await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
-            return Results.Ok(new { ok = true });
-        });
-
-        app.MapPost("/api/backup", async (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-            var now = DateTime.Now;
-            var success = await maintenance.CreateBackupAsync(now, token);
-            if (success)
-            {
-                await maintenance.RecordBackupSuccessAsync(now);
-                return Results.Ok(new { ok = true });
-            }
-            return Results.StatusCode(StatusCodes.Status500InternalServerError);
-        });
-
-        app.MapPost("/api/search/reindex", async (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-            await maintenance.ReindexSearchAsync(token);
-            return Results.Ok(new { ok = true });
-        });
-
-        app.MapPost("/api/maintenance/daily", (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-            _ = Task.Run(() => maintenance.RunDailyMaintenanceAsync(DateTime.Now, CancellationToken.None), token);
-            return Results.Ok(new { ok = true });
-        });
-
-        app.MapGet("/api/warnings", async (MaintenanceService maintenance, CancellationToken token) =>
-        {
-            var warnings = await maintenance.GetWarningsAsync(token);
-            return Results.Ok(new WarningsResponse(warnings));
-        });
-
-        app.MapGet("/api/maintenance/status", async (MaintenanceService maintenance) =>
-        {
-            var status = await maintenance.GetStatusAsync();
-            return Results.Ok(status);
-        });
-
-        app.MapGet("/api/history", async (TaskRepository tasks, CancellationToken token) =>
-        {
-            var completedTasks = await tasks.GetHistoryTasksAsync(token);
-            var stats = await tasks.GetHistoryStatsAsync(GetHistoryStart(180), token);
-
-            var groups = completedTasks
-                .GroupBy(task => FormatDate(task.CompletedAt))
-                .Select(group => new HistoryGroup(group.Key, group.ToList()))
-                .ToList();
-
-            return Results.Ok(new HistoryResponse(stats, groups));
-        });
-
-        app.MapPost("/api/debug/move-completed-to-history", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
-        {
-            if (!IsLocalRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
-            var moved = await tasks.MoveCompletedToHistoryAsync(GetStartOfToday(), token);
-            return Results.Ok(new { moved });
-        });
-    }
-
-    private static IResult? ValidateTaskInput(JsonElement title, JsonElement? content)
-    {
-        if (title.ValueKind == JsonValueKind.Undefined)
-        {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task title is required" });
-        }
-
-        if (TaskTextExtractor.ContainsHeading(title))
-        {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task title must not contain heading nodes" });
-        }
-
-        if (TaskTextExtractor.ContainsList(title))
-        {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task title must not contain list nodes" });
-        }
-
-        if (content.HasValue && TaskTextExtractor.ContainsHeading(content.Value))
-        {
-            return Results.BadRequest(new { error = "ValidationError", message = "Task content must not contain heading nodes" });
-        }
-
-        return null;
-    }
-
-    private static IResult? ValidateScheduledDate(JsonElement? scheduledDate)
-    {
-        if (!scheduledDate.HasValue)
-        {
-            return null;
-        }
-
-        return scheduledDate.Value.ValueKind switch
-        {
-            JsonValueKind.String => null,
-            JsonValueKind.Null => null,
-            JsonValueKind.Undefined => null,
-            _ => Results.BadRequest(new { error = "ValidationError", message = "Scheduled date must be a string or null" })
-        };
-    }
-
-    private static IResult? ValidateRecurrence(JsonElement? recurrence)
-    {
-        if (!recurrence.HasValue)
-        {
-            return null;
-        }
-
-        return recurrence.Value.ValueKind switch
-        {
-            JsonValueKind.Object => null,
-            JsonValueKind.Null => null,
-            JsonValueKind.Undefined => null,
-            _ => Results.BadRequest(new { error = "ValidationError", message = "Recurrence must be an object or null" })
-        };
-    }
-
-    private static long GetStartOfToday()
-    {
-        var now = DateTimeOffset.Now;
-        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
-        return start.ToUnixTimeMilliseconds();
-    }
-
-    private static long GetHistoryStart(int days)
-    {
-        var now = DateTimeOffset.Now;
-        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddDays(-days + 1);
-        return start.ToUnixTimeMilliseconds();
-    }
-
-    private static string FormatDate(long? timestamp)
-    {
-        if (!timestamp.HasValue)
-        {
-            return "Unknown";
-        }
-        var date = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).ToLocalTime().Date;
-        return date.ToString("yyyy-MM-dd");
-    }
-
-    private static bool IsLocalRequest(HttpContext context)
-    {
-        var address = context.Connection.RemoteIpAddress;
-        return address != null && IPAddress.IsLoopback(address);
-    }
-
-    private static bool IsAllowedContentType(string contentType)
-    {
-        return contentType is "image/png"
-            or "image/jpeg"
-            or "image/webp"
-            or "image/gif";
-    }
-
-    private static string? GetAllowedExtension(string? fileName)
-    {
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return null;
-        }
-
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        return extension switch
-        {
-            ".png" => extension,
-            ".jpg" => extension,
-            ".jpeg" => extension,
-            ".webp" => extension,
-            ".gif" => extension,
-            _ => null
-        };
-    }
-
-    private static string? GetExtensionFromContentType(string contentType)
-    {
-        return contentType switch
-        {
-            "image/png" => ".png",
-            "image/jpeg" => ".jpg",
-            "image/webp" => ".webp",
-            "image/gif" => ".gif",
-            _ => null
-        };
+        AttachmentEndpoints.Map(app);
+        TaskEndpoints.Map(app);
+        ChangesEndpoints.Map(app);
+        SearchEndpoints.Map(app);
+        MaintenanceEndpoints.Map(app);
+        HistoryEndpoints.Map(app);
+        DebugEndpoints.Map(app);
+        VersionEndpoints.Map(app);
     }
 
     private static string ResolveAppRoot()

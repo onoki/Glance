@@ -22,283 +22,59 @@
           <button class="warning-dismiss" @click="dismissWarning(warning.id)">Dismiss</button>
         </div>
       </div>
-      <section v-if="activeTab === 'Dashboard'" class="dashboard">
-        <div
-          ref="dashboardColumnsRef"
-          class="dashboard-columns"
-          :class="{ 'expanded-new': expandedNew, 'dragging-dashboard': isDashboardDragging }"
-          @pointerdown="handleDashboardPointerDown"
-          @pointermove="handleDashboardPointerMove"
-          @pointerup="handleDashboardPointerUp"
-          @pointerleave="handleDashboardPointerUp"
-        >
-          <div class="dashboard-column new-column" :class="{ expanded: expandedNew }">
-            <section class="list-card">
-              <header class="list-header column-header">
-                <div>
-                  <h2>New tasks</h2>
-                  <p class="subtitle">Fresh captures that still need a home.</p>
-                </div>
-                <div class="header-actions">
-                  <button class="ghost" @click="moveNewToMain" :disabled="newTasks.length === 0">
-                    Move to Uncategorized
-                  </button>
-                  <button class="ghost" @click="expandedNew = !expandedNew">
-                    {{ expandedNew ? "Restore view" : "Expand" }}
-                  </button>
-                </div>
-              </header>
+      <DashboardView
+        v-if="activeTab === 'Dashboard'"
+        v-model:dashboard-columns-ref="dashboardColumnsRef"
+        :new-tasks="newTasks"
+        :main-categories="mainCategories"
+        :expanded-new="expandedNew"
+        :is-dashboard-dragging="isDashboardDragging"
+        :get-task-item-bindings="getTaskItemBindings"
+        :group-tasks-by-weekday="groupTasksByWeekday"
+        :is-this-week-category="isThisWeekCategory"
+        :on-move-new-to-main="moveNewToMain"
+        :on-toggle-expand="toggleExpandNew"
+        :on-drop-on-category="dropOnCategoryFromView"
+        :on-pointer-down="handleDashboardPointerDown"
+        :on-pointer-move="handleDashboardPointerMove"
+        :on-pointer-up="handleDashboardPointerUp"
+      />
 
-              <div class="task-list" @dragover.prevent @drop.prevent="dropOnCategory('new', 'dashboard:new', $event)">
-                <TaskItem
-                  v-for="task in newTasks"
-                  :key="task.id"
-                  :task="task"
-                  :show-recurrence-controls="false"
-                  :on-set-recurrence="setTaskRecurrence"
-                :draggable="true"
-                :is-last-in-category="isLastTaskInList(task, newTasks)"
-                :is-drop-target="dragOver.id === task.id"
-                :drop-position="dragOver.position"
-                category-id="new"
-                drag-category-id="new"
-                :on-drag-start="startDrag"
-                :on-drag-end="endDrag"
-                :on-drop="dropOnTask"
-                  :on-drag-over="setDragOver"
-                  :on-drag-leave="clearDragOver"
-                  :focus-title-id="focusTaskId"
-                  :focus-content-target="focusContentTarget"
-                  :on-save="saveTask"
-                  :on-complete="toggleComplete"
-                  :on-dirty="handleDirtyChange"
-                  :on-create-below="createTaskBelow"
-                  :on-tab-to-previous="moveTaskToPrevious"
-                  :on-split-to-new-task="splitSubcontentToNewTask"
-                  :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
-                  :on-focus-next-task-from-content="focusNextTaskFromContent"
-                  :on-delete="deleteTask"
-                />
-              </div>
-            </section>
-          </div>
+      <HistoryView
+        v-else-if="activeTab === 'History'"
+        :history-bars="historyBars"
+        :history-scale="historyScale"
+        :history-series="historySeries"
+        :history-groups="historyGroups"
+        :on-move-completed-to-history="moveCompletedToHistory"
+        :on-complete="toggleComplete"
+        :noop="noop"
+        :noop-async="noopAsync"
+      />
 
-          <template v-for="category in mainCategories" :key="category.id">
-            <div
-              v-if="category.tasks.length"
-              class="dashboard-column"
-              @dragover.prevent
-              @drop.prevent="dropOnCategory(category.id, 'dashboard:main', $event)"
-            >
-              <section class="list-card">
-                <header class="column-header">
-                  <h3 class="category-title">{{ category.label }}</h3>
-                </header>
+      <SearchView
+        v-else-if="activeTab === 'Search'"
+        v-model:search-query="searchQuery"
+        :search-results="searchResults"
+        :has-searched="hasSearched"
+        :is-searching="isSearching"
+        :on-search-tasks="searchTasks"
+        :search-input-ref="searchInputRef"
+        :noop="noop"
+        :noop-async="noopAsync"
+      />
 
-                <div class="task-list">
-                  <template v-if="isThisWeekCategory(category)">
-                    <div v-for="group in groupTasksByWeekday(category.tasks)" :key="group.id" class="weekday-group">
-                      <div class="weekday-header">{{ group.label }}</div>
-                      <TaskItem
-                        v-for="task in group.tasks"
-                        :key="task.id"
-                        :task="task"
-                        :show-category-actions="true"
-                        :on-set-category="setTaskCategory"
-                        :show-recurrence-controls="category.id === 'repeatable'"
-                        :on-set-recurrence="setTaskRecurrence"
-                        :draggable="true"
-                        :is-last-in-category="isLastTaskId(task, category.tasks)"
-                        :is-drop-target="dragOver.id === task.id"
-                        :drop-position="dragOver.position"
-                        :category-id="category.id"
-                        :drag-category-id="category.id"
-                        :on-drag-start="startDrag"
-                        :on-drag-end="endDrag"
-                        :on-drop="dropOnTask"
-                        :on-drag-over="setDragOver"
-                        :on-drag-leave="clearDragOver"
-                        :focus-title-id="focusTaskId"
-                        :focus-content-target="focusContentTarget"
-                        :on-save="saveTask"
-                        :on-complete="toggleComplete"
-                        :on-dirty="handleDirtyChange"
-                        :on-create-below="createTaskBelow"
-                        :on-tab-to-previous="moveTaskToPrevious"
-                        :on-split-to-new-task="splitSubcontentToNewTask"
-                        :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
-                        :on-focus-next-task-from-content="focusNextTaskFromContent"
-                        :on-delete="deleteTask"
-                      />
-                    </div>
-                  </template>
-                  <template v-else>
-                    <TaskItem
-                      v-for="task in category.tasks"
-                      :key="task.id"
-                      :task="task"
-                      :show-category-actions="true"
-                      :on-set-category="setTaskCategory"
-                      :show-recurrence-controls="category.id === 'repeatable'"
-                      :on-set-recurrence="setTaskRecurrence"
-                    :draggable="true"
-                    :is-last-in-category="isLastTaskId(task, category.tasks)"
-                    :is-drop-target="dragOver.id === task.id"
-                    :drop-position="dragOver.position"
-                    :category-id="category.id"
-                    :drag-category-id="category.id"
-                    :on-drag-start="startDrag"
-                    :on-drag-end="endDrag"
-                    :on-drop="dropOnTask"
-                      :on-drag-over="setDragOver"
-                      :on-drag-leave="clearDragOver"
-                      :focus-title-id="focusTaskId"
-                      :focus-content-target="focusContentTarget"
-                      :on-save="saveTask"
-                      :on-complete="toggleComplete"
-                      :on-dirty="handleDirtyChange"
-                      :on-create-below="createTaskBelow"
-                      :on-tab-to-previous="moveTaskToPrevious"
-                      :on-split-to-new-task="splitSubcontentToNewTask"
-                      :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
-                      :on-focus-next-task-from-content="focusNextTaskFromContent"
-                      :on-delete="deleteTask"
-                    />
-                  </template>
-                </div>
-              </section>
-            </div>
-          </template>
-        </div>
-      </section>
-
-      <section v-else-if="activeTab === 'History'" class="history-view">
-        <div class="history-toolbar">
-          <button class="ghost" @click="moveCompletedToHistory">Debug: Move completed to history</button>
-        </div>
-        <div class="history-chart">
-          <div class="chart-area">
-            <div class="chart-bars">
-            <div
-              v-for="day in historyBars"
-              :key="day.date"
-              class="chart-bar"
-              :style="{ height: `${day.height}%` }"
-              :title="`${day.date}: ${day.count}`"
-            ></div>
-            </div>
-            <div class="chart-scale">
-              <span v-for="tick in historyScale" :key="tick.label">{{ tick.label }}</span>
-            </div>
-          </div>
-          <div class="chart-axis">
-            <span>{{ historySeries[0]?.date }}</span>
-            <span>{{ historySeries[historySeries.length - 1]?.date }}</span>
-          </div>
-        </div>
-        <div class="history-list">
-          <div v-if="historyGroups.length === 0" class="history-empty">No completed tasks yet.</div>
-          <div v-else>
-            <section v-for="group in historyGroups" :key="group.date" class="history-group">
-              <h3 class="history-date">{{ group.date }}</h3>
-              <div class="task-list">
-                <TaskItem
-                  v-for="task in group.tasks"
-                  :key="task.id"
-                  :task="task"
-                  :read-only="true"
-                  :allow-toggle="true"
-                  :focus-title-id="null"
-                  :focus-content-target="null"
-                  :on-save="noop"
-                  :on-complete="toggleComplete"
-                  :on-dirty="noop"
-                  :on-create-below="noop"
-                  :on-tab-to-previous="noopAsync"
-                  :on-split-to-new-task="noop"
-                  :on-focus-prev-task-from-title="noop"
-                  :on-focus-next-task-from-content="noop"
-                  :on-delete="noop"
-                />
-              </div>
-            </section>
-          </div>
-        </div>
-      </section>
-
-      <section v-else-if="activeTab === 'Search'" class="search-view">
-        <div class="search-bar">
-          <input
-            v-model="searchQuery"
-            type="search"
-            placeholder="Search tasks"
-            @keydown.enter.prevent="searchTasks"
-            ref="searchInputRef"
-          />
-          <button class="add-task" :disabled="isSearching" @click="searchTasks">Search</button>
-        </div>
-        <div class="search-results">
-          <div v-if="!hasSearched" class="search-empty"></div>
-          <div v-else-if="searchResults.length === 0" class="search-empty">No results</div>
-          <div v-else class="search-list">
-            <TaskItem
-              v-for="result in searchResults"
-              :key="result.task.id"
-              :task="result.task"
-              :read-only="true"
-              :allow-toggle="false"
-              :focus-title-id="null"
-              :focus-content-target="null"
-              :on-save="noop"
-              :on-complete="noop"
-              :on-dirty="noop"
-              :on-create-below="noop"
-              :on-tab-to-previous="noopAsync"
-              :on-split-to-new-task="noop"
-              :on-focus-prev-task-from-title="noop"
-              :on-focus-next-task-from-content="noop"
-              :on-delete="noop"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section v-else-if="activeTab === 'Settings'" class="settings-view">
-        <div class="settings-card">
-          <h2>Data safety</h2>
-          <p>Back up your data and manage maintenance tasks.</p>
-          <div class="settings-actions">
-            <button class="add-task" :disabled="isBackingUp" @click="backupNow">
-              {{ isBackingUp ? "Backing up..." : "Backup now" }}
-            </button>
-            <button class="ghost" :disabled="isReindexing" @click="reindexSearch">
-              {{ isReindexing ? "Reindexing..." : "Reindex search" }}
-            </button>
-          </div>
-          <div class="settings-status-list">
-            <div><strong>Last backup:</strong> {{ maintenanceStatus.lastBackupAt || "Never" }}</div>
-            <div v-if="maintenanceStatus.lastBackupError">
-              <strong>Last backup error:</strong> {{ maintenanceStatus.lastBackupError }}
-            </div>
-            <div><strong>Last reindex:</strong> {{ maintenanceStatus.lastReindexAt || "Never" }}</div>
-          </div>
-          <p v-if="backupStatus" class="settings-status">{{ backupStatus }}</p>
-          <p v-if="reindexStatus" class="settings-status">{{ reindexStatus }}</p>
-        </div>
-        <div class="settings-card">
-          <h2>About</h2>
-          <div class="settings-status-list">
-            <div><strong>Version:</strong> {{ appVersion || "Unknown" }} UTC</div>
-          </div>
-        </div>
-        <div class="settings-card">
-          <h2>Licenses</h2>
-          <p class="settings-status">
-            Fontpkg-PxPlus_IBM_VGA8 by pocketfood (CC BY-SA 4.0):
-            https://github.com/pocketfood/Fontpkg-PxPlus_IBM_VGA8
-          </p>
-        </div>
-      </section>
+      <SettingsView
+        v-else-if="activeTab === 'Settings'"
+        :is-backing-up="isBackingUp"
+        :is-reindexing="isReindexing"
+        :backup-status="backupStatus"
+        :reindex-status="reindexStatus"
+        :maintenance-status="maintenanceStatus"
+        :app-version="appVersion"
+        :on-backup-now="backupNow"
+        :on-reindex-search="reindexSearch"
+      />
 
       <section v-else class="placeholder">
         <h2>{{ activeTab }}</h2>
@@ -310,1084 +86,60 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { apiDelete, apiGet, apiPost, apiPut } from "./api";
-import TaskItem from "./components/TaskItem.vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
+import DashboardView from "./components/views/DashboardView.vue";
+import HistoryView from "./components/views/HistoryView.vue";
+import SearchView from "./components/views/SearchView.vue";
+import SettingsView from "./components/views/SettingsView.vue";
+import { groupTasksByWeekday, isThisWeekCategory } from "./utils/categoryUtils.js";
+import { useHistory } from "./composables/useHistory.js";
+import { useMaintenance } from "./composables/useMaintenance.js";
+import { useSearch } from "./composables/useSearch.js";
+import { useDashboardData } from "./composables/useDashboardData.js";
+import { useDashboardDrag } from "./composables/useDashboardDrag.js";
+import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts.js";
 
 const tabs = ["Dashboard", "History", "Search", "Settings"];
 const activeTab = ref("Dashboard");
 
-const newTasks = ref([]);
-const mainTasks = ref([]);
-const expandedNew = ref(false);
-const lastChangeId = ref(0);
-const focusTaskId = ref(null);
-const focusContentTarget = ref(null);
-const searchQuery = ref("");
-const searchResults = ref([]);
-const hasSearched = ref(false);
-const isSearching = ref(false);
-const historyGroups = ref([]);
-const historyStats = ref([]);
-const currentDayKey = ref("");
-const searchInputRef = ref(null);
 const dashboardColumnsRef = ref(null);
-const warnings = ref([]);
-const dismissedWarningIds = ref([]);
-const appVersion = ref("");
-const isBackingUp = ref(false);
-const isReindexing = ref(false);
-const backupStatus = ref("");
-const reindexStatus = ref("");
-const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
-const creatingDefaultNew = ref(false);
-const isDashboardDragging = ref(false);
-const dashboardDragState = ref({ active: false, startX: 0, startScrollLeft: 0, pointerId: null });
 
-let pollTimer = null;
-let dayTimer = null;
-let maintenanceTimer = null;
-const dirtySnapshots = new Map();
-const recurrenceCache = new Map();
-const dragState = ref(null);
-const dragOver = ref({ id: null, position: "before" });
-
-const emptyTitleDoc = () => ({
-  type: "doc",
-  content: [{ type: "paragraph" }]
-});
-
-const emptyContentDoc = () => ({
-  type: "doc",
-  content: [{ type: "paragraph" }]
-});
-
-const normalizeContent = (content) => {
-  if (!content || content.type !== "doc") {
-    return emptyContentDoc();
-  }
-  const nodes = content.content || [];
-  if (nodes.length === 0) {
-    return emptyContentDoc();
-  }
-  const list = nodes[0];
-  if (list && list.type === "bulletList") {
-    if (!list.content || list.content.length === 0) {
-      return emptyContentDoc();
-    }
-    return content;
-  }
-  if (
-    nodes.length === 1
-    && nodes[0].type === "paragraph"
-    && (!nodes[0].content || nodes[0].content.length === 0)
-  ) {
-    return emptyContentDoc();
-  }
-  const paragraphs = nodes.filter((node) => node.type === "paragraph");
-  if (paragraphs.length > 0) {
-    return {
-      type: "doc",
-      content: [
-        {
-          type: "bulletList",
-          content: paragraphs.map((paragraph) => ({
-            type: "listItem",
-            content: [paragraph]
-          }))
-        }
-      ]
-    };
-  }
-  return emptyContentDoc();
-};
-
-const titleFromText = (text) => ({
-  type: "doc",
-  content: [
-    {
-      type: "paragraph",
-      content: text ? [{ type: "text", text }] : []
-    }
-  ]
-});
-
-const normalizeTitle = (title) => {
-  if (typeof title === "string") {
-    return titleFromText(title);
-  }
-  if (!title || title.type !== "doc") {
-    return emptyTitleDoc();
-  }
-  if (!title.content || title.content.length === 0) {
-    return emptyTitleDoc();
-  }
-  return title;
-};
-
-const titleDocToListItem = (titleDoc) => {
-  const paragraphs = [];
-  if (titleDoc?.content) {
-    for (const node of titleDoc.content) {
-      if (node.type === "paragraph") {
-        paragraphs.push(node);
-      }
-    }
-  }
-  const inlineContent = [];
-  paragraphs.forEach((para, index) => {
-    if (para.content) {
-      inlineContent.push(...para.content);
-    }
-    if (index < paragraphs.length - 1) {
-      inlineContent.push({ type: "hardBreak" });
-    }
-  });
-  return {
-    type: "listItem",
-    content: [
-      {
-        type: "paragraph",
-        content: inlineContent.length ? inlineContent : []
-      }
-    ]
-  };
-};
-
-const formatDateKey = (date) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const getDayKey = () => formatDateKey(new Date());
-
-const getWeekStart = (date) => {
-  const day = date.getDay();
-  const diff = (day + 6) % 7;
-  const start = new Date(date);
-  start.setDate(date.getDate() - diff);
-  start.setHours(0, 0, 0, 0);
-  return start;
-};
-
-const parseDateKey = (dateKey) => {
-  const date = new Date(`${dateKey}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date;
-};
-
-const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-const toWeekdayNumber = (date) => {
-  const day = date.getDay();
-  return ((day + 6) % 7) + 1;
-};
-
-const groupTasksByWeekday = (tasks) => {
-  const groups = new Map();
-  tasks.forEach((task) => {
-    const date = task.scheduledDate ? parseDateKey(task.scheduledDate) : new Date();
-    const weekday = toWeekdayNumber(date || new Date());
-    if (!groups.has(weekday)) {
-      groups.set(weekday, []);
-    }
-    groups.get(weekday).push(task);
-  });
-
-  return weekdayLabels
-    .map((label, index) => {
-      const day = index + 1;
-      return { id: `weekday-${day}`, label, tasks: groups.get(day) || [] };
-    })
-    .filter((group) => group.tasks.length > 0);
-};
-
-const isThisWeekCategory = (category) => category.label === "This week";
-
-const isLastTaskId = (task, list) => {
-  if (!list || list.length === 0) {
-    return false;
-  }
-  return list[list.length - 1]?.id === task.id;
-};
-
-const isLastTaskInList = (task, list) => isLastTaskId(task, list);
-
-const deriveCategories = (tasks) => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const currentWeekStart = getWeekStart(now);
-  const futureLimit = new Date(currentWeekStart);
-  futureLimit.setDate(currentWeekStart.getDate() + 28);
-
-  const repeatable = [];
-  const uncategorized = [];
-  const notes = [];
-  const noDate = [];
-  const weekGroups = new Map();
-
-  tasks.forEach((task) => {
-    if (task.recurrence) {
-      if (task.recurrence.type === "notes") {
-        notes.push(task);
-        return;
-      }
-      repeatable.push(task);
-      return;
-    }
-
-    if (task.scheduledDate) {
-      const scheduled = parseDateKey(task.scheduledDate);
-      if (!scheduled) {
-        noDate.push(task);
-        return;
-      }
-      const weekStart = getWeekStart(scheduled);
-      if (weekStart > futureLimit) {
-        return;
-      }
-      const weekKey = formatDateKey(weekStart);
-      if (!weekGroups.has(weekKey)) {
-        weekGroups.set(weekKey, []);
-      }
-      weekGroups.get(weekKey).push(task);
-      return;
-    }
-
-    uncategorized.push(task);
-  });
-
-  const categories = [];
-  if (uncategorized.length) {
-    categories.push({ id: "uncategorized", label: "Uncategorized", tasks: uncategorized });
-  }
-
-  const weekKeys = Array.from(weekGroups.keys()).sort();
-  const pastWeeks = [];
-  const futureWeeks = [];
-  let thisWeekKey = null;
-  let nextWeekKey = null;
-  const nextWeek = new Date(currentWeekStart);
-  nextWeek.setDate(currentWeekStart.getDate() + 7);
-  thisWeekKey = formatDateKey(currentWeekStart);
-  nextWeekKey = formatDateKey(nextWeek);
-
-  weekKeys.forEach((key) => {
-    const weekDate = parseDateKey(key);
-    if (!weekDate) {
-      return;
-    }
-    if (weekDate < currentWeekStart) {
-      pastWeeks.push(key);
-      return;
-    }
-    if (key === thisWeekKey || key === nextWeekKey) {
-      return;
-    }
-    futureWeeks.push(key);
-  });
-
-  pastWeeks.forEach((key) => {
-    categories.push({ id: `week-${key}`, label: `Week starting ${key}`, tasks: weekGroups.get(key) });
-  });
-
-  if (weekGroups.has(thisWeekKey)) {
-    categories.push({ id: `week-${thisWeekKey}`, label: "This week", tasks: weekGroups.get(thisWeekKey) });
-  }
-
-  if (weekGroups.has(nextWeekKey)) {
-    categories.push({ id: `week-${nextWeekKey}`, label: "Next week", tasks: weekGroups.get(nextWeekKey) });
-  }
-
-  futureWeeks.forEach((key) => {
-    categories.push({ id: `week-${key}`, label: `Week starting ${key}`, tasks: weekGroups.get(key) });
-  });
-
-  if (noDate.length) {
-    categories.push({ id: "no-date", label: "No date", tasks: noDate });
-  }
-
-  if (repeatable.length) {
-    categories.push({ id: "repeatable", label: "Repeatable", tasks: repeatable });
-  }
-
-  if (notes.length) {
-    categories.push({ id: "notes", label: "Notes", tasks: notes });
-  }
-
-  return categories;
-};
-
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const tokenizeQuery = (query) =>
-  query
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-
-const buildSearchRegex = (terms) => {
-  const unique = Array.from(new Set(terms));
-  if (unique.length === 0) {
-    return null;
-  }
-  const pattern = unique.map(escapeRegex).join("|");
-  return new RegExp(pattern, "gi");
-};
-
-const addSearchMark = (marks) => {
-  const next = marks ? [...marks] : [];
-  if (next.some((mark) => mark.type === "highlight" && mark.attrs?.color === "search")) {
-    return next;
-  }
-  next.push({ type: "highlight", attrs: { color: "search" } });
-  return next;
-};
-
-const highlightTextNode = (node, regex) => {
-  if (!node.text || !regex) {
-    return [node];
-  }
-  const text = node.text;
-  const matches = [...text.matchAll(regex)];
-  if (matches.length === 0) {
-    return [node];
-  }
-  const parts = [];
-  let lastIndex = 0;
-  for (const match of matches) {
-    const index = match.index ?? 0;
-    const value = match[0] ?? "";
-    if (index > lastIndex) {
-      parts.push({ ...node, text: text.slice(lastIndex, index), marks: node.marks });
-    }
-    parts.push({ ...node, text: value, marks: addSearchMark(node.marks) });
-    lastIndex = index + value.length;
-  }
-  if (lastIndex < text.length) {
-    parts.push({ ...node, text: text.slice(lastIndex), marks: node.marks });
-  }
-  return parts;
-};
-
-const highlightNode = (node, regex) => {
-  if (!node || typeof node !== "object") {
-    return node;
-  }
-  if (node.type === "text") {
-    return highlightTextNode(node, new RegExp(regex.source, regex.flags));
-  }
-  if (!node.content) {
-    return { ...node };
-  }
-  const nextContent = [];
-  for (const child of node.content) {
-    const transformed = highlightNode(child, regex);
-    if (Array.isArray(transformed)) {
-      nextContent.push(...transformed);
-    } else {
-      nextContent.push(transformed);
-    }
-  }
-  return { ...node, content: nextContent };
-};
-
-const highlightDoc = (doc, terms) => {
-  const regex = buildSearchRegex(terms);
-  if (!regex || !doc) {
-    return doc;
-  }
-  return highlightNode(doc, regex);
-};
-
-const normalizeTask = (task) => ({
-  ...task,
-  title: normalizeTitle(task.title),
-  content: normalizeContent(task.content)
-});
-
-const highlightTask = (task, terms) => ({
-  ...task,
-  title: highlightDoc(task.title, terms),
-  content: highlightDoc(task.content, terms)
-});
-
-const mainCategories = computed(() => deriveCategories(mainTasks.value));
-
-const findTaskById = (id) => {
-  return [...newTasks.value, ...mainTasks.value].find((task) => task.id === id) || null;
-};
-
-const getCategoryTasks = (page, categoryId) => {
-  if (page === "dashboard:new") {
-    return newTasks.value;
-  }
-  if (page === "dashboard:main") {
-    const category = mainCategories.value.find((item) => item.id === categoryId);
-    return category ? category.tasks : [];
-  }
-  return [];
-};
-
-const getOrderedTasksForPage = (task) => {
-  if (task.page === "dashboard:new") {
-    return newTasks.value;
-  }
-  if (task.page === "dashboard:main") {
-    return mainCategories.value.flatMap((category) => category.tasks);
-  }
-  return mainTasks.value;
-};
-
-const buildHistorySeries = (stats) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(today);
-  start.setDate(today.getDate() - 179);
-
-  const map = new Map(stats.map((item) => [item.date, item.count]));
-  const series = [];
-  for (let i = 0; i < 180; i += 1) {
-    const day = new Date(start);
-    day.setDate(start.getDate() + i);
-    const dateKey = formatDateKey(day);
-    series.push({ date: dateKey, count: map.get(dateKey) || 0 });
-  }
-  return series;
-};
-
-const historySeries = computed(() => buildHistorySeries(historyStats.value || []));
-
-const historyMax = computed(() => {
-  return historySeries.value.reduce((max, item) => Math.max(max, item.count), 0);
-});
-
-const historyBars = computed(() => {
-  const maxCount = historyMax.value || 1;
-  return historySeries.value.map((item) => ({
-    ...item,
-    height: maxCount === 0 ? 0 : (item.count / maxCount) * 100
-  }));
-});
-
-const historyScale = computed(() => {
-  const maxCount = historyMax.value;
-  if (maxCount === 0) {
-    return [{ label: "0" }];
-  }
-  const mid = Math.floor(maxCount / 2);
-  const ticks = [maxCount];
-  if (mid > 0 && mid !== maxCount) {
-    ticks.push(mid);
-  }
-  ticks.push(0);
-  return ticks.map((value) => ({ label: `${value}` }));
-});
-
-const visibleWarnings = computed(() =>
-  warnings.value.filter((warning) => !dismissedWarningIds.value.includes(warning.id))
-);
-
-const mergeTasks = (tasks, page) => {
-  const merged = tasks.map((task) => {
-    const snapshot = dirtySnapshots.get(task.id);
-    return snapshot && snapshot.dirty ? snapshot.task : task;
-  });
-
-  for (const [id, snapshot] of dirtySnapshots.entries()) {
-    if (!snapshot.dirty || snapshot.task.page !== page) {
-      continue;
-    }
-    if (!merged.some((task) => task.id === id)) {
-      merged.push(snapshot.task);
-    }
-  }
-
-  return merged;
-};
-
-const loadDashboard = async () => {
-  const data = await apiGet("/api/dashboard");
-  newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
-  mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
-  if (newTasks.value.length === 0 && !creatingDefaultNew.value) {
-    creatingDefaultNew.value = true;
-    try {
-      await createTask("dashboard:new", emptyTitleDoc(), emptyContentDoc(), Date.now());
-    } finally {
-      creatingDefaultNew.value = false;
-    }
-  }
-};
-
-const loadHistory = async () => {
-  const data = await apiGet("/api/history");
-  historyStats.value = data.stats || [];
-  historyGroups.value = (data.groups || []).map((group) => ({
-    date: group.date,
-    tasks: group.tasks.map(normalizeTask)
-  }));
-};
-
-const insertTaskLocal = (task) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
-  const next = [...list, task].sort((a, b) => a.position - b.position);
-  if (task.page === "dashboard:new") {
-    newTasks.value = next;
-  } else {
-    mainTasks.value = next;
-  }
-};
-
-const createTask = async (page, titleOverride, contentOverride, positionOverride, categoryId = null) => {
-  let scheduledDate = null;
-  let recurrence = null;
-  if (page === "dashboard:main" && categoryId) {
-    const categoryUpdate = buildCategoryUpdate({ id: "__new", recurrence: null }, categoryId);
-    if (categoryUpdate) {
-      scheduledDate = categoryUpdate.scheduledDate ?? null;
-      recurrence = categoryUpdate.recurrence ?? null;
-    }
-  }
-  const payload = {
-    page,
-    title: normalizeTitle(titleOverride ?? emptyTitleDoc()),
-    content: normalizeContent(contentOverride || emptyContentDoc()),
-    position: positionOverride || Date.now(),
-    scheduledDate,
-    recurrence
-  };
-  const response = await apiPost("/api/tasks", payload);
-  insertTaskLocal({
-    id: response.taskId,
-    page: payload.page,
-    title: payload.title,
-    content: payload.content,
-    position: payload.position,
-    createdAt: Date.now(),
-    updatedAt: response.updatedAt,
-    completedAt: null,
-    scheduledDate: payload.scheduledDate,
-    recurrence: payload.recurrence
-  });
-  await loadDashboard();
-  return response.taskId;
-};
-
-const createTaskBelow = async (task, categoryId = null) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
-  const index = list.findIndex((item) => item.id === task.id);
-  const next = index >= 0 ? list[index + 1] : null;
-  const position = next ? (task.position + next.position) / 2 : task.position + 1;
-  const newId = await createTask(task.page, emptyTitleDoc(), emptyContentDoc(), position, categoryId);
-  focusTaskId.value = newId;
-  return newId;
-};
-
-const moveTaskToPrevious = async (task) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
-  const index = list.findIndex((item) => item.id === task.id);
-  if (index <= 0) {
-    return false;
-  }
-
-  const previous = list[index - 1];
-  const prevContent = normalizeContent(previous.content);
-  const prevList = prevContent.content?.[0]?.content ?? [];
-  const currentContent = normalizeContent(task.content);
-  const currentList = currentContent.content?.[0]?.content ?? [];
-  const titleItem = titleDocToListItem(task.title);
-
-  const merged = {
-    type: "doc",
-    content: [
-      {
-        type: "bulletList",
-        content: [...prevList, titleItem, ...currentList]
-      }
-    ]
-  };
-
-  await saveTask({
-    id: previous.id,
-    title: previous.title,
-    content: merged,
-    baseUpdatedAt: previous.updatedAt,
-    page: previous.page
-  });
-
-  await saveTask({
-    id: task.id,
-    title: task.title || "Untitled",
-    content: currentContent,
-    baseUpdatedAt: task.updatedAt,
-    page: "dashboard:hidden"
-  });
-
-  focusContentTarget.value = {
-    taskId: previous.id,
-    listIndex: prevList.length,
-    atEnd: true
-  };
-
-  newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
-  mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
-
-  return true;
-};
-
-const focusPrevTaskFromTitle = async (task) => {
-  const list = getOrderedTasksForPage(task);
-  const index = list.findIndex((item) => item.id === task.id);
-  if (index <= 0) {
-    return;
-  }
-  const previous = list[index - 1];
-  const prevContent = normalizeContent(previous.content);
-  const prevList = prevContent.content?.[0]?.content ?? [];
-  const listIndex = Math.max(prevList.length - 1, 0);
-  focusContentTarget.value = {
-    taskId: previous.id,
-    listIndex,
-    atEnd: true
-  };
-};
-
-const focusNextTaskFromContent = async (task) => {
-  const list = getOrderedTasksForPage(task);
-  const index = list.findIndex((item) => item.id === task.id);
-  const next = index >= 0 ? list[index + 1] : null;
-  if (next) {
-    focusTaskId.value = next.id;
-    return;
-  }
-  const newId = await createTaskBelow(task);
-  focusTaskId.value = newId;
-};
-
-const splitSubcontentToNewTask = async (task, payload) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
-  const index = list.findIndex((item) => item.id === task.id);
-  const next = index >= 0 ? list[index + 1] : null;
-  const position = next ? (task.position + next.position) / 2 : task.position + 1;
-  const newId = await createTask(task.page, payload.title, payload.content, position);
-  focusTaskId.value = newId;
-};
-
-const saveTask = async ({ id, title, content, baseUpdatedAt, page }) => {
-  const response = await apiPut(`/api/tasks/${id}`, {
-    baseUpdatedAt,
-    title: normalizeTitle(title),
-    content: normalizeContent(content),
-    page
-  });
-  updateTaskLocal(id, { title, content, updatedAt: response.updatedAt });
-  await loadDashboard();
-};
-
-const deleteTask = async (task) => {
-  if (!task?.id) {
-    return;
-  }
-  const list = getOrderedTasksForPage(task);
-  const index = list.findIndex((item) => item.id === task.id);
-  const prevTask = index > 0 ? list[index - 1] : null;
-  try {
-    await apiDelete(`/api/tasks/${task.id}`);
-  } catch {
-    return;
-  }
-  dirtySnapshots.delete(task.id);
-  newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
-  mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
-  if (prevTask) {
-    focusTaskId.value = prevTask.id;
-  }
-  await loadDashboard();
-  if (activeTab.value === "History") {
-    await loadHistory();
-  }
-};
-
-const toggleComplete = async (task) => {
-  const completed = !task.completedAt;
-  task.completedAt = completed ? Date.now() : null;
-  await apiPost(`/api/tasks/${task.id}/complete`, { completed });
-  await loadDashboard();
-  if (activeTab.value === "History") {
-    await loadHistory();
-  }
-};
-
-const moveNewToMain = async () => {
-  const updates = newTasks.value.map((task) =>
-    apiPut(`/api/tasks/${task.id}`, {
-      baseUpdatedAt: task.updatedAt,
-      title: task.title,
-      content: task.content,
-      page: "dashboard:main"
-    })
-  );
-  await Promise.all(updates);
-  await loadDashboard();
-};
-
-const updateTaskLocal = (id, patch) => {
-  const apply = (list) => {
-    const task = list.find((item) => item.id === id);
-    if (task) {
-      Object.assign(task, patch);
-    }
-  };
-  apply(newTasks.value);
-  apply(mainTasks.value);
-};
-
-const handleDirtyChange = (id, dirty, snapshot) => {
-  if (!id) {
-    return;
-  }
-  if (!dirty) {
-    dirtySnapshots.delete(id);
-    return;
-  }
-  dirtySnapshots.set(id, { dirty: true, task: snapshot });
-};
-
-const createEmptyTask = async (page) => {
-  const newId = await createTask(page, emptyTitleDoc(), emptyContentDoc(), Date.now());
-  focusTaskId.value = newId;
-};
-
-const runRecurrenceGeneration = async () => {
-  try {
-    await apiPost("/api/recurrence/run", {});
-  } catch {
-    // ignore failures; dashboard refresh will retry later
-  }
-};
-
-const runDailyMaintenance = async () => {
-  try {
-    await apiPost("/api/maintenance/daily", {});
-    await loadMaintenanceStatus();
-  } catch {
-    // ignore failures
-  }
-};
-
-const setTaskCategory = async (task, category) => {
-  let scheduledDate = undefined;
-  let recurrence = undefined;
-  const weekStart = getWeekStart(new Date());
-  const cachedRecurrence = recurrenceCache.get(task.id);
-  const existingRecurrence = task.recurrence;
-
-  if (category !== "repeatable" && existingRecurrence && existingRecurrence.type !== "notes") {
-    recurrenceCache.set(task.id, existingRecurrence);
-  }
-
-  switch (category) {
-    case "uncategorized":
-      scheduledDate = null;
-      recurrence = null;
-      break;
-    case "notes":
-      scheduledDate = null;
-      recurrence = { type: "notes" };
-      break;
-    case "no-date":
-      scheduledDate = "no-date";
-      recurrence = null;
-      break;
-    case "this-week":
-      scheduledDate = getDayKey();
-      recurrence = null;
-      break;
-    case "next-week": {
-      const nextWeek = new Date(weekStart);
-      nextWeek.setDate(weekStart.getDate() + 7);
-      scheduledDate = formatDateKey(nextWeek);
-      recurrence = null;
-      break;
-    }
-    case "repeatable":
-      scheduledDate = null;
-      recurrence = existingRecurrence && existingRecurrence.type !== "notes"
-        ? existingRecurrence
-        : cachedRecurrence || { type: "weekly", weekdays: [] };
-      break;
-    default:
-      return;
-  }
-
-  await apiPut(`/api/tasks/${task.id}`, {
-    baseUpdatedAt: task.updatedAt,
-    scheduledDate,
-    recurrence
-  });
-  if (recurrence) {
-    await runRecurrenceGeneration();
-  }
-  await loadDashboard();
-};
-
-const setTaskRecurrence = async (task, recurrence) => {
-  if (recurrence) {
-    recurrenceCache.set(task.id, recurrence);
-  }
-  await apiPut(`/api/tasks/${task.id}`, {
-    baseUpdatedAt: task.updatedAt,
-    recurrence
-  });
-  await runRecurrenceGeneration();
-  await loadDashboard();
-};
-
-const backupNow = async () => {
-  if (isBackingUp.value) {
-    return;
-  }
-  isBackingUp.value = true;
-  backupStatus.value = "";
-  try {
-    await apiPost("/api/backup", {});
-    backupStatus.value = "Backup created successfully.";
-    await loadWarnings();
-    await loadMaintenanceStatus();
-  } catch {
-    backupStatus.value = "Backup failed. Check the server logs.";
-  } finally {
-    isBackingUp.value = false;
-  }
-};
-
-const reindexSearch = async () => {
-  if (isReindexing.value) {
-    return;
-  }
-  isReindexing.value = true;
-  reindexStatus.value = "";
-  try {
-    await apiPost("/api/search/reindex", {});
-    reindexStatus.value = "Search index rebuilt.";
-    await loadMaintenanceStatus();
-  } catch {
-    reindexStatus.value = "Reindex failed. Check the server logs.";
-  } finally {
-    isReindexing.value = false;
-  }
-};
-
-const loadWarnings = async () => {
-  try {
-    const data = await apiGet("/api/warnings");
-    warnings.value = data.warnings || [];
-  } catch {
-    warnings.value = [];
-  }
-};
-
-const loadVersion = async () => {
-  try {
-    const data = await apiGet("/api/version");
-    appVersion.value = data.version || "";
-  } catch {
-    appVersion.value = "";
-  }
-};
-
-const loadMaintenanceStatus = async () => {
-  try {
-    const data = await apiGet("/api/maintenance/status");
-    maintenanceStatus.value = {
-      lastBackupAt: data.lastBackupAt || null,
-      lastBackupError: data.lastBackupError || null,
-      lastReindexAt: data.lastReindexAt || null
-    };
-  } catch {
-    maintenanceStatus.value = { lastBackupAt: null, lastBackupError: null, lastReindexAt: null };
-  }
-};
-
-const dismissWarning = (id) => {
-  dismissedWarningIds.value = [...dismissedWarningIds.value, id];
-};
-
-const moveCompletedToHistory = async () => {
-  await apiPost("/api/debug/move-completed-to-history", {});
-  await loadDashboard();
-  if (activeTab.value === "History") {
-    await loadHistory();
-  }
-};
-
-const buildCategoryUpdate = (task, categoryId) => {
-  let scheduledDate = null;
-  let recurrence = null;
-  const cachedRecurrence = recurrenceCache.get(task.id);
-  const existingRecurrence = task.recurrence;
-
-  if (categoryId !== "repeatable" && existingRecurrence && existingRecurrence.type !== "notes") {
-    recurrenceCache.set(task.id, existingRecurrence);
-  }
-
-  if (categoryId.startsWith("week-")) {
-    const weekKey = categoryId.slice(5);
-    const currentWeekKey = formatDateKey(getWeekStart(new Date()));
-    scheduledDate = weekKey === currentWeekKey ? getDayKey() : weekKey;
-    recurrence = null;
-  } else {
-    switch (categoryId) {
-      case "uncategorized":
-        scheduledDate = null;
-        recurrence = null;
-        break;
-      case "notes":
-        scheduledDate = null;
-        recurrence = { type: "notes" };
-        break;
-      case "no-date":
-        scheduledDate = "no-date";
-        recurrence = null;
-        break;
-      case "repeatable":
-        scheduledDate = null;
-        recurrence = existingRecurrence && existingRecurrence.type !== "notes"
-          ? existingRecurrence
-          : cachedRecurrence || { type: "weekly", weekdays: [] };
-        break;
-      default:
-        return null;
-    }
-  }
-
-  return { scheduledDate, recurrence };
-};
-
-const applyTaskMove = async (task, categoryId, position) => {
-  const update = {
-    baseUpdatedAt: task.updatedAt,
-    position
-  };
-
-  if (task.page === "dashboard:main") {
-    const categoryUpdate = buildCategoryUpdate(task, categoryId);
-    if (categoryUpdate) {
-      update.scheduledDate = categoryUpdate.scheduledDate;
-      update.recurrence = categoryUpdate.recurrence;
-    }
-  }
-
-  await apiPut(`/api/tasks/${task.id}`, update);
-  if (update.recurrence) {
-    await runRecurrenceGeneration();
-  }
-  await loadDashboard();
-};
-
-const startDrag = (task, event) => {
-  dragState.value = { taskId: task.id, page: task.page };
-  dragOver.value = { id: task.id, position: "before" };
-  if (event?.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", task.id);
-  }
-};
-
-const endDrag = () => {
-  dragState.value = null;
-  dragOver.value = { id: null, position: "before" };
-};
-
-const dropOnTask = async (targetTask, categoryId, event) => {
-  const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
-  const dragged = dragId ? findTaskById(dragId) : null;
-  if (!dragged || dragged.id === targetTask.id) {
-    return;
-  }
-  if (dragged.page !== targetTask.page) {
-    return;
-  }
-
-  const list = getCategoryTasks(targetTask.page, categoryId);
-  const filtered = list.filter((item) => item.id !== dragged.id);
-  const targetIndex = filtered.findIndex((item) => item.id === targetTask.id);
-  if (targetIndex < 0) {
-    return;
-  }
-  const dropPosition = dragOver.value.id === targetTask.id ? dragOver.value.position : "before";
-  const before = dropPosition === "before";
-  const prev = before ? (targetIndex > 0 ? filtered[targetIndex - 1] : null) : filtered[targetIndex];
-  const next = before ? filtered[targetIndex] : (targetIndex + 1 < filtered.length ? filtered[targetIndex + 1] : null);
-  const position = next && prev ? (prev.position + next.position) / 2 : prev ? prev.position + 1 : next.position - 1;
-  await applyTaskMove(dragged, categoryId, position);
-};
-
-const dropOnCategory = async (categoryId, page, event) => {
-  const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
-  const dragged = dragId ? findTaskById(dragId) : null;
-  if (!dragged || dragged.page !== page) {
-    return;
-  }
-  const list = getCategoryTasks(page, categoryId).filter((item) => item.id !== dragged.id);
-  const last = list[list.length - 1] || null;
-  const position = last ? last.position + 1 : Date.now();
-  await applyTaskMove(dragged, categoryId, position);
-};
-
-const setDragOver = (taskId, position) => {
-  dragOver.value = { id: taskId, position: position || "before" };
-};
-
-const clearDragOver = (taskId) => {
-  if (dragOver.value.id === taskId) {
-    dragOver.value = { id: null, position: "before" };
-  }
-};
-
-const searchTasks = async () => {
-  const query = searchQuery.value.trim();
-  if (!query) {
-    hasSearched.value = false;
-    searchResults.value = [];
-    return;
-  }
-  isSearching.value = true;
-  try {
-    const data = await apiGet(`/api/search?q=${encodeURIComponent(query)}`);
-    const terms = tokenizeQuery(data.query || query);
-    searchResults.value = data.results.map((result) => {
-      const task = highlightTask(normalizeTask(result.task), terms);
-      return { ...result, task };
-    });
-    hasSearched.value = true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Search failed";
-    window.alert(message);
-  } finally {
-    isSearching.value = false;
-  }
-};
+const {
+  hasSearched,
+  isSearching,
+  searchInputRef,
+  searchQuery,
+  searchResults,
+  searchTasks
+} = useSearch();
+
+const {
+  historyBars,
+  historyGroups,
+  historyScale,
+  historySeries,
+  loadHistory
+} = useHistory();
+
+const {
+  appVersion,
+  backupNow,
+  backupStatus,
+  dismissWarning,
+  isBackingUp,
+  isReindexing,
+  loadMaintenanceStatus,
+  loadVersion,
+  loadWarnings,
+  maintenanceStatus,
+  reindexSearch,
+  reindexStatus,
+  visibleWarnings
+} = useMaintenance();
 
 const noop = () => {};
 const noopAsync = async () => false;
-
-const pollChanges = async () => {
-  const previous = lastChangeId.value;
-  const data = await apiGet(`/api/changes?since=${previous}`);
-  lastChangeId.value = data.lastId;
-  if (data.lastId > previous) {
-    await loadDashboard();
-    if (activeTab.value === "History") {
-      await loadHistory();
-    }
-  }
-};
 
 onMounted(async () => {
   await loadDashboard();
@@ -1400,21 +152,9 @@ onMounted(async () => {
   maintenanceTimer = setTimeout(() => {
     loadMaintenanceStatus();
   }, 2500);
-  currentDayKey.value = getDayKey();
+  initDayKey();
   pollTimer = setInterval(pollChanges, 750);
-  dayTimer = setInterval(() => {
-    const nextDay = getDayKey();
-    if (nextDay !== currentDayKey.value) {
-      currentDayKey.value = nextDay;
-      runRecurrenceGeneration();
-      runDailyMaintenance();
-      loadDashboard();
-      if (activeTab.value === "History") {
-        loadHistory();
-      }
-      loadWarnings();
-    }
-  }, 60000);
+  dayTimer = setInterval(handleDayTick, 60000);
 
   window.addEventListener("keydown", handleGlobalShortcut);
   window.addEventListener("wheel", handleDashboardWheel, { passive: false });
@@ -1440,6 +180,39 @@ watch(activeTab, (tab) => {
   }
 });
 
+const {
+  newTasks,
+  mainTasks,
+  expandedNew,
+  focusTaskId,
+  focusContentTarget,
+  mainCategories,
+  loadDashboard,
+  createTaskBelow,
+  saveTask,
+  deleteTask,
+  toggleComplete,
+  moveNewToMain,
+  setTaskCategory,
+  setTaskRecurrence,
+  splitSubcontentToNewTask,
+  moveTaskToPrevious,
+  focusPrevTaskFromTitle,
+  focusNextTaskFromContent,
+  handleDirtyChange,
+  applyTaskMove,
+  findTaskById,
+  getCategoryTasks,
+  pollChanges,
+  handleDayTick,
+  initDayKey
+} = useDashboardData({
+  activeTab,
+  loadHistory,
+  loadMaintenanceStatus,
+  loadWarnings
+});
+
 watch(focusTaskId, (id) => {
   if (!id) {
     return;
@@ -1462,521 +235,92 @@ watch(focusContentTarget, (target) => {
   }, 0);
 });
 
-const handleGlobalShortcut = (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-    const target = event.target;
-    const tag = target?.tagName?.toLowerCase();
-    if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
-      return;
-    }
-    if (target?.closest?.(".ProseMirror")) {
-      return;
-    }
-    event.preventDefault();
-    activeTab.value = "Search";
-    nextTick(() => {
-      searchInputRef.value?.focus();
-    });
+const {
+  dragOver,
+  isDashboardDragging,
+  startDrag,
+  endDrag,
+  dropOnTask,
+  dropOnCategoryFromView,
+  setDragOver,
+  clearDragOver,
+  handleDashboardPointerDown,
+  handleDashboardPointerMove,
+  handleDashboardPointerUp
+} = useDashboardDrag({
+  activeTab,
+  dashboardColumnsRef,
+  getCategoryTasks,
+  findTaskById,
+  applyTaskMove
+});
+
+const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
+  activeTab,
+  searchInputRef,
+  dashboardColumnsRef
+});
+
+let pollTimer = null;
+let dayTimer = null;
+let maintenanceTimer = null;
+
+const isLastTaskId = (task, list) => {
+  if (!list || list.length === 0) {
+    return false;
   }
+  return list[list.length - 1]?.id === task.id;
 };
 
-const handleDashboardWheel = (event) => {
-  const container = dashboardColumnsRef.value;
-  if (!container || activeTab.value !== "Dashboard") {
-    return;
-  }
-  const target = event.target;
-  if (!target?.closest?.(".dashboard")) {
-    return;
-  }
-  const deltaX = event.deltaX || 0;
-  const deltaY = event.deltaY || 0;
-  const horizontalDelta = deltaX !== 0 ? deltaX : (event.shiftKey ? deltaY : 0);
-  if (horizontalDelta === 0) {
-    return;
-  }
-  event.preventDefault();
-  container.scrollLeft += horizontalDelta;
+const getTaskItemBindings = (task, list, options) => ({
+  task,
+  showCategoryActions: options.showCategoryActions,
+  onSetCategory: options.showCategoryActions ? setTaskCategory : null,
+  showRecurrenceControls: options.showRecurrenceControls,
+  onSetRecurrence: setTaskRecurrence,
+  draggable: true,
+  isLastInCategory: isLastTaskId(task, list),
+  isDropTarget: dragOver.value.id === task.id,
+  dropPosition: dragOver.value.position,
+  categoryId: options.categoryId,
+  dragCategoryId: options.dragCategoryId,
+  onDragStart: startDrag,
+  onDragEnd: endDrag,
+  onDrop: dropOnTask,
+  onDragOver: setDragOver,
+  onDragLeave: clearDragOver,
+  focusTitleId: focusTaskId.value,
+  focusContentTarget: focusContentTarget.value,
+  onSave: saveTask,
+  onComplete: toggleComplete,
+  onDirty: handleDirtyChange,
+  onCreateBelow: createTaskBelow,
+  onTabToPrevious: moveTaskToPrevious,
+  onSplitToNewTask: splitSubcontentToNewTask,
+  onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
+  onFocusNextTaskFromContent: focusNextTaskFromContent,
+  onDelete: deleteTask
+});
+
+const toggleExpandNew = () => {
+  expandedNew.value = !expandedNew.value;
 };
 
-const handleDashboardPointerDown = (event) => {
-  const container = dashboardColumnsRef.value;
-  if (!container || activeTab.value !== "Dashboard") {
-    return;
+const moveCompletedToHistory = async () => {
+  await apiMoveCompletedToHistory();
+  await loadDashboard();
+  if (activeTab.value === "History") {
+    await loadHistory();
   }
-  if (event.button !== 0) {
-    return;
-  }
-  const target = event.target;
-  if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button")) {
-    return;
-  }
-  if (target?.closest?.(".drag-handle")) {
-    return;
-  }
-  if (target?.isContentEditable) {
-    return;
-  }
-  dashboardDragState.value = {
-    active: true,
-    startX: event.clientX,
-    startScrollLeft: container.scrollLeft,
-    pointerId: event.pointerId
-  };
-  isDashboardDragging.value = true;
-  container.setPointerCapture?.(event.pointerId);
-  event.preventDefault();
-};
-
-const handleDashboardPointerMove = (event) => {
-  const container = dashboardColumnsRef.value;
-  if (!container || !dashboardDragState.value.active) {
-    return;
-  }
-  const delta = event.clientX - dashboardDragState.value.startX;
-  container.scrollLeft = dashboardDragState.value.startScrollLeft - delta;
-};
-
-const handleDashboardPointerUp = (event) => {
-  if (!dashboardDragState.value.active) {
-    return;
-  }
-  const container = dashboardColumnsRef.value;
-  container?.releasePointerCapture?.(dashboardDragState.value.pointerId);
-  dashboardDragState.value = { active: false, startX: 0, startScrollLeft: 0, pointerId: null };
-  isDashboardDragging.value = false;
 };
 </script>
 
-<style scoped>
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  height: 100%;
-  overflow: hidden;
-}
+<style src="./styles/app.css"></style>
 
-.top-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 4px;
-  background: var(--bg-header);
-  color: var(--text-main);
-}
 
-.brand {
-  font-size: 1.4rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
 
-.tabs {
-  display: flex;
-  gap: 4px;
-}
 
-.tab {
-  border: none;
-  padding: 2px 6px;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
 
-.tab.active,
-.tab:hover {
-  background: rgba(249, 244, 238, 0.2);
-}
 
-.content {
-  flex: 1;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
 
-.warning-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-}
 
-.warning-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--bg-warning);
-  border: 1px solid var(--border-warning);
-  color: var(--text-warning);
-  padding: 2px 6px;
-  border-radius: 0;
-  font-size: 0.85rem;
-}
-
-.warning-dismiss {
-  border: none;
-  background: transparent;
-  color: var(--text-warning);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.dashboard {
-  --column-width: 500px;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  background: var(--bg-app);
-  border-radius: 0;
-  padding: 0;
-}
-
-.dashboard-columns {
-  display: flex;
-  gap: 16px;
-  align-items: stretch;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 0;
-  justify-content: flex-start;
-}
-
-.dashboard-columns.dragging-dashboard {
-  cursor: grabbing;
-}
-
-.dashboard-column {
-  flex: 0 0 auto;
-  width: max-content;
-  max-width: var(--column-width);
-  height: 100%;
-  display: flex;
-  min-height: 0;
-}
-
-.dashboard-column.new-column.expanded {
-  flex: 1 1 100%;
-  width: 100%;
-  max-width: 100%;
-  min-width: 100%;
-}
-
-.dashboard-columns.expanded-new .dashboard-column:not(.new-column) {
-  display: none;
-}
-
-.search-view {
-  background: var(--bg-app);
-  border-radius: 0;
-  padding: 6px;
-  min-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-bar {
-  display: flex;
-  gap: 8px;
-}
-
-.search-bar input {
-  flex: 1;
-  border: 1px solid var(--border-panel);
-  border-radius: 0;
-  padding: 4px 6px;
-  font-size: 0.95rem;
-  background: var(--bg-panel);
-}
-
-.search-results {
-  display: flex;
-  flex-direction: column;
-}
-
-.search-empty {
-  color: var(--text-muted);
-  font-size: 0.95rem;
-  padding: 8px 2px;
-}
-
-.search-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.list-card {
-  background: transparent;
-  border-radius: 0;
-  padding: 2px;
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: auto;
-  width: max-content;
-  max-width: var(--column-width);
-}
-
-.list-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 4px;
-}
-
-.column-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg-app);
-  padding: 8px 0 4px;
-  margin-bottom: 4px;
-}
-
-.list-header h2 {
-  margin: 0 0 4px;
-  font-size: 1.2rem;
-}
-
-.subtitle {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.ghost {
-  border: 1px solid var(--border-panel);
-  background: transparent;
-  color: var(--text-main);
-  padding: 2px 6px;
-  border-radius: 0;
-  cursor: pointer;
-  font-size: 0.75rem;
-}
-
-.ghost:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  width: 100%;
-  overflow-x: hidden;
-}
-
-.category-title {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  margin: 8px 0 2px;
-}
-
-.weekday-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
-}
-
-.weekday-header {
-  position: sticky;
-  top: 44px;
-  z-index: 1;
-  background: var(--bg-app);
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  padding: 6px 0 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.history-view {
-  background: var(--bg-app);
-  border-radius: 0;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.history-toolbar {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.history-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.chart-area {
-  display: grid;
-  grid-template-columns: 1fr 32px;
-  gap: 8px;
-  align-items: end;
-}
-
-.chart-bars {
-  display: grid;
-  grid-template-columns: repeat(180, minmax(1px, 1fr));
-  gap: 2px;
-  align-items: end;
-  height: 120px;
-}
-
-.chart-bar {
-  background: var(--text-main);
-  border-radius: 0;
-  min-height: 2px;
-}
-
-.chart-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.chart-scale {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  text-align: right;
-  height: 120px;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.history-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.history-date {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.history-empty {
-  color: var(--text-muted);
-  font-size: 0.95rem;
-}
-
-.add-task {
-  border: none;
-  padding: 3px 6px;
-  border-radius: 0;
-  background: var(--text-main);
-  color: var(--text-invert);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.settings-view {
-  background: var(--bg-app);
-  border-radius: 0;
-  padding: 6px;
-}
-
-.settings-card {
-  background: var(--bg-panel);
-  border-radius: 0;
-  padding: 6px;
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.settings-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.settings-status-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.settings-status {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.placeholder {
-  background: var(--bg-panel);
-  border-radius: 0;
-  padding: 8px;
-  text-align: center;
-  box-shadow: none;
-}
-
-.app-footer {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  padding: 2px 4px;
-  text-align: right;
-}
-
-@media (max-width: 700px) {
-  .top-nav {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .tabs {
-    flex-wrap: wrap;
-  }
-
-  .content {
-    padding: 20px;
-  }
-}
-</style>
