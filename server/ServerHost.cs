@@ -49,6 +49,7 @@ public static class ServerHost
         builder.Services.AddSingleton<TaskRepository>();
         builder.Services.AddSingleton<ChangeLogRepository>();
         builder.Services.AddSingleton<MaintenanceService>();
+        builder.Services.AddSingleton<AppMetaRepository>();
 
         var app = builder.Build();
 
@@ -61,8 +62,17 @@ public static class ServerHost
         var initializer = app.Services.GetRequiredService<DatabaseInitializer>();
         initializer.Initialize();
 
+        var meta = app.Services.GetRequiredService<AppMetaRepository>();
+        var storedVersion = await meta.GetValueAsync("app_version", cancellationToken);
+        var schemaVersion = await meta.GetSchemaVersionAsync(cancellationToken);
+
         var tasks = app.Services.GetRequiredService<TaskRepository>();
         var maintenance = app.Services.GetRequiredService<MaintenanceService>();
+        logger.LogInformation(
+            "App version {CurrentVersion}, stored app_version {StoredVersion}, schema {SchemaVersion}",
+            BuildInfo.Version,
+            storedVersion ?? "none",
+            schemaVersion);
         await maintenance.RunIntegrityCheckAsync(cancellationToken);
         await tasks.GenerateRecurringTasksAsync(DateTime.Now, cancellationToken);
         _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(DateTime.Now, CancellationToken.None));
@@ -90,6 +100,14 @@ public static class ServerHost
         }
 
         await app.StartAsync(cancellationToken);
+        try
+        {
+            await meta.SetValueAsync("app_version", BuildInfo.Version, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to store app version in app_meta.");
+        }
         return app;
     }
 
@@ -180,6 +198,8 @@ public static class ServerHost
             var mainTasks = await tasks.GetDashboardMainTasksAsync(GetStartOfToday(), token);
             return Results.Ok(new DashboardResponse(newTasks, mainTasks));
         });
+
+        app.MapGet("/api/version", () => Results.Ok(new { version = BuildInfo.Version }));
 
         app.MapPost("/api/tasks", async (TaskCreateRequest request, TaskRepository tasks, CancellationToken token) =>
         {

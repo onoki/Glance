@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 
 ------------------------------------------------------------
+-- App metadata (observability/version tracking)
+------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS app_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+------------------------------------------------------------
 -- Indices
 ------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_tasks_page_position

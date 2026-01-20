@@ -34,6 +34,7 @@ public sealed class DatabaseInitializer
         }
 
         EnsureSchemaMigrationsTable(connection);
+        EnsureAppMetaTable(connection);
 
         var appliedVersions = GetAppliedVersions(connection);
         var migrationFiles = GetMigrationFiles();
@@ -72,6 +73,18 @@ public sealed class DatabaseInitializer
             CREATE TABLE IF NOT EXISTS schema_migrations (
               version INTEGER PRIMARY KEY,
               applied_at INTEGER NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    private static void EnsureAppMetaTable(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS app_meta (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
             );
             """;
         command.ExecuteNonQuery();

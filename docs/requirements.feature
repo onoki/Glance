@@ -234,3 +234,186 @@ Feature: Arrow key navigation
     And the cursor is at the beginning of the subcontent
     When I press the up arrow key
     Then the focus moves to the task title
+
+
+Feature: Version visibility and update metadata
+
+  Scenario: Viewing the app version
+    Given the application is started
+    When I view the settings tab
+    Then I see the application version in the About section
+    And I see the application version in a footer area
+
+  Scenario: App version persisted on startup
+    Given the application is started
+    When the server initializes
+    Then the current binary version is logged
+    And the stored app_version value is logged
+    And the schema version is logged
+    And the stored app_version is updated after startup
+
+
+Feature: Update safety invariants
+
+  Scenario: Updating the app without data loss
+    Given the application is closed
+    When I replace the app binaries
+    Then the data folder remains untouched
+    And the application starts with the existing data
+
+
+Feature: Backups and maintenance
+
+  Scenario: Backing up data from settings
+    Given I am on the settings tab
+    When I click the Backup button
+    Then a backup is created
+    And the last backup time is shown
+
+  Scenario: Reindexing search from settings
+    Given I am on the settings tab
+    When I click the Reindex button
+    Then the search index is rebuilt
+    And the last reindex time is shown
+
+  Scenario: Warning banner visibility
+    Given the application is started
+    When maintenance warnings exist
+    Then I see a warning banner
+    And I can dismiss a warning
+
+
+Feature: Attachments
+
+  Scenario: Pasting an image into rich text
+    Given a task title or subcontent has focus
+    When I paste an image
+    Then the image is uploaded
+    And the image is inserted into the editor
+
+  Scenario: Resizing an attachment
+    Given an image is inserted into a task
+    When I select the image
+    Then a resize handle appears
+    And the resized width is preserved
+
+  Scenario: Removing an attachment
+    Given an image is selected in the editor
+    When I press Backspace
+    Then the image is removed
+
+
+Feature: Drag and drop ordering
+
+  Scenario: Reordering tasks within a category
+    Given a category has multiple tasks
+    When I drag a task within the category
+    Then the task order is updated
+
+  Scenario: Moving tasks across categories
+    Given tasks exist in multiple categories
+    When I drag a task to a different category
+    Then the task is moved to that category
+
+
+Feature: Recurrence controls
+
+  Scenario: Allowed recurrence types
+    Given a task has recurrence controls visible
+    Then I can set the recurrence to:
+      | weekly  |
+      | monthly |
+
+  Scenario: Weekly recurrence selection
+    Given a task is set to weekly recurrence
+    When I select weekdays
+    Then the selected weekdays are saved
+
+  Scenario: Monthly recurrence selection
+    Given a task is set to monthly recurrence
+    When I enter month days
+    Then the selected days are saved
+
+  Scenario: Remembering recurrence configuration
+    Given a task has a weekly or monthly recurrence configured
+    When I move it out of Repeatable
+    Then the recurrence configuration is retained for later use
+
+
+Feature: Category interaction
+
+  Scenario: Category actions appear on hover
+    Given a task is visible on the dashboard
+    When I hover over the task
+    Then category action buttons are shown
+
+  Scenario: This week scheduling on category change
+    Given a task is moved into the This week category
+    Then its scheduled date is set to today
+
+
+Feature: Dashboard layout and scrolling
+
+  Scenario: Horizontal columns on wide screens
+    Given I am on the dashboard tab
+    Then tasks are shown in horizontal columns by category
+    And each column scrolls vertically
+    And the dashboard scrolls horizontally across columns
+
+  Scenario: This week weekday grouping
+    Given tasks exist in the This week category
+    Then tasks are grouped by weekday
+    And weekday headers are sticky within the column
+
+
+Feature: Title-only tasks and deletion
+
+  Scenario: Creating title-only tasks
+    Given a task has no subcontent
+    When I press Enter at the end of the title
+    Then a new task is created below
+    And focus moves to the new task title
+
+  Scenario: Removing the last subcontent item
+    Given a task has a single empty subcontent item
+    When I press Backspace in the subcontent
+    Then the subcontent item is removed
+    And focus moves to the task title
+
+  Scenario: Deleting an empty task
+    Given a task has no title and no subcontent
+    When I press Backspace
+    Then the task is deleted
+    And focus moves to the previous task if it exists
+
+
+Feature: Keyboard shortcuts
+
+  Scenario: Formatting shortcuts
+    Given a rich text editor has focus
+    When I press Ctrl+B or Cmd+B
+    Then the selected text is bolded
+    When I press Ctrl+I or Cmd+I
+    Then the selected text is italicized
+
+  Scenario: Highlight shortcuts
+    Given a rich text editor has focus
+    When I press Ctrl+1 or Cmd+1
+    Then green highlight is toggled
+    When I press Ctrl+2 or Cmd+2
+    Then yellow highlight is toggled
+    When I press Ctrl+3 or Cmd+3
+    Then red highlight is toggled
+
+  Scenario: Search shortcut
+    Given I am not focused on an editor
+    When I press Ctrl+F or Cmd+F
+    Then the Search tab is activated
+
+
+Feature: Search matching
+
+  Scenario: Partial word matches
+    Given tasks exist with words in titles or subcontent
+    When I search for a partial word
+    Then matches include occurrences within the word

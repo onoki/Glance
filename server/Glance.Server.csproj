@@ -4,10 +4,26 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <VersionStamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm"))</VersionStamp>
+    <GeneratedVersionFile>$(BaseIntermediateOutputPath)Generated\BuildInfo.g.cs</GeneratedVersionFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
+
+  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Compile Include="$(GeneratedVersionFile)" Visible="false" />
+    </ItemGroup>
+    <PropertyGroup>
+      <BuildInfoText>namespace Glance.Server%3B$(MSBuildNewLine)internal static class BuildInfo { public const string Version = &quot;$(VersionStamp)&quot;%3B }</BuildInfoText>
+    </PropertyGroup>
+    <MakeDir Directories="$(BaseIntermediateOutputPath)Generated" />
+    <WriteLinesToFile
+      File="$(GeneratedVersionFile)"
+      Lines="$(BuildInfoText)"
+      Overwrite="true" />
+  </Target>
 
 </Project>

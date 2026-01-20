@@ -286,6 +286,12 @@
           <p v-if="reindexStatus" class="settings-status">{{ reindexStatus }}</p>
         </div>
         <div class="settings-card">
+          <h2>About</h2>
+          <div class="settings-status-list">
+            <div><strong>Version:</strong> {{ appVersion || "Unknown" }} UTC</div>
+          </div>
+        </div>
+        <div class="settings-card">
           <h2>Licenses</h2>
           <p class="settings-status">
             Fontpkg-PxPlus_IBM_VGA8 by pocketfood (CC BY-SA 4.0):
@@ -299,6 +305,7 @@
         <p>This section will be implemented in the next iteration.</p>
       </section>
     </main>
+    <footer class="app-footer">Version {{ appVersion || "Unknown" }} UTC</footer>
   </div>
 </template>
 
@@ -327,6 +334,7 @@ const searchInputRef = ref(null);
 const dashboardColumnsRef = ref(null);
 const warnings = ref([]);
 const dismissedWarningIds = ref([]);
+const appVersion = ref("");
 const isBackingUp = ref(false);
 const isReindexing = ref(false);
 const backupStatus = ref("");
@@ -1184,6 +1192,15 @@ const loadWarnings = async () => {
   }
 };
 
+const loadVersion = async () => {
+  try {
+    const data = await apiGet("/api/version");
+    appVersion.value = data.version || "";
+  } catch {
+    appVersion.value = "";
+  }
+};
+
 const loadMaintenanceStatus = async () => {
   try {
     const data = await apiGet("/api/maintenance/status");
@@ -1379,6 +1396,7 @@ onMounted(async () => {
   }
   await loadWarnings();
   await loadMaintenanceStatus();
+  await loadVersion();
   maintenanceTimer = setTimeout(() => {
     loadMaintenanceStatus();
   }, 2500);
@@ -1937,6 +1955,13 @@ const handleDashboardPointerUp = (event) => {
   padding: 8px;
   text-align: center;
   box-shadow: none;
+}
+
+.app-footer {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  text-align: right;
 }
 
 @media (max-width: 700px) {
