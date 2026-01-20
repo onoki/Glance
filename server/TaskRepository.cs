@@ -193,6 +193,82 @@ public sealed class TaskRepository
         return tasks;
     }
 
+    public async Task<int> GetTaskCountAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM tasks;";
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is long count ? (int)count : 0;
+    }
+
+    public async Task<bool> SearchIndexExistsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_search';";
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result != null;
+    }
+
+    public async Task RebuildSearchIndexAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using (var drop = connection.CreateCommand())
+        {
+            drop.Transaction = transaction;
+            drop.CommandText = "DROP TABLE IF EXISTS task_search;";
+            await drop.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var create = connection.CreateCommand())
+        {
+            create.Transaction = transaction;
+            create.CommandText = "CREATE VIRTUAL TABLE task_search USING fts5(task_id, content);";
+            await create.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var select = connection.CreateCommand();
+        select.Transaction = transaction;
+        select.CommandText = """
+            SELECT id, title, title_json, content_json
+            FROM tasks;
+            """;
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = "INSERT INTO task_search (task_id, content) VALUES ($id, $content);";
+        var idParam = insert.Parameters.Add("$id", SqliteType.Text);
+        var contentParam = insert.Parameters.Add("$content", SqliteType.Text);
+
+        await using var reader = await select.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var id = reader.GetString(0);
+            var titleText = reader.GetString(1);
+            var titleJson = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var contentJson = reader.GetString(3);
+
+            var title = ParseTitleJson(titleJson, titleText);
+            using var contentDoc = JsonDocument.Parse(contentJson);
+            var contentText = TaskTextExtractor.ExtractPlainText(contentDoc.RootElement.Clone());
+            var combined = $"{TaskTextExtractor.ExtractPlainText(title)}\n{contentText}";
+
+            idParam.Value = id;
+            contentParam.Value = combined;
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task<int> MoveCompletedToHistoryAsync(long startOfToday, CancellationToken cancellationToken)
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);

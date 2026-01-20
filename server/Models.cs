@@ -79,6 +79,21 @@ public sealed record SearchResponse(
     IReadOnlyList<SearchResult> Results
 );
 
+public sealed record WarningItem(
+    string Id,
+    string Message
+);
+
+public sealed record WarningsResponse(
+    IReadOnlyList<WarningItem> Warnings
+);
+
+public sealed record MaintenanceStatus(
+    string? LastBackupAt,
+    string? LastBackupError,
+    string? LastReindexAt
+);
+
 public sealed record HistoryDayStat(
     string Date,
     int Count

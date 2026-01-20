@@ -48,6 +48,7 @@ public static class ServerHost
         builder.Services.AddSingleton<DatabaseInitializer>();
         builder.Services.AddSingleton<TaskRepository>();
         builder.Services.AddSingleton<ChangeLogRepository>();
+        builder.Services.AddSingleton<MaintenanceService>();
 
         var app = builder.Build();
 
@@ -61,7 +62,10 @@ public static class ServerHost
         initializer.Initialize();
 
         var tasks = app.Services.GetRequiredService<TaskRepository>();
+        var maintenance = app.Services.GetRequiredService<MaintenanceService>();
+        await maintenance.RunIntegrityCheckAsync(cancellationToken);
         await tasks.GenerateRecurringTasksAsync(DateTime.Now, cancellationToken);
+        _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(DateTime.Now, CancellationToken.None));
 
         app.UseCors();
 
@@ -288,6 +292,54 @@ public static class ServerHost
             }
             await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
             return Results.Ok(new { ok = true });
+        });
+
+        app.MapPost("/api/backup", async (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
+        {
+            if (!IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            var now = DateTime.Now;
+            var success = await maintenance.CreateBackupAsync(now, token);
+            if (success)
+            {
+                await maintenance.RecordBackupSuccessAsync(now);
+                return Results.Ok(new { ok = true });
+            }
+            return Results.StatusCode(StatusCodes.Status500InternalServerError);
+        });
+
+        app.MapPost("/api/search/reindex", async (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
+        {
+            if (!IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            await maintenance.ReindexSearchAsync(token);
+            return Results.Ok(new { ok = true });
+        });
+
+        app.MapPost("/api/maintenance/daily", (HttpContext context, MaintenanceService maintenance, CancellationToken token) =>
+        {
+            if (!IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            _ = Task.Run(() => maintenance.RunDailyMaintenanceAsync(DateTime.Now, CancellationToken.None), token);
+            return Results.Ok(new { ok = true });
+        });
+
+        app.MapGet("/api/warnings", async (MaintenanceService maintenance, CancellationToken token) =>
+        {
+            var warnings = await maintenance.GetWarningsAsync(token);
+            return Results.Ok(new WarningsResponse(warnings));
+        });
+
+        app.MapGet("/api/maintenance/status", async (MaintenanceService maintenance) =>
+        {
+            var status = await maintenance.GetStatusAsync();
+            return Results.Ok(status);
         });
 
         app.MapGet("/api/history", async (TaskRepository tasks, CancellationToken token) =>

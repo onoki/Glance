@@ -16,6 +16,12 @@
     </header>
 
     <main class="content">
+      <div v-if="visibleWarnings.length" class="warning-banner">
+        <div v-for="warning in visibleWarnings" :key="warning.id" class="warning-item">
+          <span>{{ warning.message }}</span>
+          <button class="warning-dismiss" @click="dismissWarning(warning.id)">Dismiss</button>
+        </div>
+      </div>
       <section v-if="activeTab === 'Dashboard'" class="dashboard">
         <div class="list-column" :class="{ expanded: expandedNew }">
           <section class="list-card">
@@ -179,6 +185,7 @@
             type="search"
             placeholder="Search tasks"
             @keydown.enter.prevent="searchTasks"
+            ref="searchInputRef"
           />
           <button class="add-task" :disabled="isSearching" @click="searchTasks">Search</button>
         </div>
@@ -207,6 +214,30 @@
         </div>
       </section>
 
+      <section v-else-if="activeTab === 'Settings'" class="settings-view">
+        <div class="settings-card">
+          <h2>Data safety</h2>
+          <p>Back up your data and manage maintenance tasks.</p>
+          <div class="settings-actions">
+            <button class="add-task" :disabled="isBackingUp" @click="backupNow">
+              {{ isBackingUp ? "Backing up..." : "Backup now" }}
+            </button>
+            <button class="ghost" :disabled="isReindexing" @click="reindexSearch">
+              {{ isReindexing ? "Reindexing..." : "Reindex search" }}
+            </button>
+          </div>
+          <div class="settings-status-list">
+            <div><strong>Last backup:</strong> {{ maintenanceStatus.lastBackupAt || "Never" }}</div>
+            <div v-if="maintenanceStatus.lastBackupError">
+              <strong>Last backup error:</strong> {{ maintenanceStatus.lastBackupError }}
+            </div>
+            <div><strong>Last reindex:</strong> {{ maintenanceStatus.lastReindexAt || "Never" }}</div>
+          </div>
+          <p v-if="backupStatus" class="settings-status">{{ backupStatus }}</p>
+          <p v-if="reindexStatus" class="settings-status">{{ reindexStatus }}</p>
+        </div>
+      </section>
+
       <section v-else class="placeholder">
         <h2>{{ activeTab }}</h2>
         <p>This section will be implemented in the next iteration.</p>
@@ -216,7 +247,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { apiGet, apiPost, apiPut } from "./api";
 import TaskItem from "./components/TaskItem.vue";
 
@@ -236,9 +267,18 @@ const isSearching = ref(false);
 const historyGroups = ref([]);
 const historyStats = ref([]);
 const currentDayKey = ref("");
+const searchInputRef = ref(null);
+const warnings = ref([]);
+const dismissedWarningIds = ref([]);
+const isBackingUp = ref(false);
+const isReindexing = ref(false);
+const backupStatus = ref("");
+const reindexStatus = ref("");
+const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
 
 let pollTimer = null;
 let dayTimer = null;
+let maintenanceTimer = null;
 const dirtySnapshots = new Map();
 const recurrenceCache = new Map();
 const dragState = ref(null);
@@ -627,6 +667,10 @@ const historyScale = computed(() => {
   return ticks.map((value) => ({ label: `${value}` }));
 });
 
+const visibleWarnings = computed(() =>
+  warnings.value.filter((warning) => !dismissedWarningIds.value.includes(warning.id))
+);
+
 const mergeTasks = (tasks, page) => {
   const merged = tasks.map((task) => {
     const snapshot = dirtySnapshots.get(task.id);
@@ -859,6 +903,15 @@ const runRecurrenceGeneration = async () => {
   }
 };
 
+const runDailyMaintenance = async () => {
+  try {
+    await apiPost("/api/maintenance/daily", {});
+    await loadMaintenanceStatus();
+  } catch {
+    // ignore failures
+  }
+};
+
 const setTaskCategory = async (task, category) => {
   let scheduledDate = undefined;
   let recurrence = undefined;
@@ -925,6 +978,67 @@ const setTaskRecurrence = async (task, recurrence) => {
   });
   await runRecurrenceGeneration();
   await loadDashboard();
+};
+
+const backupNow = async () => {
+  if (isBackingUp.value) {
+    return;
+  }
+  isBackingUp.value = true;
+  backupStatus.value = "";
+  try {
+    await apiPost("/api/backup", {});
+    backupStatus.value = "Backup created successfully.";
+    await loadWarnings();
+    await loadMaintenanceStatus();
+  } catch {
+    backupStatus.value = "Backup failed. Check the server logs.";
+  } finally {
+    isBackingUp.value = false;
+  }
+};
+
+const reindexSearch = async () => {
+  if (isReindexing.value) {
+    return;
+  }
+  isReindexing.value = true;
+  reindexStatus.value = "";
+  try {
+    await apiPost("/api/search/reindex", {});
+    reindexStatus.value = "Search index rebuilt.";
+    await loadMaintenanceStatus();
+  } catch {
+    reindexStatus.value = "Reindex failed. Check the server logs.";
+  } finally {
+    isReindexing.value = false;
+  }
+};
+
+const loadWarnings = async () => {
+  try {
+    const data = await apiGet("/api/warnings");
+    warnings.value = data.warnings || [];
+  } catch {
+    warnings.value = [];
+  }
+};
+
+const loadMaintenanceStatus = async () => {
+  try {
+    const data = await apiGet("/api/maintenance/status");
+    maintenanceStatus.value = {
+      lastBackupAt: data.lastBackupAt || null,
+      lastBackupError: data.lastBackupError || null,
+      lastReindexAt: data.lastReindexAt || null
+    };
+  } catch {
+    maintenanceStatus.value = { lastBackupAt: null, lastBackupError: null, lastReindexAt: null };
+  }
+};
+
+const dismissWarning = (id) => {
+  dismissedWarningIds.value = [...dismissedWarningIds.value, id];
 };
 
 const moveCompletedToHistory = async () => {
@@ -1101,6 +1215,11 @@ onMounted(async () => {
   if (activeTab.value === "History") {
     await loadHistory();
   }
+  await loadWarnings();
+  await loadMaintenanceStatus();
+  maintenanceTimer = setTimeout(() => {
+    loadMaintenanceStatus();
+  }, 2500);
   currentDayKey.value = getDayKey();
   pollTimer = setInterval(pollChanges, 750);
   dayTimer = setInterval(() => {
@@ -1108,12 +1227,16 @@ onMounted(async () => {
     if (nextDay !== currentDayKey.value) {
       currentDayKey.value = nextDay;
       runRecurrenceGeneration();
+      runDailyMaintenance();
       loadDashboard();
       if (activeTab.value === "History") {
         loadHistory();
       }
+      loadWarnings();
     }
   }, 60000);
+
+  window.addEventListener("keydown", handleGlobalShortcut);
 });
 
 onBeforeUnmount(() => {
@@ -1123,6 +1246,10 @@ onBeforeUnmount(() => {
   if (dayTimer) {
     clearInterval(dayTimer);
   }
+  if (maintenanceTimer) {
+    clearTimeout(maintenanceTimer);
+  }
+  window.removeEventListener("keydown", handleGlobalShortcut);
 });
 
 watch(activeTab, (tab) => {
@@ -1152,6 +1279,24 @@ watch(focusContentTarget, (target) => {
     }
   }, 0);
 });
+
+const handleGlobalShortcut = (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    const target = event.target;
+    const tag = target?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
+      return;
+    }
+    if (target?.closest?.(".ProseMirror")) {
+      return;
+    }
+    event.preventDefault();
+    activeTab.value = "Search";
+    nextTick(() => {
+      searchInputRef.value?.focus();
+    });
+  }
+};
 </script>
 
 <style scoped>
@@ -1201,6 +1346,33 @@ watch(focusContentTarget, (target) => {
 .content {
   flex: 1;
   padding: 16px 24px 24px;
+}
+
+.warning-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.warning-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff1d6;
+  border: 1px solid #e4c79b;
+  color: #5a3f1b;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.warning-dismiss {
+  border: none;
+  background: transparent;
+  color: #5a3f1b;
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .dashboard {
@@ -1414,6 +1586,42 @@ watch(focusContentTarget, (target) => {
   color: #f9f4ee;
   cursor: pointer;
   font-weight: 600;
+}
+
+.settings-view {
+  background: #fbf6ef;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.settings-card {
+  background: #fffaf3;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(31, 27, 22, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #6f665f;
+}
+
+.settings-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6f665f;
 }
 
 .placeholder {
