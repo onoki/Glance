@@ -266,6 +266,14 @@ public static class ServerHost
                 : Results.Ok(response);
         });
 
+        app.MapDelete("/api/tasks/{taskId}", async (string taskId, TaskRepository tasks, CancellationToken token) =>
+        {
+            var deleted = await tasks.DeleteTaskAsync(taskId, token);
+            return deleted
+                ? Results.Ok(new { ok = true })
+                : Results.NotFound(new { error = "NotFound", message = "Task not found" });
+        });
+
         app.MapGet("/api/changes", async (long? since, ChangeLogRepository changes, CancellationToken token) =>
         {
             var response = await changes.GetChangesAsync(since ?? 0, token);

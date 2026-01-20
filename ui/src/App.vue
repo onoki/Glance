@@ -23,88 +23,40 @@
         </div>
       </div>
       <section v-if="activeTab === 'Dashboard'" class="dashboard">
-        <div class="list-column" :class="{ expanded: expandedNew }">
-          <section class="list-card">
-            <header class="list-header">
-              <div>
-                <h2>New tasks</h2>
-                <p class="subtitle">Fresh captures that still need a home.</p>
-              </div>
-              <div class="header-actions">
-                <button class="ghost" @click="moveNewToMain" :disabled="newTasks.length === 0">
-                  Move to Uncategorized
-                </button>
-                <button class="ghost" @click="expandedNew = !expandedNew">
-                  {{ expandedNew ? "Restore view" : "Expand" }}
-                </button>
-              </div>
-            </header>
+        <div class="dashboard-columns">
+          <div class="dashboard-column new-column" :class="{ expanded: expandedNew }">
+            <section class="list-card">
+              <header class="list-header column-header">
+                <div>
+                  <h2>New tasks</h2>
+                  <p class="subtitle">Fresh captures that still need a home.</p>
+                </div>
+                <div class="header-actions">
+                  <button class="ghost" @click="moveNewToMain" :disabled="newTasks.length === 0">
+                    Move to Uncategorized
+                  </button>
+                  <button class="ghost" @click="expandedNew = !expandedNew">
+                    {{ expandedNew ? "Restore view" : "Expand" }}
+                  </button>
+                </div>
+              </header>
 
-            <div class="task-list" @dragover.prevent @drop.prevent="dropOnCategory('new', 'dashboard:new', $event)">
-              <TaskItem
-                v-for="task in newTasks"
-                :key="task.id"
-                :task="task"
-                :show-recurrence-controls="false"
-                :on-set-recurrence="setTaskRecurrence"
+              <div class="task-list" @dragover.prevent @drop.prevent="dropOnCategory('new', 'dashboard:new', $event)">
+                <TaskItem
+                  v-for="task in newTasks"
+                  :key="task.id"
+                  :task="task"
+                  :show-recurrence-controls="false"
+                  :on-set-recurrence="setTaskRecurrence"
                 :draggable="true"
+                :is-last-in-category="isLastTaskInList(task, newTasks)"
                 :is-drop-target="dragOver.id === task.id"
                 :drop-position="dragOver.position"
+                category-id="new"
                 drag-category-id="new"
                 :on-drag-start="startDrag"
                 :on-drag-end="endDrag"
                 :on-drop="dropOnTask"
-                :on-drag-over="setDragOver"
-                :on-drag-leave="clearDragOver"
-                :focus-title-id="focusTaskId"
-                :focus-content-target="focusContentTarget"
-                :on-save="saveTask"
-                :on-complete="toggleComplete"
-                :on-dirty="handleDirtyChange"
-                :on-create-below="createTaskBelow"
-                :on-tab-to-previous="moveTaskToPrevious"
-                :on-split-to-new-task="splitSubcontentToNewTask"
-                :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
-                :on-focus-next-task-from-content="focusNextTaskFromContent"
-              />
-              <button class="add-task" @click="createEmptyTask('dashboard:new')">Add task</button>
-            </div>
-          </section>
-        </div>
-
-        <div v-if="!expandedNew" class="list-column">
-          <section class="list-card">
-            <header class="list-header">
-              <div>
-                <h2>Main tasks</h2>
-                <p class="subtitle">Your active focus for the day.</p>
-              </div>
-            </header>
-
-            <div class="task-list">
-              <div
-                v-for="category in mainCategories"
-                :key="category.id"
-                class="category-block"
-                @dragover.prevent
-                @drop.prevent="dropOnCategory(category.id, 'dashboard:main', $event)"
-              >
-                <h3 class="category-title">{{ category.label }}</h3>
-                <TaskItem
-                  v-for="task in category.tasks"
-                  :key="task.id"
-                  :task="task"
-                  :show-category-actions="true"
-                  :on-set-category="setTaskCategory"
-                  :show-recurrence-controls="category.id === 'repeatable'"
-                  :on-set-recurrence="setTaskRecurrence"
-                  :draggable="true"
-                  :is-drop-target="dragOver.id === task.id"
-                  :drop-position="dragOver.position"
-                  :drag-category-id="category.id"
-                  :on-drag-start="startDrag"
-                  :on-drag-end="endDrag"
-                  :on-drop="dropOnTask"
                   :on-drag-over="setDragOver"
                   :on-drag-leave="clearDragOver"
                   :focus-title-id="focusTaskId"
@@ -117,11 +69,98 @@
                   :on-split-to-new-task="splitSubcontentToNewTask"
                   :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
                   :on-focus-next-task-from-content="focusNextTaskFromContent"
+                  :on-delete="deleteTask"
                 />
               </div>
-              <button class="add-task" @click="createEmptyTask('dashboard:main')">Add task</button>
+            </section>
+          </div>
+
+          <template v-for="category in mainCategories" :key="category.id">
+            <div
+              v-if="category.tasks.length"
+              class="dashboard-column"
+              @dragover.prevent
+              @drop.prevent="dropOnCategory(category.id, 'dashboard:main', $event)"
+            >
+              <section class="list-card">
+                <header class="column-header">
+                  <h3 class="category-title">{{ category.label }}</h3>
+                </header>
+
+                <div class="task-list">
+                  <template v-if="isThisWeekCategory(category)">
+                    <div v-for="group in groupTasksByWeekday(category.tasks)" :key="group.id" class="weekday-group">
+                      <div class="weekday-header">{{ group.label }}</div>
+                      <TaskItem
+                        v-for="task in group.tasks"
+                        :key="task.id"
+                        :task="task"
+                        :show-category-actions="true"
+                        :on-set-category="setTaskCategory"
+                        :show-recurrence-controls="category.id === 'repeatable'"
+                        :on-set-recurrence="setTaskRecurrence"
+                        :draggable="true"
+                        :is-last-in-category="isLastTaskId(task, category.tasks)"
+                        :is-drop-target="dragOver.id === task.id"
+                        :drop-position="dragOver.position"
+                        :category-id="category.id"
+                        :drag-category-id="category.id"
+                        :on-drag-start="startDrag"
+                        :on-drag-end="endDrag"
+                        :on-drop="dropOnTask"
+                        :on-drag-over="setDragOver"
+                        :on-drag-leave="clearDragOver"
+                        :focus-title-id="focusTaskId"
+                        :focus-content-target="focusContentTarget"
+                        :on-save="saveTask"
+                        :on-complete="toggleComplete"
+                        :on-dirty="handleDirtyChange"
+                        :on-create-below="createTaskBelow"
+                        :on-tab-to-previous="moveTaskToPrevious"
+                        :on-split-to-new-task="splitSubcontentToNewTask"
+                        :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
+                        :on-focus-next-task-from-content="focusNextTaskFromContent"
+                        :on-delete="deleteTask"
+                      />
+                    </div>
+                  </template>
+                  <template v-else>
+                    <TaskItem
+                      v-for="task in category.tasks"
+                      :key="task.id"
+                      :task="task"
+                      :show-category-actions="true"
+                      :on-set-category="setTaskCategory"
+                      :show-recurrence-controls="category.id === 'repeatable'"
+                      :on-set-recurrence="setTaskRecurrence"
+                    :draggable="true"
+                    :is-last-in-category="isLastTaskId(task, category.tasks)"
+                    :is-drop-target="dragOver.id === task.id"
+                    :drop-position="dragOver.position"
+                    :category-id="category.id"
+                    :drag-category-id="category.id"
+                    :on-drag-start="startDrag"
+                    :on-drag-end="endDrag"
+                    :on-drop="dropOnTask"
+                      :on-drag-over="setDragOver"
+                      :on-drag-leave="clearDragOver"
+                      :focus-title-id="focusTaskId"
+                      :focus-content-target="focusContentTarget"
+                      :on-save="saveTask"
+                      :on-complete="toggleComplete"
+                      :on-dirty="handleDirtyChange"
+                      :on-create-below="createTaskBelow"
+                      :on-tab-to-previous="moveTaskToPrevious"
+                      :on-split-to-new-task="splitSubcontentToNewTask"
+                      :on-focus-prev-task-from-title="focusPrevTaskFromTitle"
+                      :on-focus-next-task-from-content="focusNextTaskFromContent"
+                      :on-delete="deleteTask"
+                    />
+                  </template>
+                </div>
+              </section>
             </div>
-          </section>
+          </template>
         </div>
       </section>
 
@@ -171,6 +210,7 @@
                   :on-split-to-new-task="noop"
                   :on-focus-prev-task-from-title="noop"
                   :on-focus-next-task-from-content="noop"
+                  :on-delete="noop"
                 />
               </div>
             </section>
@@ -209,6 +249,7 @@
               :on-split-to-new-task="noop"
               :on-focus-prev-task-from-title="noop"
               :on-focus-next-task-from-content="noop"
+              :on-delete="noop"
             />
           </div>
         </div>
@@ -236,6 +277,13 @@
           <p v-if="backupStatus" class="settings-status">{{ backupStatus }}</p>
           <p v-if="reindexStatus" class="settings-status">{{ reindexStatus }}</p>
         </div>
+        <div class="settings-card">
+          <h2>Licenses</h2>
+          <p class="settings-status">
+            Fontpkg-PxPlus_IBM_VGA8 by pocketfood (CC BY-SA 4.0):
+            https://github.com/pocketfood/Fontpkg-PxPlus_IBM_VGA8
+          </p>
+        </div>
       </section>
 
       <section v-else class="placeholder">
@@ -248,7 +296,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { apiGet, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 import TaskItem from "./components/TaskItem.vue";
 
 const tabs = ["Dashboard", "History", "Search", "Settings"];
@@ -275,6 +323,7 @@ const isReindexing = ref(false);
 const backupStatus = ref("");
 const reindexStatus = ref("");
 const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
+const creatingDefaultNew = ref(false);
 
 let pollTimer = null;
 let dayTimer = null;
@@ -289,33 +338,49 @@ const emptyTitleDoc = () => ({
   content: [{ type: "paragraph" }]
 });
 
-const emptyDoc = () => ({
+const emptyContentDoc = () => ({
   type: "doc",
-  content: [
-    {
-      type: "bulletList",
-      content: [
-        {
-          type: "listItem",
-          content: [{ type: "paragraph" }]
-        }
-      ]
-    }
-  ]
+  content: [{ type: "paragraph" }]
 });
 
 const normalizeContent = (content) => {
   if (!content || content.type !== "doc") {
-    return emptyDoc();
+    return emptyContentDoc();
   }
-  const list = content.content?.[0];
-  if (!list || list.type !== "bulletList") {
-    return emptyDoc();
+  const nodes = content.content || [];
+  if (nodes.length === 0) {
+    return emptyContentDoc();
   }
-  if (!list.content || list.content.length === 0) {
-    return emptyDoc();
+  const list = nodes[0];
+  if (list && list.type === "bulletList") {
+    if (!list.content || list.content.length === 0) {
+      return emptyContentDoc();
+    }
+    return content;
   }
-  return content;
+  if (
+    nodes.length === 1
+    && nodes[0].type === "paragraph"
+    && (!nodes[0].content || nodes[0].content.length === 0)
+  ) {
+    return emptyContentDoc();
+  }
+  const paragraphs = nodes.filter((node) => node.type === "paragraph");
+  if (paragraphs.length > 0) {
+    return {
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: paragraphs.map((paragraph) => ({
+            type: "listItem",
+            content: [paragraph]
+          }))
+        }
+      ]
+    };
+  }
+  return emptyContentDoc();
 };
 
 const titleFromText = (text) => ({
@@ -395,6 +460,43 @@ const parseDateKey = (dateKey) => {
   }
   return date;
 };
+
+const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const toWeekdayNumber = (date) => {
+  const day = date.getDay();
+  return ((day + 6) % 7) + 1;
+};
+
+const groupTasksByWeekday = (tasks) => {
+  const groups = new Map();
+  tasks.forEach((task) => {
+    const date = task.scheduledDate ? parseDateKey(task.scheduledDate) : new Date();
+    const weekday = toWeekdayNumber(date || new Date());
+    if (!groups.has(weekday)) {
+      groups.set(weekday, []);
+    }
+    groups.get(weekday).push(task);
+  });
+
+  return weekdayLabels
+    .map((label, index) => {
+      const day = index + 1;
+      return { id: `weekday-${day}`, label, tasks: groups.get(day) || [] };
+    })
+    .filter((group) => group.tasks.length > 0);
+};
+
+const isThisWeekCategory = (category) => category.label === "This week";
+
+const isLastTaskId = (task, list) => {
+  if (!list || list.length === 0) {
+    return false;
+  }
+  return list[list.length - 1]?.id === task.id;
+};
+
+const isLastTaskInList = (task, list) => isLastTaskId(task, list);
 
 const deriveCategories = (tasks) => {
   const now = new Date();
@@ -693,6 +795,14 @@ const loadDashboard = async () => {
   const data = await apiGet("/api/dashboard");
   newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), "dashboard:new");
   mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), "dashboard:main");
+  if (newTasks.value.length === 0 && !creatingDefaultNew.value) {
+    creatingDefaultNew.value = true;
+    try {
+      await createTask("dashboard:new", emptyTitleDoc(), emptyContentDoc(), Date.now());
+    } finally {
+      creatingDefaultNew.value = false;
+    }
+  }
 };
 
 const loadHistory = async () => {
@@ -714,12 +824,23 @@ const insertTaskLocal = (task) => {
   }
 };
 
-const createTask = async (page, titleOverride, contentOverride, positionOverride) => {
+const createTask = async (page, titleOverride, contentOverride, positionOverride, categoryId = null) => {
+  let scheduledDate = null;
+  let recurrence = null;
+  if (page === "dashboard:main" && categoryId) {
+    const categoryUpdate = buildCategoryUpdate({ id: "__new", recurrence: null }, categoryId);
+    if (categoryUpdate) {
+      scheduledDate = categoryUpdate.scheduledDate ?? null;
+      recurrence = categoryUpdate.recurrence ?? null;
+    }
+  }
   const payload = {
     page,
     title: normalizeTitle(titleOverride ?? emptyTitleDoc()),
-    content: normalizeContent(contentOverride || emptyDoc()),
-    position: positionOverride || Date.now()
+    content: normalizeContent(contentOverride || emptyContentDoc()),
+    position: positionOverride || Date.now(),
+    scheduledDate,
+    recurrence
   };
   const response = await apiPost("/api/tasks", payload);
   insertTaskLocal({
@@ -730,18 +851,22 @@ const createTask = async (page, titleOverride, contentOverride, positionOverride
     position: payload.position,
     createdAt: Date.now(),
     updatedAt: response.updatedAt,
-    completedAt: null
+    completedAt: null,
+    scheduledDate: payload.scheduledDate,
+    recurrence: payload.recurrence
   });
   await loadDashboard();
   return response.taskId;
 };
 
-const createTaskBelow = async (task) => {
+const createTaskBelow = async (task, categoryId = null) => {
   const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
   const index = list.findIndex((item) => item.id === task.id);
   const next = index >= 0 ? list[index + 1] : null;
   const position = next ? (task.position + next.position) / 2 : task.position + 1;
-  return await createTask(task.page, emptyTitleDoc(), emptyDoc(), position);
+  const newId = await createTask(task.page, emptyTitleDoc(), emptyContentDoc(), position, categoryId);
+  focusTaskId.value = newId;
+  return newId;
 };
 
 const moveTaskToPrevious = async (task) => {
@@ -845,6 +970,30 @@ const saveTask = async ({ id, title, content, baseUpdatedAt, page }) => {
   await loadDashboard();
 };
 
+const deleteTask = async (task) => {
+  if (!task?.id) {
+    return;
+  }
+  const list = getOrderedTasksForPage(task);
+  const index = list.findIndex((item) => item.id === task.id);
+  const prevTask = index > 0 ? list[index - 1] : null;
+  try {
+    await apiDelete(`/api/tasks/${task.id}`);
+  } catch {
+    return;
+  }
+  dirtySnapshots.delete(task.id);
+  newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
+  mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
+  if (prevTask) {
+    focusTaskId.value = prevTask.id;
+  }
+  await loadDashboard();
+  if (activeTab.value === "History") {
+    await loadHistory();
+  }
+};
+
 const toggleComplete = async (task) => {
   const completed = !task.completedAt;
   task.completedAt = completed ? Date.now() : null;
@@ -891,7 +1040,7 @@ const handleDirtyChange = (id, dirty, snapshot) => {
 };
 
 const createEmptyTask = async (page) => {
-  const newId = await createTask(page, emptyTitleDoc(), emptyDoc(), Date.now());
+  const newId = await createTask(page, emptyTitleDoc(), emptyContentDoc(), Date.now());
   focusTaskId.value = newId;
 };
 
@@ -937,7 +1086,7 @@ const setTaskCategory = async (task, category) => {
       recurrence = null;
       break;
     case "this-week":
-      scheduledDate = formatDateKey(weekStart);
+      scheduledDate = getDayKey();
       recurrence = null;
       break;
     case "next-week": {
@@ -1060,7 +1209,9 @@ const buildCategoryUpdate = (task, categoryId) => {
   }
 
   if (categoryId.startsWith("week-")) {
-    scheduledDate = categoryId.slice(5);
+    const weekKey = categoryId.slice(5);
+    const currentWeekKey = formatDateKey(getWeekStart(new Date()));
+    scheduledDate = weekKey === currentWeekKey ? getDayKey() : weekKey;
     recurrence = null;
   } else {
     switch (categoryId) {
@@ -1304,6 +1455,8 @@ const handleGlobalShortcut = (event) => {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
 }
 
 .top-nav {
@@ -1345,7 +1498,11 @@ const handleGlobalShortcut = (event) => {
 
 .content {
   flex: 1;
-  padding: 16px 24px 24px;
+  padding: 16px 24px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .warning-banner {
@@ -1376,13 +1533,41 @@ const handleGlobalShortcut = (event) => {
 }
 
 .dashboard {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-  align-items: start;
+  --column-width: 500px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   background: #fbf6ef;
   border-radius: 16px;
-  padding: 12px 16px;
+  padding: 12px 8px 0;
+}
+
+.dashboard-columns {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0;
+  justify-content: flex-start;
+}
+
+.dashboard-column {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: var(--column-width);
+  height: 100%;
+  display: flex;
+  min-height: 0;
+}
+
+.dashboard-column.new-column.expanded {
+  flex-basis: calc(var(--column-width) * 1.35);
 }
 
 .search-view {
@@ -1426,21 +1611,35 @@ const handleGlobalShortcut = (event) => {
   gap: 4px;
 }
 
-.list-column.expanded {
-  grid-column: 1 / -1;
-}
-
 .list-card {
   background: transparent;
   border-radius: 12px;
   padding: 8px 4px;
   box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  width: max-content;
+  max-width: var(--column-width);
 }
 
 .list-header {
   display: flex;
   justify-content: space-between;
   gap: 20px;
+  margin-bottom: 4px;
+}
+
+.column-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fbf6ef;
+  padding: 8px 0 4px;
   margin-bottom: 4px;
 }
 
@@ -1480,13 +1679,11 @@ const handleGlobalShortcut = (event) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.category-block {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 6px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .category-title {
@@ -1495,6 +1692,25 @@ const handleGlobalShortcut = (event) => {
   letter-spacing: 0.06em;
   color: #6f665f;
   margin: 8px 0 2px;
+}
+
+.weekday-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.weekday-header {
+  position: sticky;
+  top: 44px;
+  z-index: 1;
+  background: #fbf6ef;
+  font-size: 0.85rem;
+  color: #6f665f;
+  padding: 6px 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .history-view {

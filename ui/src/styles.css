@@ -1,3 +1,5 @@
+@import "./styles/compact.css";
+
 :root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -9,14 +11,17 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   background: radial-gradient(circle at top left, #fff8ee, #f0ebe2 45%, #ece6dc 100%);
 }
 
 #app {
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
 }
 
 button,

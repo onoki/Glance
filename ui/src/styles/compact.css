@@ -1,0 +1,107 @@
+/* =========================
+   PxPlus IBM VGA - Compact UI
+   ========================= */
+
+/* 1) Font loading */
+@font-face {
+  font-family: "PxPlus IBM VGA";
+  src: url("/assets/fonts/PxPlus_IBM_VGA8.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+}
+  
+  /* 2) Global variables */
+:root {
+  --font-ui: "PxPlus IBM VGA", sans-serif;
+
+  --font-size-body: 11px;
+  --font-size-meta: 10px;
+  --font-size-title: 11px;
+
+  --line-height-body: 1.25;
+
+  --pad-xs: 2px;
+  --pad-sm: 4px;
+  --pad-md: 6px;
+
+  --bg-app: #f4f4f4;
+  --bg-panel: #ededed;
+
+  --text-main: #1e1e1e;
+  --text-muted: #555;
+
+  --border-panel: #9a9a9a;
+  --focus-outline: #6a8cff;
+}
+  
+  /* 3) Global application text */
+body {
+  font-family: var(--font-ui);
+}
+  
+  /* 4) Panels only (structure borders) */
+.dashboard {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--text-main);
+  background-color: var(--bg-app);
+  border-radius: 0;
+  padding: var(--pad-sm);
+}
+
+.dashboard .list-card.list-card {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-panel);
+  padding: var(--pad-sm);
+  box-shadow: none;
+}
+  
+  /* 5) Tasks – NO borders */
+.dashboard .task,
+.dashboard .task-item.task-item {
+  padding: var(--pad-xs) 0;
+  border: none;
+}
+  
+  /* 6) Task title emphasis */
+.dashboard .title-editor .ProseMirror {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  color: #000;
+}
+  
+  /* 7) Subcontent compactness */
+.dashboard .ProseMirror {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.dashboard .ProseMirror p {
+  margin: 0;
+}
+
+.dashboard .ProseMirror ul,
+.dashboard .ProseMirror ol {
+  margin: 0;
+  padding-left: 12px;
+}
+  
+  /* 8) Metadata (dates, badges) */
+.dashboard .task-date,
+.dashboard .dirty-badge {
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+  
+  /* 9) Focus & selection (keyboard-friendly) */
+:focus-visible {
+  outline: 1px dotted var(--focus-outline);
+  outline-offset: 1px;
+}
+  
+  /* 10) Images stay compact */
+.dashboard .ProseMirror img {
+  max-width: 100%;
+  margin: var(--pad-xs) 0;
+}
+  

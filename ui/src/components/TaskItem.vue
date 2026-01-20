@@ -20,15 +20,7 @@
       <span></span>
     </label>
     <div class="task-body" :class="{ 'with-actions': showCategoryActions }">
-      <div v-if="showCategoryActions" class="task-actions" @click.stop>
-        <button type="button" class="task-action" @click="setCategory('uncategorized')">Uncategorized</button>
-        <button type="button" class="task-action" @click="setCategory('this-week')">This week</button>
-        <button type="button" class="task-action" @click="setCategory('next-week')">Next week</button>
-        <button type="button" class="task-action" @click="setCategory('no-date')">No date</button>
-        <button type="button" class="task-action" @click="setCategory('repeatable')">Repeatable</button>
-        <button type="button" class="task-action" @click="setCategory('notes')">Notes</button>
-      </div>
-      <div class="title-row">
+      <div class="task-actions-area" @click.stop>
         <button
           v-if="draggable && !readOnly"
           type="button"
@@ -39,6 +31,16 @@
         >
           ::
         </button>
+        <div v-if="showCategoryActions" class="task-actions">
+          <button type="button" class="task-action" @click="setCategory('uncategorized')">Uncategorized</button>
+          <button type="button" class="task-action" @click="setCategory('this-week')">This week</button>
+          <button type="button" class="task-action" @click="setCategory('next-week')">Next week</button>
+          <button type="button" class="task-action" @click="setCategory('no-date')">No date</button>
+          <button type="button" class="task-action" @click="setCategory('repeatable')">Repeatable</button>
+          <button type="button" class="task-action" @click="setCategory('notes')">Notes</button>
+        </div>
+      </div>
+      <div class="title-row">
         <RichTextEditor
           ref="titleEditorRef"
           class="title-editor"
@@ -84,7 +86,9 @@
         </div>
       </div>
       <RichTextEditor
+        v-if="hasSubcontent"
         ref="contentEditorRef"
+        class="content-editor"
         v-model="content"
         :editable="!readOnly"
         :on-dirty="handleContentDirty"
@@ -96,7 +100,8 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
+import { TextSelection } from "prosemirror-state";
 import RichTextEditor from "./RichTextEditor.vue";
 
 const props = defineProps({
@@ -121,6 +126,14 @@ const props = defineProps({
     default: false
   },
   draggable: {
+    type: Boolean,
+    default: false
+  },
+  categoryId: {
+    type: String,
+    default: null
+  },
+  isLastInCategory: {
     type: Boolean,
     default: false
   },
@@ -184,6 +197,10 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  onDelete: {
+    type: Function,
+    required: true
+  },
   onDragStart: {
     type: Function,
     default: null
@@ -216,6 +233,15 @@ const weeklyDays = ref([]);
 const monthDaysInput = ref("");
 let saveTimer = null;
 let pendingCreateTimer = null;
+
+const hasSubcontent = computed(() => {
+  const doc = content.value;
+  if (!doc || !doc.content || doc.content.length === 0) {
+    return false;
+  }
+  const first = doc.content[0];
+  return first?.type === "bulletList" && Array.isArray(first.content) && first.content.length > 0;
+});
 
 const weekdayOptions = [
   { value: 1, label: "Mon" },
@@ -290,6 +316,52 @@ const handleTitleDirty = () => {
   scheduleSave();
 };
 
+const isDocEmptyJson = (node) => {
+  if (!node) {
+    return true;
+  }
+  if (node.type === "text") {
+    return !(node.text || "").trim();
+  }
+  if (node.type === "hardBreak") {
+    return true;
+  }
+  if (node.content && Array.isArray(node.content)) {
+    return node.content.every((child) => isDocEmptyJson(child));
+  }
+  const containerTypes = new Set(["doc", "paragraph", "bulletList", "listItem"]);
+  if (node.type && containerTypes.has(node.type)) {
+    return true;
+  }
+  return false;
+};
+
+const isTitleEmpty = (editor) => {
+  if (!editor) {
+    return isDocEmptyJson(title.value);
+  }
+  return editor.state.doc.textContent.trim().length === 0;
+};
+
+const isContentEmpty = (editor) => {
+  if (!editor) {
+    return isDocEmptyJson(content.value);
+  }
+  let hasContent = false;
+  editor.state.doc.descendants((node) => {
+    if (node.isText && node.text?.trim()) {
+      hasContent = true;
+      return false;
+    }
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasContent = true;
+      return false;
+    }
+    return true;
+  });
+  return !hasContent;
+};
+
 const handleContentDirty = () => {
   if (props.readOnly) {
     return;
@@ -323,6 +395,11 @@ const handleTitleKeydown = (event, editor) => {
   if (props.readOnly) {
     return false;
   }
+  if (event.key === "Backspace" && isTitleEmpty(editor) && isContentEmpty(null)) {
+    event.preventDefault();
+    props.onDelete(props.task);
+    return true;
+  }
   if (event.key === "Tab") {
     if (pendingCreateTimer) {
       clearTimeout(pendingCreateTimer);
@@ -338,6 +415,9 @@ const handleTitleKeydown = (event, editor) => {
   }
 
   if (event.key === "ArrowDown") {
+    if (!hasSubcontent.value) {
+      return false;
+    }
     if (!isSelectionAtEnd(editor)) {
       return false;
     }
@@ -362,7 +442,7 @@ const handleTitleKeydown = (event, editor) => {
     saveNow();
     pendingCreateTimer = setTimeout(() => {
       pendingCreateTimer = null;
-      props.onCreateBelow(props.task);
+      props.onCreateBelow(props.task, props.categoryId);
     }, 250);
     return true;
   }
@@ -404,6 +484,25 @@ const handleContentKeydown = (event, editor) => {
   if (props.readOnly) {
     return false;
   }
+  if (event.key === "Backspace") {
+    if (removeSingleEmptyList(editor)) {
+      event.preventDefault();
+      titleEditorRef.value?.focus();
+      return true;
+    }
+    if (isContentEmpty(editor) && isTitleEmpty(null)) {
+      event.preventDefault();
+      props.onDelete(props.task);
+      return true;
+    }
+  }
+  if (event.key === "Enter" && !event.shiftKey) {
+    if (props.isLastInCategory && removeEmptyLastListItem(editor)) {
+      event.preventDefault();
+      props.onCreateBelow(props.task, props.categoryId);
+      return true;
+    }
+  }
   if (event.key === "ArrowDown") {
     const ctx = getListContext(editor);
     if (ctx && ctx.listIndex === ctx.listCount - 1 && ctx.atEnd) {
@@ -421,6 +520,111 @@ const handleContentKeydown = (event, editor) => {
     }
   }
   return false;
+};
+
+const isListItemEmpty = (listItem) => {
+  if (!listItem) {
+    return false;
+  }
+  if (listItem.textContent.trim().length > 0) {
+    return false;
+  }
+  let hasInlineNonText = false;
+  listItem.descendants((node) => {
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasInlineNonText = true;
+      return false;
+    }
+    return true;
+  });
+  return !hasInlineNonText;
+};
+
+const removeEmptyLastListItem = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  let listItemDepth = null;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "listItem") {
+      listItemDepth = depth;
+      break;
+    }
+  }
+  if (!listItemDepth) {
+    return false;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || listNode.type.name !== "bulletList") {
+    return false;
+  }
+  const listIndex = $from.index(listDepth);
+  if (listIndex !== listNode.childCount - 1) {
+    return false;
+  }
+  const listItem = $from.node(listItemDepth);
+  if (!isListItemEmpty(listItem)) {
+    return false;
+  }
+  if (listNode.childCount === 1) {
+    editor.commands.setContent({
+      type: "doc",
+      content: [{ type: "paragraph" }]
+    });
+    return true;
+  }
+
+  const from = $from.before(listItemDepth);
+  const to = $from.after(listItemDepth);
+  const tr = state.tr.delete(from, to);
+  const nextPos = Math.max(from - 1, 1);
+  tr.setSelection(TextSelection.create(tr.doc, nextPos));
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const removeSingleEmptyList = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  let listItemDepth = null;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "listItem") {
+      listItemDepth = depth;
+      break;
+    }
+  }
+  if (!listItemDepth) {
+    return false;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || listNode.type.name !== "bulletList" || listNode.childCount !== 1) {
+    return false;
+  }
+  const listItem = $from.node(listItemDepth);
+  if (!isListItemEmpty(listItem)) {
+    return false;
+  }
+  editor.commands.setContent({
+    type: "doc",
+    content: [{ type: "paragraph" }]
+  });
+  return true;
 };
 
 const toggleComplete = () => {
@@ -679,10 +883,10 @@ watch(
   padding-right: 140px;
 }
 
-.task-actions {
+.task-actions-area {
   position: absolute;
   top: -2px;
-  right: 0;
+  right: 14px;
   display: flex;
   gap: 6px;
   opacity: 0;
@@ -692,9 +896,16 @@ watch(
   z-index: 2;
 }
 
-.task-item:hover .task-actions {
+.task-item:hover .task-actions-area {
   opacity: 1;
   pointer-events: auto;
+}
+
+.task-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .task-action {
@@ -705,6 +916,7 @@ watch(
   border-radius: 999px;
   font-size: 0.7rem;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .recurrence-row {
@@ -820,4 +1032,5 @@ watch(
   border-radius: 999px;
   padding: 2px 6px;
 }
+
 </style>

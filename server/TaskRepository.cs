@@ -121,6 +121,42 @@ public sealed class TaskRepository
         return new TaskCompleteResponse(completedAt);
     }
 
+    public async Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var exists = await TaskExistsAsync(connection, taskId, cancellationToken);
+        if (!exists)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using (var deleteSearch = connection.CreateCommand())
+        {
+            deleteSearch.Transaction = transaction;
+            deleteSearch.CommandText = "DELETE FROM task_search WHERE task_id = $id;";
+            deleteSearch.Parameters.AddWithValue("$id", taskId);
+            await deleteSearch.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var deleteTask = connection.CreateCommand())
+        {
+            deleteTask.Transaction = transaction;
+            deleteTask.CommandText = "DELETE FROM tasks WHERE id = $id;";
+            deleteTask.Parameters.AddWithValue("$id", taskId);
+            await deleteTask.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await InsertChangeAsync(connection, transaction, taskId, "delete", now);
+        await transaction.CommitAsync(cancellationToken);
+
+        return true;
+    }
+
     public async Task<IReadOnlyList<TaskItem>> GetTasksByPageAsync(string page, CancellationToken cancellationToken)
     {
         var tasks = new List<TaskItem>();

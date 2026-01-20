@@ -289,6 +289,32 @@ const editorRef = useEditor({
       void insertImageFromFile(editor, imageFile);
       return true;
     },
+    handleTextInput(view, from, to, text) {
+      const editor = editorRef?.value ?? editorRef;
+      if (isTitle.value || !editor) {
+        return false;
+      }
+      if (hasBulletList(editor) || !isDocEmptyParagraph(editor.state.doc)) {
+        return false;
+      }
+      const { schema } = editor.state;
+      const listType = schema.nodes.bulletList;
+      const listItemType = schema.nodes.listItem;
+      const paragraphType = schema.nodes.paragraph;
+      if (!listType || !listItemType || !paragraphType) {
+        return false;
+      }
+      const textNode = text ? schema.text(text) : null;
+      const paragraph = paragraphType.create(null, textNode ? [textNode] : undefined);
+      const listItem = listItemType.create(null, paragraph);
+      const list = listType.create(null, listItem);
+      const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, list);
+      const selectionPos = Math.min(tr.doc.content.size, 2 + text.length);
+      tr.setSelection(TextSelection.create(tr.doc, selectionPos));
+      view.dispatch(tr);
+      editor.commands.focus();
+      return true;
+    },
     handleKeyDown(view, event) {
       const editor = editorRef?.value ?? editorRef;
       if (props.onKeyDown) {
@@ -624,6 +650,42 @@ const isInListItem = (editor) => {
   return depth !== null;
 };
 
+const hasBulletList = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const doc = editor.state.doc;
+  return doc.childCount > 0 && doc.child(0).type.name === "bulletList";
+};
+
+const isDocEmptyParagraph = (doc) => {
+  if (!doc) {
+    return true;
+  }
+  if (doc.childCount === 0) {
+    return true;
+  }
+  if (doc.childCount !== 1) {
+    return false;
+  }
+  const child = doc.child(0);
+  if (child.type.name !== "paragraph") {
+    return false;
+  }
+  if (child.textContent.trim().length > 0) {
+    return false;
+  }
+  let hasInlineNonText = false;
+  child.descendants((node) => {
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasInlineNonText = true;
+      return false;
+    }
+    return true;
+  });
+  return !hasInlineNonText;
+};
+
 const isListItemEmpty = (listItem) => {
   if (!listItem) {
     return false;
@@ -764,17 +826,24 @@ const appendListItem = (editor) => {
   const { state, view } = editor;
   const { doc, schema } = state;
   const listNode = doc.childCount > 0 ? doc.child(0) : null;
-  if (!listNode || listNode.type.name !== "bulletList") {
-    return false;
-  }
   const listItemType = schema.nodes.listItem;
   const paragraphType = schema.nodes.paragraph;
-  if (!listItemType || !paragraphType) {
+  const listType = schema.nodes.bulletList;
+  if (!listItemType || !paragraphType || !listType) {
     return false;
   }
   const newItem = listItemType.createAndFill(null, paragraphType.createAndFill());
   if (!newItem) {
     return false;
+  }
+  if (!listNode || listNode.type.name !== "bulletList") {
+    const list = listType.create(null, newItem);
+    const tr = state.tr.replaceWith(0, doc.content.size, list);
+    const selectionPos = Math.min(tr.doc.content.size, 2);
+    tr.setSelection(TextSelection.create(tr.doc, selectionPos));
+    view.dispatch(tr);
+    editor.commands.focus();
+    return true;
   }
   const listPos = 1;
   const insertPos = listPos + listNode.nodeSize - 1;
