@@ -23,7 +23,15 @@
         </div>
       </div>
       <section v-if="activeTab === 'Dashboard'" class="dashboard">
-        <div class="dashboard-columns">
+        <div
+          ref="dashboardColumnsRef"
+          class="dashboard-columns"
+          :class="{ 'expanded-new': expandedNew, 'dragging-dashboard': isDashboardDragging }"
+          @pointerdown="handleDashboardPointerDown"
+          @pointermove="handleDashboardPointerMove"
+          @pointerup="handleDashboardPointerUp"
+          @pointerleave="handleDashboardPointerUp"
+        >
           <div class="dashboard-column new-column" :class="{ expanded: expandedNew }">
             <section class="list-card">
               <header class="list-header column-header">
@@ -316,6 +324,7 @@ const historyGroups = ref([]);
 const historyStats = ref([]);
 const currentDayKey = ref("");
 const searchInputRef = ref(null);
+const dashboardColumnsRef = ref(null);
 const warnings = ref([]);
 const dismissedWarningIds = ref([]);
 const isBackingUp = ref(false);
@@ -324,6 +333,8 @@ const backupStatus = ref("");
 const reindexStatus = ref("");
 const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
 const creatingDefaultNew = ref(false);
+const isDashboardDragging = ref(false);
+const dashboardDragState = ref({ active: false, startX: 0, startScrollLeft: 0, pointerId: null });
 
 let pollTimer = null;
 let dayTimer = null;
@@ -1388,6 +1399,7 @@ onMounted(async () => {
   }, 60000);
 
   window.addEventListener("keydown", handleGlobalShortcut);
+  window.addEventListener("wheel", handleDashboardWheel, { passive: false });
 });
 
 onBeforeUnmount(() => {
@@ -1401,6 +1413,7 @@ onBeforeUnmount(() => {
     clearTimeout(maintenanceTimer);
   }
   window.removeEventListener("keydown", handleGlobalShortcut);
+  window.removeEventListener("wheel", handleDashboardWheel);
 });
 
 watch(activeTab, (tab) => {
@@ -1448,6 +1461,73 @@ const handleGlobalShortcut = (event) => {
     });
   }
 };
+
+const handleDashboardWheel = (event) => {
+  const container = dashboardColumnsRef.value;
+  if (!container || activeTab.value !== "Dashboard") {
+    return;
+  }
+  const target = event.target;
+  if (!target?.closest?.(".dashboard")) {
+    return;
+  }
+  const deltaX = event.deltaX || 0;
+  const deltaY = event.deltaY || 0;
+  const horizontalDelta = deltaX !== 0 ? deltaX : (event.shiftKey ? deltaY : 0);
+  if (horizontalDelta === 0) {
+    return;
+  }
+  event.preventDefault();
+  container.scrollLeft += horizontalDelta;
+};
+
+const handleDashboardPointerDown = (event) => {
+  const container = dashboardColumnsRef.value;
+  if (!container || activeTab.value !== "Dashboard") {
+    return;
+  }
+  if (event.button !== 0) {
+    return;
+  }
+  const target = event.target;
+  if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button")) {
+    return;
+  }
+  if (target?.closest?.(".drag-handle")) {
+    return;
+  }
+  if (target?.isContentEditable) {
+    return;
+  }
+  dashboardDragState.value = {
+    active: true,
+    startX: event.clientX,
+    startScrollLeft: container.scrollLeft,
+    pointerId: event.pointerId
+  };
+  isDashboardDragging.value = true;
+  container.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+};
+
+const handleDashboardPointerMove = (event) => {
+  const container = dashboardColumnsRef.value;
+  if (!container || !dashboardDragState.value.active) {
+    return;
+  }
+  const delta = event.clientX - dashboardDragState.value.startX;
+  container.scrollLeft = dashboardDragState.value.startScrollLeft - delta;
+};
+
+const handleDashboardPointerUp = (event) => {
+  if (!dashboardDragState.value.active) {
+    return;
+  }
+  const container = dashboardColumnsRef.value;
+  container?.releasePointerCapture?.(dashboardDragState.value.pointerId);
+  dashboardDragState.value = { active: false, startX: 0, startScrollLeft: 0, pointerId: null };
+  isDashboardDragging.value = false;
+};
 </script>
 
 <style scoped>
@@ -1463,9 +1543,9 @@ const handleGlobalShortcut = (event) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 32px;
-  background: #1f1b16;
-  color: #f9f4ee;
+  padding: 2px 4px;
+  background: var(--bg-header);
+  color: var(--text-main);
 }
 
 .brand {
@@ -1477,13 +1557,13 @@ const handleGlobalShortcut = (event) => {
 
 .tabs {
   display: flex;
-  gap: 12px;
+  gap: 4px;
 }
 
 .tab {
   border: none;
-  padding: 8px 16px;
-  border-radius: 999px;
+  padding: 2px 6px;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   font-size: 0.95rem;
@@ -1498,7 +1578,7 @@ const handleGlobalShortcut = (event) => {
 
 .content {
   flex: 1;
-  padding: 16px 24px 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1516,18 +1596,18 @@ const handleGlobalShortcut = (event) => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  background: #fff1d6;
-  border: 1px solid #e4c79b;
-  color: #5a3f1b;
-  padding: 8px 10px;
-  border-radius: 10px;
+  background: var(--bg-warning);
+  border: 1px solid var(--border-warning);
+  color: var(--text-warning);
+  padding: 2px 6px;
+  border-radius: 0;
   font-size: 0.85rem;
 }
 
 .warning-dismiss {
   border: none;
   background: transparent;
-  color: #5a3f1b;
+  color: var(--text-warning);
   cursor: pointer;
   font-weight: 600;
 }
@@ -1539,9 +1619,9 @@ const handleGlobalShortcut = (event) => {
   flex: 1;
   min-height: 0;
   height: 100%;
-  background: #fbf6ef;
-  border-radius: 16px;
-  padding: 12px 8px 0;
+  background: var(--bg-app);
+  border-radius: 0;
+  padding: 0;
 }
 
 .dashboard-columns {
@@ -1557,6 +1637,10 @@ const handleGlobalShortcut = (event) => {
   justify-content: flex-start;
 }
 
+.dashboard-columns.dragging-dashboard {
+  cursor: grabbing;
+}
+
 .dashboard-column {
   flex: 0 0 auto;
   width: max-content;
@@ -1567,13 +1651,20 @@ const handleGlobalShortcut = (event) => {
 }
 
 .dashboard-column.new-column.expanded {
-  flex-basis: calc(var(--column-width) * 1.35);
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 100%;
+}
+
+.dashboard-columns.expanded-new .dashboard-column:not(.new-column) {
+  display: none;
 }
 
 .search-view {
-  background: #fbf6ef;
-  border-radius: 16px;
-  padding: 16px;
+  background: var(--bg-app);
+  border-radius: 0;
+  padding: 6px;
   min-height: 60vh;
   display: flex;
   flex-direction: column;
@@ -1587,11 +1678,11 @@ const handleGlobalShortcut = (event) => {
 
 .search-bar input {
   flex: 1;
-  border: 1px solid #d8c7b3;
-  border-radius: 10px;
-  padding: 8px 10px;
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
+  padding: 4px 6px;
   font-size: 0.95rem;
-  background: #fffaf3;
+  background: var(--bg-panel);
 }
 
 .search-results {
@@ -1600,7 +1691,7 @@ const handleGlobalShortcut = (event) => {
 }
 
 .search-empty {
-  color: #6f665f;
+  color: var(--text-muted);
   font-size: 0.95rem;
   padding: 8px 2px;
 }
@@ -1613,8 +1704,8 @@ const handleGlobalShortcut = (event) => {
 
 .list-card {
   background: transparent;
-  border-radius: 12px;
-  padding: 8px 4px;
+  border-radius: 0;
+  padding: 2px;
   box-shadow: none;
   display: flex;
   flex-direction: column;
@@ -1638,7 +1729,7 @@ const handleGlobalShortcut = (event) => {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #fbf6ef;
+  background: var(--bg-app);
   padding: 8px 0 4px;
   margin-bottom: 4px;
 }
@@ -1651,7 +1742,7 @@ const handleGlobalShortcut = (event) => {
 .subtitle {
   margin: 0;
   font-size: 0.85rem;
-  color: #6f665f;
+  color: var(--text-muted);
 }
 
 .header-actions {
@@ -1661,11 +1752,11 @@ const handleGlobalShortcut = (event) => {
 }
 
 .ghost {
-  border: 1px solid #c6b8a9;
+  border: 1px solid var(--border-panel);
   background: transparent;
-  color: #3a3129;
-  padding: 6px 10px;
-  border-radius: 12px;
+  color: var(--text-main);
+  padding: 2px 6px;
+  border-radius: 0;
   cursor: pointer;
   font-size: 0.75rem;
 }
@@ -1690,7 +1781,7 @@ const handleGlobalShortcut = (event) => {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6f665f;
+  color: var(--text-muted);
   margin: 8px 0 2px;
 }
 
@@ -1705,18 +1796,18 @@ const handleGlobalShortcut = (event) => {
   position: sticky;
   top: 44px;
   z-index: 1;
-  background: #fbf6ef;
+  background: var(--bg-app);
   font-size: 0.85rem;
-  color: #6f665f;
+  color: var(--text-muted);
   padding: 6px 0 2px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .history-view {
-  background: #fbf6ef;
-  border-radius: 16px;
-  padding: 16px;
+  background: var(--bg-app);
+  border-radius: 0;
+  padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1749,8 +1840,8 @@ const handleGlobalShortcut = (event) => {
 }
 
 .chart-bar {
-  background: #1f1b16;
-  border-radius: 2px 2px 0 0;
+  background: var(--text-main);
+  border-radius: 0;
   min-height: 2px;
 }
 
@@ -1758,7 +1849,7 @@ const handleGlobalShortcut = (event) => {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #6f665f;
+  color: var(--text-muted);
 }
 
 .chart-scale {
@@ -1766,7 +1857,7 @@ const handleGlobalShortcut = (event) => {
   flex-direction: column;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: #6f665f;
+  color: var(--text-muted);
   text-align: right;
   height: 120px;
 }
@@ -1785,36 +1876,36 @@ const handleGlobalShortcut = (event) => {
 
 .history-date {
   font-size: 0.9rem;
-  color: #6f665f;
+  color: var(--text-muted);
   margin: 0;
 }
 
 .history-empty {
-  color: #6f665f;
+  color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 .add-task {
   border: none;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #1f1b16;
-  color: #f9f4ee;
+  padding: 3px 6px;
+  border-radius: 0;
+  background: var(--text-main);
+  color: var(--text-invert);
   cursor: pointer;
   font-weight: 600;
 }
 
 .settings-view {
-  background: #fbf6ef;
-  border-radius: 16px;
-  padding: 16px;
+  background: var(--bg-app);
+  border-radius: 0;
+  padding: 6px;
 }
 
 .settings-card {
-  background: #fffaf3;
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 10px 30px rgba(31, 27, 22, 0.08);
+  background: var(--bg-panel);
+  border-radius: 0;
+  padding: 6px;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1831,21 +1922,21 @@ const handleGlobalShortcut = (event) => {
   flex-direction: column;
   gap: 4px;
   font-size: 0.85rem;
-  color: #6f665f;
+  color: var(--text-muted);
 }
 
 .settings-status {
   margin: 0;
   font-size: 0.85rem;
-  color: #6f665f;
+  color: var(--text-muted);
 }
 
 .placeholder {
-  background: #fffaf3;
-  border-radius: 20px;
-  padding: 30px;
+  background: var(--bg-panel);
+  border-radius: 0;
+  padding: 8px;
   text-align: center;
-  box-shadow: 0 10px 30px rgba(31, 27, 22, 0.08);
+  box-shadow: none;
 }
 
 @media (max-width: 700px) {

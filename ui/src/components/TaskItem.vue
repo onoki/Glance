@@ -54,7 +54,7 @@
         <span v-if="task.scheduledDate && task.scheduledDate !== 'no-date'" class="task-date">
           {{ task.scheduledDate }}
         </span>
-        <span v-if="dirty && !readOnly" class="dirty-badge">dirty</span>
+        <span v-if="dirty && !readOnly" class="dirty-indicator" aria-label="Unsaved changes"></span>
       </div>
       <div v-if="showRecurrenceControls && !readOnly" class="recurrence-row">
         <label class="recurrence-label">Frequency</label>
@@ -812,7 +812,7 @@ watch(
 <style scoped>
 .task-item {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 20px 1fr;
   gap: 8px;
   padding: 4px 0;
   border: none;
@@ -824,11 +824,11 @@ watch(
 .drop-indicator {
   position: absolute;
   top: 0;
-  left: 28px;
+  left: 20px;
   right: 0;
   height: 2px;
   background: #d94a3d;
-  border-radius: 2px;
+  border-radius: 0;
   pointer-events: none;
   z-index: 3;
   transform: translateY(-100%);
@@ -840,15 +840,15 @@ watch(
 }
 
 .task-item.completed {
-  color: #8a8177;
+  color: var(--text-muted);
   text-decoration: line-through;
 }
 
 .task-check {
   display: grid;
   place-items: center;
-  align-self: start;
-  padding-top: 2px;
+  align-self: flex-start;
+  padding-top: 1px;
 }
 
 .task-check input {
@@ -856,10 +856,10 @@ watch(
 }
 
 .task-check span {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #6f665f;
-  border-radius: 6px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
   display: inline-block;
   position: relative;
 }
@@ -867,9 +867,9 @@ watch(
 .task-check input:checked + span::after {
   content: "";
   position: absolute;
-  inset: 3px;
-  background: #6f665f;
-  border-radius: 3px;
+  inset: 2px;
+  background: var(--text-main);
+  border-radius: 0;
 }
 
 .task-body {
@@ -898,7 +898,6 @@ watch(
 
 .task-item:hover .task-actions-area {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .task-actions {
@@ -908,12 +907,17 @@ watch(
   justify-content: flex-end;
 }
 
+.task-actions-area .task-action,
+.task-actions-area .drag-handle {
+  pointer-events: auto;
+}
+
 .task-action {
-  border: 1px solid #d8c7b3;
-  background: #fffaf3;
-  color: #3a3129;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.7rem;
   cursor: pointer;
   pointer-events: auto;
@@ -925,7 +929,7 @@ watch(
   gap: 6px;
   align-items: center;
   font-size: 0.75rem;
-  color: #6f665f;
+  color: var(--text-muted);
 }
 
 .recurrence-label {
@@ -933,10 +937,10 @@ watch(
 }
 
 .recurrence-select {
-  border: 1px solid #d8c7b3;
-  border-radius: 10px;
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
   padding: 2px 8px;
-  background: #fffaf3;
+  background: var(--bg-panel);
   font-size: 0.75rem;
 }
 
@@ -947,19 +951,19 @@ watch(
 }
 
 .weekday-chip {
-  border: 1px solid #d8c7b3;
-  background: #fffaf3;
-  color: #3a3129;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.7rem;
   cursor: pointer;
 }
 
 .weekday-chip.active {
-  background: #1f1b16;
-  color: #f9f4ee;
-  border-color: #1f1b16;
+  background: var(--text-main);
+  color: var(--text-invert);
+  border-color: var(--text-main);
 }
 
 .monthday-row {
@@ -969,10 +973,10 @@ watch(
 }
 
 .monthday-input {
-  border: 1px solid #d8c7b3;
-  border-radius: 10px;
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
   padding: 2px 8px;
-  background: #fffaf3;
+  background: var(--bg-panel);
   font-size: 0.75rem;
   width: 120px;
 }
@@ -982,6 +986,7 @@ watch(
   align-items: center;
   gap: 6px;
   padding-right: 0;
+  position: relative;
 }
 
 .title-editor {
@@ -989,10 +994,10 @@ watch(
 }
 
 .drag-handle {
-  border: 1px solid #d8c7b3;
-  background: #fffaf3;
-  color: #6f665f;
-  border-radius: 6px;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  border-radius: 0;
   padding: 0 6px;
   font-size: 0.8rem;
   line-height: 1.2rem;
@@ -1009,28 +1014,28 @@ watch(
 }
 
 .title-editor :deep(.ProseMirror) {
-  font-weight: 600;
+  font-weight: 400;
   font-size: 1rem;
+  color: var(--text-title);
   min-height: 1.2em;
 }
 
-.dirty-badge {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: #f6d7a7;
-  color: #5a3f1b;
+.dirty-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-warning);
+  margin-left: 4px;
 }
 
 .task-date {
   font-size: 0.7rem;
-  color: #6f665f;
-  background: #fffaf3;
-  border: 1px solid #e0d2c1;
-  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
   padding: 2px 6px;
+  margin-left: auto;
 }
 
 </style>

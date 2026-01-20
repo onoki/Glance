@@ -3,8 +3,8 @@
 :root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  background: #f4f1ec;
-  color: #1f1b16;
+  background: var(--bg-app);
+  color: var(--text-main);
 }
 
 * {
@@ -16,7 +16,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: radial-gradient(circle at top left, #fff8ee, #f0ebe2 45%, #ece6dc 100%);
+  background: var(--bg-app);
 }
 
 #app {
@@ -40,29 +40,29 @@ textarea {
   display: flex;
   gap: 6px;
   padding: 6px;
-  border-bottom: 1px solid #efe1d0;
-  background: #fff3e2;
+  border-bottom: 1px solid var(--border-panel);
+  background: var(--bg-panel);
 }
 
 .rich-editor .tool {
-  border: 1px solid #c6b8a9;
-  background: #fff;
-  color: #3a3129;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 0.75rem;
   cursor: pointer;
 }
 
 .rich-editor .tool.active {
-  background: #1f1b16;
-  color: #f9f4ee;
-  border-color: #1f1b16;
+  background: var(--text-main);
+  color: var(--text-invert);
+  border-color: var(--text-main);
 }
 
 .rich-editor .tool-sep {
   width: 1px;
-  background: #d8c7b3;
+  background: var(--border-panel);
   margin: 0 4px;
 }
 
@@ -105,7 +105,7 @@ textarea {
 }
 
 .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid #8b6a4f;
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
 }
 

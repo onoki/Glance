@@ -901,7 +901,7 @@ defineExpose({
   bottom: 0;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 0;
   background: #1f1b16;
   cursor: nwse-resize;
   opacity: 0;

@@ -20,54 +20,144 @@
 
   --line-height-body: 1.25;
 
-  --pad-xs: 2px;
-  --pad-sm: 4px;
-  --pad-md: 6px;
+  --pad-xs: 1px;
+  --pad-sm: 2px;
+  --pad-md: 4px;
 
-  --bg-app: #f4f4f4;
-  --bg-panel: #ededed;
+  --bg-app: #f2f4f6;
+  --bg-panel: #eef1f4;
+  --bg-header: #e6ebf0;
+  --bg-tab-active: #dbe2e9;
+  --bg-warning: #efe3c8;
+  --bg-warning-soft: #e7d5aa;
 
-  --text-main: #1e1e1e;
-  --text-muted: #555;
+  --text-main: #1a1d21;
+  --text-muted: #5b636b;
+  --text-title: #0f1216;
+  --text-invert: #f7f8f9;
+  --text-warning: #574735;
 
-  --border-panel: #9a9a9a;
-  --focus-outline: #6a8cff;
+  --border-panel: #b7bec6;
+  --border-warning: #cbb688;
+  --focus-outline: #2b5d8a;
 }
   
   /* 3) Global application text */
 body {
   font-family: var(--font-ui);
 }
-  
-  /* 4) Panels only (structure borders) */
+
+/* 4) Panels only (structure borders) */
+.top-nav {
+  padding: 2px 4px;
+  background: var(--bg-header);
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-panel);
+}
+
+.brand {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tabs {
+  gap: var(--pad-xs);
+}
+
+.tab {
+  padding: 1px 4px;
+  border-radius: 0;
+  border: 1px solid var(--border-panel);
+  font-size: var(--font-size-meta);
+}
+
+.tab.active,
+.tab:hover {
+  background: var(--bg-tab-active);
+}
+
+.content {
+  padding: 0;
+}
 .dashboard {
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
   color: var(--text-main);
   background-color: var(--bg-app);
   border-radius: 0;
-  padding: var(--pad-sm);
+  padding: 0;
+  border: none;
 }
 
 .dashboard .list-card.list-card {
-  background-color: var(--bg-panel);
-  border: 1px solid var(--border-panel);
-  padding: var(--pad-sm);
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  padding: var(--pad-xs);
   box-shadow: none;
+}
+
+.dashboard-columns {
+  gap: var(--pad-sm);
+  position: relative;
+}
+
+.dashboard-column {
+  position: relative;
+}
+
+.dashboard-column:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--pad-sm));
+  top: 18px;
+  bottom: 18px;
+  width: 1px;
+  background: var(--border-panel);
+  opacity: 0.8;
+}
+
+.dashboard .list-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pad-xs);
+  margin-bottom: var(--pad-xs);
+}
+
+.dashboard .header-actions {
+  gap: var(--pad-xs);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dashboard .column-header {
+  padding: var(--pad-xs) 0;
+  margin-bottom: var(--pad-xs);
+}
+
+.dashboard .category-title {
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.dashboard .weekday-header {
+  font-size: 0.85rem;
 }
   
   /* 5) Tasks – NO borders */
 .dashboard .task,
 .dashboard .task-item.task-item {
-  padding: var(--pad-xs) 0;
+  padding: 1px 0;
   border: none;
 }
   
   /* 6) Task title emphasis */
 .dashboard .title-editor .ProseMirror {
   font-size: var(--font-size-title);
-  font-weight: 600;
-  color: #000;
+  font-weight: 400;
+  color: var(--text-title);
 }
   
   /* 7) Subcontent compactness */
@@ -92,6 +182,20 @@ body {
   font-size: var(--font-size-meta);
   color: var(--text-muted);
 }
+
+.dashboard .task-date {
+  border-radius: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+}
+
+.dashboard .dirty-badge {
+  border-radius: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+}
   
   /* 9) Focus & selection (keyboard-friendly) */
 :focus-visible {
@@ -103,5 +207,23 @@ body {
 .dashboard .ProseMirror img {
   max-width: 100%;
   margin: var(--pad-xs) 0;
+}
+
+.dashboard .list-card {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-panel) transparent;
+}
+
+.dashboard .list-card::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dashboard .list-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard .list-card::-webkit-scrollbar-thumb {
+  background: var(--border-panel);
+  border-radius: 0;
 }
   
