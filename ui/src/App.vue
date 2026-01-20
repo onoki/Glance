@@ -34,11 +34,22 @@
               </div>
             </header>
 
-            <div class="task-list">
+            <div class="task-list" @dragover.prevent @drop.prevent="dropOnCategory('new', 'dashboard:new', $event)">
               <TaskItem
                 v-for="task in newTasks"
                 :key="task.id"
                 :task="task"
+                :show-recurrence-controls="false"
+                :on-set-recurrence="setTaskRecurrence"
+                :draggable="true"
+                :is-drop-target="dragOver.id === task.id"
+                :drop-position="dragOver.position"
+                drag-category-id="new"
+                :on-drag-start="startDrag"
+                :on-drag-end="endDrag"
+                :on-drop="dropOnTask"
+                :on-drag-over="setDragOver"
+                :on-drag-leave="clearDragOver"
                 :focus-title-id="focusTaskId"
                 :focus-content-target="focusContentTarget"
                 :on-save="saveTask"
@@ -65,7 +76,13 @@
             </header>
 
             <div class="task-list">
-              <div v-for="category in mainCategories" :key="category.id" class="category-block">
+              <div
+                v-for="category in mainCategories"
+                :key="category.id"
+                class="category-block"
+                @dragover.prevent
+                @drop.prevent="dropOnCategory(category.id, 'dashboard:main', $event)"
+              >
                 <h3 class="category-title">{{ category.label }}</h3>
                 <TaskItem
                   v-for="task in category.tasks"
@@ -73,6 +90,17 @@
                   :task="task"
                   :show-category-actions="true"
                   :on-set-category="setTaskCategory"
+                  :show-recurrence-controls="category.id === 'repeatable'"
+                  :on-set-recurrence="setTaskRecurrence"
+                  :draggable="true"
+                  :is-drop-target="dragOver.id === task.id"
+                  :drop-position="dragOver.position"
+                  :drag-category-id="category.id"
+                  :on-drag-start="startDrag"
+                  :on-drag-end="endDrag"
+                  :on-drop="dropOnTask"
+                  :on-drag-over="setDragOver"
+                  :on-drag-leave="clearDragOver"
                   :focus-title-id="focusTaskId"
                   :focus-content-target="focusContentTarget"
                   :on-save="saveTask"
@@ -92,6 +120,9 @@
       </section>
 
       <section v-else-if="activeTab === 'History'" class="history-view">
+        <div class="history-toolbar">
+          <button class="ghost" @click="moveCompletedToHistory">Debug: Move completed to history</button>
+        </div>
         <div class="history-chart">
           <div class="chart-area">
             <div class="chart-bars">
@@ -209,6 +240,9 @@ const currentDayKey = ref("");
 let pollTimer = null;
 let dayTimer = null;
 const dirtySnapshots = new Map();
+const recurrenceCache = new Map();
+const dragState = ref(null);
+const dragOver = ref({ id: null, position: "before" });
 
 const emptyTitleDoc = () => ({
   type: "doc",
@@ -523,6 +557,31 @@ const highlightTask = (task, terms) => ({
 
 const mainCategories = computed(() => deriveCategories(mainTasks.value));
 
+const findTaskById = (id) => {
+  return [...newTasks.value, ...mainTasks.value].find((task) => task.id === id) || null;
+};
+
+const getCategoryTasks = (page, categoryId) => {
+  if (page === "dashboard:new") {
+    return newTasks.value;
+  }
+  if (page === "dashboard:main") {
+    const category = mainCategories.value.find((item) => item.id === categoryId);
+    return category ? category.tasks : [];
+  }
+  return [];
+};
+
+const getOrderedTasksForPage = (task) => {
+  if (task.page === "dashboard:new") {
+    return newTasks.value;
+  }
+  if (task.page === "dashboard:main") {
+    return mainCategories.value.flatMap((category) => category.tasks);
+  }
+  return mainTasks.value;
+};
+
 const buildHistorySeries = (stats) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -694,7 +753,7 @@ const moveTaskToPrevious = async (task) => {
 };
 
 const focusPrevTaskFromTitle = async (task) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const list = getOrderedTasksForPage(task);
   const index = list.findIndex((item) => item.id === task.id);
   if (index <= 0) {
     return;
@@ -711,7 +770,7 @@ const focusPrevTaskFromTitle = async (task) => {
 };
 
 const focusNextTaskFromContent = async (task) => {
-  const list = task.page === "dashboard:new" ? newTasks.value : mainTasks.value;
+  const list = getOrderedTasksForPage(task);
   const index = list.findIndex((item) => item.id === task.id);
   const next = index >= 0 ? list[index + 1] : null;
   if (next) {
@@ -792,10 +851,24 @@ const createEmptyTask = async (page) => {
   focusTaskId.value = newId;
 };
 
+const runRecurrenceGeneration = async () => {
+  try {
+    await apiPost("/api/recurrence/run", {});
+  } catch {
+    // ignore failures; dashboard refresh will retry later
+  }
+};
+
 const setTaskCategory = async (task, category) => {
   let scheduledDate = undefined;
   let recurrence = undefined;
   const weekStart = getWeekStart(new Date());
+  const cachedRecurrence = recurrenceCache.get(task.id);
+  const existingRecurrence = task.recurrence;
+
+  if (category !== "repeatable" && existingRecurrence && existingRecurrence.type !== "notes") {
+    recurrenceCache.set(task.id, existingRecurrence);
+  }
 
   switch (category) {
     case "uncategorized":
@@ -823,7 +896,9 @@ const setTaskCategory = async (task, category) => {
     }
     case "repeatable":
       scheduledDate = null;
-      recurrence = { type: "repeatable" };
+      recurrence = existingRecurrence && existingRecurrence.type !== "notes"
+        ? existingRecurrence
+        : cachedRecurrence || { type: "weekly", weekdays: [] };
       break;
     default:
       return;
@@ -834,7 +909,152 @@ const setTaskCategory = async (task, category) => {
     scheduledDate,
     recurrence
   });
+  if (recurrence) {
+    await runRecurrenceGeneration();
+  }
   await loadDashboard();
+};
+
+const setTaskRecurrence = async (task, recurrence) => {
+  if (recurrence) {
+    recurrenceCache.set(task.id, recurrence);
+  }
+  await apiPut(`/api/tasks/${task.id}`, {
+    baseUpdatedAt: task.updatedAt,
+    recurrence
+  });
+  await runRecurrenceGeneration();
+  await loadDashboard();
+};
+
+const moveCompletedToHistory = async () => {
+  await apiPost("/api/debug/move-completed-to-history", {});
+  await loadDashboard();
+  if (activeTab.value === "History") {
+    await loadHistory();
+  }
+};
+
+const buildCategoryUpdate = (task, categoryId) => {
+  let scheduledDate = null;
+  let recurrence = null;
+  const cachedRecurrence = recurrenceCache.get(task.id);
+  const existingRecurrence = task.recurrence;
+
+  if (categoryId !== "repeatable" && existingRecurrence && existingRecurrence.type !== "notes") {
+    recurrenceCache.set(task.id, existingRecurrence);
+  }
+
+  if (categoryId.startsWith("week-")) {
+    scheduledDate = categoryId.slice(5);
+    recurrence = null;
+  } else {
+    switch (categoryId) {
+      case "uncategorized":
+        scheduledDate = null;
+        recurrence = null;
+        break;
+      case "notes":
+        scheduledDate = null;
+        recurrence = { type: "notes" };
+        break;
+      case "no-date":
+        scheduledDate = "no-date";
+        recurrence = null;
+        break;
+      case "repeatable":
+        scheduledDate = null;
+        recurrence = existingRecurrence && existingRecurrence.type !== "notes"
+          ? existingRecurrence
+          : cachedRecurrence || { type: "weekly", weekdays: [] };
+        break;
+      default:
+        return null;
+    }
+  }
+
+  return { scheduledDate, recurrence };
+};
+
+const applyTaskMove = async (task, categoryId, position) => {
+  const update = {
+    baseUpdatedAt: task.updatedAt,
+    position
+  };
+
+  if (task.page === "dashboard:main") {
+    const categoryUpdate = buildCategoryUpdate(task, categoryId);
+    if (categoryUpdate) {
+      update.scheduledDate = categoryUpdate.scheduledDate;
+      update.recurrence = categoryUpdate.recurrence;
+    }
+  }
+
+  await apiPut(`/api/tasks/${task.id}`, update);
+  if (update.recurrence) {
+    await runRecurrenceGeneration();
+  }
+  await loadDashboard();
+};
+
+const startDrag = (task, event) => {
+  dragState.value = { taskId: task.id, page: task.page };
+  dragOver.value = { id: task.id, position: "before" };
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", task.id);
+  }
+};
+
+const endDrag = () => {
+  dragState.value = null;
+  dragOver.value = { id: null, position: "before" };
+};
+
+const dropOnTask = async (targetTask, categoryId, event) => {
+  const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
+  const dragged = dragId ? findTaskById(dragId) : null;
+  if (!dragged || dragged.id === targetTask.id) {
+    return;
+  }
+  if (dragged.page !== targetTask.page) {
+    return;
+  }
+
+  const list = getCategoryTasks(targetTask.page, categoryId);
+  const filtered = list.filter((item) => item.id !== dragged.id);
+  const targetIndex = filtered.findIndex((item) => item.id === targetTask.id);
+  if (targetIndex < 0) {
+    return;
+  }
+  const dropPosition = dragOver.value.id === targetTask.id ? dragOver.value.position : "before";
+  const before = dropPosition === "before";
+  const prev = before ? (targetIndex > 0 ? filtered[targetIndex - 1] : null) : filtered[targetIndex];
+  const next = before ? filtered[targetIndex] : (targetIndex + 1 < filtered.length ? filtered[targetIndex + 1] : null);
+  const position = next && prev ? (prev.position + next.position) / 2 : prev ? prev.position + 1 : next.position - 1;
+  await applyTaskMove(dragged, categoryId, position);
+};
+
+const dropOnCategory = async (categoryId, page, event) => {
+  const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
+  const dragged = dragId ? findTaskById(dragId) : null;
+  if (!dragged || dragged.page !== page) {
+    return;
+  }
+  const list = getCategoryTasks(page, categoryId).filter((item) => item.id !== dragged.id);
+  const last = list[list.length - 1] || null;
+  const position = last ? last.position + 1 : Date.now();
+  await applyTaskMove(dragged, categoryId, position);
+};
+
+const setDragOver = (taskId, position) => {
+  dragOver.value = { id: taskId, position: position || "before" };
+};
+
+const clearDragOver = (taskId) => {
+  if (dragOver.value.id === taskId) {
+    dragOver.value = { id: null, position: "before" };
+  }
 };
 
 const searchTasks = async () => {
@@ -887,6 +1107,7 @@ onMounted(async () => {
     const nextDay = getDayKey();
     if (nextDay !== currentDayKey.value) {
       currentDayKey.value = nextDay;
+      runRecurrenceGeneration();
       loadDashboard();
       if (activeTab.value === "History") {
         loadHistory();
@@ -1111,6 +1332,11 @@ watch(focusContentTarget, (target) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.history-toolbar {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .history-chart {

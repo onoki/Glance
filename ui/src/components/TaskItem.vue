@@ -1,10 +1,25 @@
 <template>
-  <div class="task-item" :class="{ completed: !!task.completedAt }">
+  <div
+    class="task-item"
+    :class="{ completed: !!task.completedAt }"
+    :draggable="false"
+    @dragstart="handleDragStart"
+    @dragover.prevent="handleDragOver"
+    @dragenter.prevent="handleDragEnter"
+    @dragleave="handleDragLeave"
+    @drop.prevent="handleDrop"
+    @dragend="handleDragEnd"
+  >
+    <div
+      v-if="isDropTarget"
+      class="drop-indicator"
+      :class="{ after: dropPosition === 'after' }"
+    ></div>
     <label class="task-check">
       <input type="checkbox" :checked="!!task.completedAt" :disabled="!allowToggle" @change="toggleComplete" />
       <span></span>
     </label>
-    <div class="task-body">
+    <div class="task-body" :class="{ 'with-actions': showCategoryActions }">
       <div v-if="showCategoryActions" class="task-actions" @click.stop>
         <button type="button" class="task-action" @click="setCategory('uncategorized')">Uncategorized</button>
         <button type="button" class="task-action" @click="setCategory('this-week')">This week</button>
@@ -14,6 +29,16 @@
         <button type="button" class="task-action" @click="setCategory('notes')">Notes</button>
       </div>
       <div class="title-row">
+        <button
+          v-if="draggable && !readOnly"
+          type="button"
+          class="drag-handle"
+          aria-label="Drag task"
+          :draggable="true"
+          @dragstart.stop="handleDragStart"
+        >
+          ::
+        </button>
         <RichTextEditor
           ref="titleEditorRef"
           class="title-editor"
@@ -24,7 +49,39 @@
           :on-split-to-new-task="noopSplit"
           :on-key-down="handleTitleKeydown"
         />
+        <span v-if="task.scheduledDate && task.scheduledDate !== 'no-date'" class="task-date">
+          {{ task.scheduledDate }}
+        </span>
         <span v-if="dirty && !readOnly" class="dirty-badge">dirty</span>
+      </div>
+      <div v-if="showRecurrenceControls && !readOnly" class="recurrence-row">
+        <label class="recurrence-label">Frequency</label>
+        <select v-model="recurrenceType" class="recurrence-select" @change="applyRecurrence">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+        <div v-if="recurrenceType === 'weekly'" class="weekday-row">
+          <button
+            v-for="day in weekdayOptions"
+            :key="day.value"
+            type="button"
+            class="weekday-chip"
+            :class="{ active: weeklyDays.includes(day.value) }"
+            @click="toggleWeekday(day.value)"
+          >
+            {{ day.label }}
+          </button>
+        </div>
+        <div v-if="recurrenceType === 'monthly'" class="monthday-row">
+          <label class="recurrence-label">Days</label>
+          <input
+            v-model="monthDaysInput"
+            class="monthday-input"
+            type="text"
+            placeholder="1, 15, 30"
+            @blur="applyRecurrence"
+          />
+        </div>
       </div>
       <RichTextEditor
         ref="contentEditorRef"
@@ -59,7 +116,31 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  showRecurrenceControls: {
+    type: Boolean,
+    default: false
+  },
+  draggable: {
+    type: Boolean,
+    default: false
+  },
+  isDropTarget: {
+    type: Boolean,
+    default: false
+  },
+  dropPosition: {
+    type: String,
+    default: "before"
+  },
+  dragCategoryId: {
+    type: String,
+    default: null
+  },
   onSetCategory: {
+    type: Function,
+    default: null
+  },
+  onSetRecurrence: {
     type: Function,
     default: null
   },
@@ -102,6 +183,26 @@ const props = defineProps({
   onFocusNextTaskFromContent: {
     type: Function,
     required: true
+  },
+  onDragStart: {
+    type: Function,
+    default: null
+  },
+  onDragEnd: {
+    type: Function,
+    default: null
+  },
+  onDrop: {
+    type: Function,
+    default: null
+  },
+  onDragOver: {
+    type: Function,
+    default: null
+  },
+  onDragLeave: {
+    type: Function,
+    default: null
   }
 });
 
@@ -110,8 +211,21 @@ const content = ref(props.task.content);
 const dirty = ref(false);
 const titleEditorRef = ref(null);
 const contentEditorRef = ref(null);
+const recurrenceType = ref("");
+const weeklyDays = ref([]);
+const monthDaysInput = ref("");
 let saveTimer = null;
 let pendingCreateTimer = null;
+
+const weekdayOptions = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 7, label: "Sun" }
+];
 
 const snapshot = () => ({
   ...props.task,
@@ -316,6 +430,55 @@ const toggleComplete = () => {
   props.onComplete(props.task);
 };
 
+const isEditorTarget = (event) =>
+  !!event?.target?.closest?.(".ProseMirror, .editor-surface");
+
+const isHandleTarget = (event) => !!event?.target?.closest?.(".drag-handle");
+
+const handleDragStart = (event) => {
+  if (!props.draggable || !props.onDragStart) {
+    return;
+  }
+  if (!isHandleTarget(event) || isEditorTarget(event)) {
+    event.preventDefault();
+    return;
+  }
+  props.onDragStart(props.task, event);
+};
+
+const handleDragOver = (event) => {
+  if (!event) {
+    return;
+  }
+  const rect = event.currentTarget?.getBoundingClientRect();
+  if (!rect) {
+    return;
+  }
+  const midpoint = rect.top + rect.height / 2;
+  const position = event.clientY >= midpoint ? "after" : "before";
+  props.onDragOver?.(props.task.id, position);
+};
+
+const handleDragEnter = () => {
+  props.onDragOver?.(props.task.id);
+};
+
+const handleDragLeave = () => {
+  props.onDragLeave?.(props.task.id);
+};
+
+const handleDrop = (event) => {
+  if (!props.onDrop) {
+    return;
+  }
+  event.stopPropagation();
+  props.onDrop(props.task, props.dragCategoryId, event);
+};
+
+const handleDragEnd = () => {
+  props.onDragEnd?.();
+};
+
 const handleSplitToNewTask = async (payload) => {
   if (props.readOnly) {
     return;
@@ -338,6 +501,73 @@ const setCategory = (category) => {
     return;
   }
   props.onSetCategory(props.task, category);
+};
+
+watch(
+  () => props.task?.recurrence,
+  (recurrence) => {
+    if (!recurrence) {
+      recurrenceType.value = "";
+      weeklyDays.value = [];
+      monthDaysInput.value = "";
+      return;
+    }
+    if (recurrence.type === "repeatable") {
+      recurrenceType.value = "weekly";
+      weeklyDays.value = [];
+      monthDaysInput.value = "";
+    } else if (recurrence.type === "weekly") {
+      const weekdays = Array.isArray(recurrence.weekdays) ? recurrence.weekdays : [];
+      weeklyDays.value = weekdays.slice().sort((a, b) => a - b);
+      recurrenceType.value = "weekly";
+    } else if (recurrence.type === "monthly") {
+      const monthDays = Array.isArray(recurrence.monthDays) ? recurrence.monthDays : [];
+      monthDaysInput.value = monthDays.join(", ");
+      recurrenceType.value = "monthly";
+    } else {
+      recurrenceType.value = "";
+    }
+  },
+  { immediate: true }
+);
+
+const parseMonthDays = (value) => {
+  const parts = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isInteger(item) && item >= 1 && item <= 31);
+  return Array.from(new Set(parts));
+};
+
+const buildRecurrencePayload = () => {
+  if (!recurrenceType.value) {
+    return null;
+  }
+  if (recurrenceType.value === "weekly") {
+    return { type: "weekly", weekdays: weeklyDays.value.slice() };
+  }
+  if (recurrenceType.value === "monthly") {
+    return { type: "monthly", monthDays: parseMonthDays(monthDaysInput.value) };
+  }
+  return null;
+};
+
+const applyRecurrence = () => {
+  if (props.readOnly || !props.onSetRecurrence) {
+    return;
+  }
+  props.onSetRecurrence(props.task, buildRecurrencePayload());
+};
+
+const toggleWeekday = (day) => {
+  if (weeklyDays.value.includes(day)) {
+    weeklyDays.value = weeklyDays.value.filter((value) => value !== day);
+  } else {
+    weeklyDays.value = [...weeklyDays.value, day].sort((a, b) => a - b);
+  }
+  applyRecurrence();
 };
 
 watch(
@@ -387,6 +617,24 @@ watch(
   position: relative;
 }
 
+.drop-indicator {
+  position: absolute;
+  top: 0;
+  left: 28px;
+  right: 0;
+  height: 2px;
+  background: #d94a3d;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 3;
+  transform: translateY(-100%);
+}
+
+.drop-indicator.after {
+  top: 100%;
+  transform: translateY(0);
+}
+
 .task-item.completed {
   color: #8a8177;
   text-decoration: line-through;
@@ -427,6 +675,10 @@ watch(
   position: relative;
 }
 
+.task-body.with-actions {
+  padding-right: 140px;
+}
+
 .task-actions {
   position: absolute;
   top: -2px;
@@ -455,14 +707,89 @@ watch(
   cursor: pointer;
 }
 
+.recurrence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #6f665f;
+}
+
+.recurrence-label {
+  font-weight: 600;
+}
+
+.recurrence-select {
+  border: 1px solid #d8c7b3;
+  border-radius: 10px;
+  padding: 2px 8px;
+  background: #fffaf3;
+  font-size: 0.75rem;
+}
+
+.weekday-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.weekday-chip {
+  border: 1px solid #d8c7b3;
+  background: #fffaf3;
+  color: #3a3129;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.weekday-chip.active {
+  background: #1f1b16;
+  color: #f9f4ee;
+  border-color: #1f1b16;
+}
+
+.monthday-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.monthday-input {
+  border: 1px solid #d8c7b3;
+  border-radius: 10px;
+  padding: 2px 8px;
+  background: #fffaf3;
+  font-size: 0.75rem;
+  width: 120px;
+}
+
 .title-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding-right: 0;
 }
 
 .title-editor {
   flex: 1;
+}
+
+.drag-handle {
+  border: 1px solid #d8c7b3;
+  background: #fffaf3;
+  color: #6f665f;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 0.8rem;
+  line-height: 1.2rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .title-editor :deep(.editor-surface) {
@@ -483,5 +810,14 @@ watch(
   border-radius: 999px;
   background: #f6d7a7;
   color: #5a3f1b;
+}
+
+.task-date {
+  font-size: 0.7rem;
+  color: #6f665f;
+  background: #fffaf3;
+  border: 1px solid #e0d2c1;
+  border-radius: 999px;
+  padding: 2px 6px;
 }
 </style>

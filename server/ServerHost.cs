@@ -60,6 +60,9 @@ public static class ServerHost
         var initializer = app.Services.GetRequiredService<DatabaseInitializer>();
         initializer.Initialize();
 
+        var tasks = app.Services.GetRequiredService<TaskRepository>();
+        await tasks.GenerateRecurringTasksAsync(DateTime.Now, cancellationToken);
+
         app.UseCors();
 
         MapEndpoints(app);
@@ -205,6 +208,10 @@ public static class ServerHost
             }
 
             var response = await tasks.CreateTaskAsync(request, token);
+            if (request.Recurrence.HasValue)
+            {
+                await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
+            }
             return Results.Ok(response);
         });
 
@@ -236,9 +243,15 @@ public static class ServerHost
             }
 
             var response = await tasks.UpdateTaskAsync(taskId, request, token);
-            return response is null
-                ? Results.NotFound(new { error = "NotFound", message = "Task not found" })
-                : Results.Ok(response);
+            if (response is null)
+            {
+                return Results.NotFound(new { error = "NotFound", message = "Task not found" });
+            }
+            if (request.Recurrence.HasValue)
+            {
+                await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
+            }
+            return Results.Ok(response);
         });
 
         app.MapPost("/api/tasks/{taskId}/complete", async (string taskId, TaskCompleteRequest request, TaskRepository tasks, CancellationToken token) =>
@@ -267,6 +280,16 @@ public static class ServerHost
             return Results.Ok(new SearchResponse(q, results));
         });
 
+        app.MapPost("/api/recurrence/run", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
+        {
+            if (!IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            await tasks.GenerateRecurringTasksAsync(DateTime.Now, token);
+            return Results.Ok(new { ok = true });
+        });
+
         app.MapGet("/api/history", async (TaskRepository tasks, CancellationToken token) =>
         {
             var completedTasks = await tasks.GetHistoryTasksAsync(token);
@@ -278,6 +301,17 @@ public static class ServerHost
                 .ToList();
 
             return Results.Ok(new HistoryResponse(stats, groups));
+        });
+
+        app.MapPost("/api/debug/move-completed-to-history", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
+        {
+            if (!IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var moved = await tasks.MoveCompletedToHistoryAsync(GetStartOfToday(), token);
+            return Results.Ok(new { moved });
         });
     }
 

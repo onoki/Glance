@@ -34,6 +34,7 @@ public sealed record TaskUpdateRequest(
     JsonElement? Title,
     JsonElement? Content,
     string? Page,
+    double? Position,
     JsonElement? ScheduledDate,
     JsonElement? Recurrence
 );

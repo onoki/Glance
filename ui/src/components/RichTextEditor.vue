@@ -55,6 +55,7 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from "vue";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
+import { TextSelection } from "prosemirror-state";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Image from "@tiptap/extension-image";
@@ -139,6 +140,10 @@ const editorRef = useEditor({
       const files = Array.from(event.dataTransfer?.files ?? []);
       const imageFile = files.find((file) => file.type && file.type.startsWith("image/"));
       if (!imageFile) {
+        if (event.dataTransfer?.getData("text/plain")) {
+          event.preventDefault();
+          return true;
+        }
         return false;
       }
       event.preventDefault();
@@ -154,6 +159,26 @@ const editorRef = useEditor({
       if (props.onKeyDown) {
         const handled = props.onKeyDown(event, editor);
         if (handled) {
+          return true;
+        }
+      }
+      if (event.key === "Backspace" && !isTitle.value) {
+        if (handleEmptyListItemBackspace(editor) || blockNonEmptyListItemBackspace(editor)) {
+          event.preventDefault();
+          return true;
+        }
+      }
+      if (event.key === "Enter" && !event.shiftKey && !isTitle.value) {
+        if (isInListItem(editor)) {
+          event.preventDefault();
+          const split = editor?.commands.splitListItem("listItem");
+          if (split) {
+            return true;
+          }
+          return insertListItemAfterSelection(editor);
+        }
+        if (appendListItem(editor)) {
+          event.preventDefault();
           return true;
         }
       }
@@ -444,6 +469,186 @@ const isOutermostListItem = (editor) => {
   const listDepth = listItemDepth - 1;
   const listNode = $from.node(listDepth);
   return listNode?.type?.name === "bulletList" && listDepth === 1;
+};
+
+const getListItemDepth = (editor) => {
+  if (!editor) {
+    return null;
+  }
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "listItem") {
+      return depth;
+    }
+  }
+  return null;
+};
+
+const isInListItem = (editor) => {
+  const depth = getListItemDepth(editor);
+  return depth !== null;
+};
+
+const isListItemEmpty = (listItem) => {
+  if (!listItem) {
+    return false;
+  }
+  if (listItem.textContent.trim().length > 0) {
+    return false;
+  }
+  let hasInlineNonText = false;
+  listItem.descendants((node) => {
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasInlineNonText = true;
+      return false;
+    }
+    return true;
+  });
+  return !hasInlineNonText;
+};
+
+const blockNonEmptyListItemBackspace = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const listItem = $from.node(listItemDepth);
+  if (isListItemEmpty(listItem)) {
+    return false;
+  }
+  if ($from.parentOffset !== 0) {
+    return false;
+  }
+  return true;
+};
+
+const handleEmptyListItemBackspace = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  let listItemDepth = null;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "listItem") {
+      listItemDepth = depth;
+      break;
+    }
+  }
+  if (!listItemDepth) {
+    return false;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || listNode.type.name !== "bulletList") {
+    return false;
+  }
+  const listIndex = $from.index(listDepth);
+  const listItem = $from.node(listItemDepth);
+  if (!isListItemEmpty(listItem)) {
+    return false;
+  }
+
+  if (listIndex <= 0) {
+    const startPos = $from.start(listItemDepth) + 1;
+    const trStart = state.tr.setSelection(TextSelection.create(state.doc, startPos));
+    view.dispatch(trStart);
+    editor.commands.focus();
+    return true;
+  }
+
+  const listStart = $from.before(listDepth) + 1;
+  let prevEnd = listStart + listNode.child(0).nodeSize - 2;
+  let pos = listStart;
+  for (let i = 0; i < listIndex; i += 1) {
+    const child = listNode.child(i);
+    if (i === listIndex - 1) {
+      prevEnd = pos + child.nodeSize - 2;
+      break;
+    }
+    pos += child.nodeSize;
+  }
+
+  const tr = state.tr.delete($from.before(listItemDepth), $from.after(listItemDepth));
+  tr.setSelection(TextSelection.create(tr.doc, Math.max(prevEnd, 1)));
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const insertListItemAfterSelection = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { $from } = state.selection;
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || listNode.type.name !== "bulletList") {
+    return false;
+  }
+  const listItemType = state.schema.nodes.listItem;
+  const paragraphType = state.schema.nodes.paragraph;
+  if (!listItemType || !paragraphType) {
+    return false;
+  }
+  const newItem = listItemType.createAndFill(null, paragraphType.createAndFill());
+  if (!newItem) {
+    return false;
+  }
+  const insertPos = $from.after(listItemDepth);
+  const tr = state.tr.insert(insertPos, newItem);
+  const selectionPos = insertPos + 2;
+  tr.setSelection(TextSelection.create(tr.doc, selectionPos));
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const appendListItem = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { doc, schema } = state;
+  const listNode = doc.childCount > 0 ? doc.child(0) : null;
+  if (!listNode || listNode.type.name !== "bulletList") {
+    return false;
+  }
+  const listItemType = schema.nodes.listItem;
+  const paragraphType = schema.nodes.paragraph;
+  if (!listItemType || !paragraphType) {
+    return false;
+  }
+  const newItem = listItemType.createAndFill(null, paragraphType.createAndFill());
+  if (!newItem) {
+    return false;
+  }
+  const listPos = 1;
+  const insertPos = listPos + listNode.nodeSize - 1;
+  const tr = state.tr.insert(insertPos, newItem);
+  const selectionPos = insertPos + 2;
+  tr.setSelection(TextSelection.create(tr.doc, selectionPos));
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
 };
 
 watch(
