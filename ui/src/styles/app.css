@@ -233,6 +233,7 @@
 .list-header h2 {
   margin: 0 0 4px;
   font-size: 1.2rem;
+  font-weight: 400;
 }
 
 .subtitle {
@@ -279,6 +280,7 @@
   letter-spacing: 0.06em;
   color: var(--text-muted);
   margin: 8px 0 2px;
+  font-weight: 400;
 }
 
 .weekday-group {
