@@ -14,12 +14,8 @@
           <header class="list-header column-header">
             <div>
               <h2>New tasks</h2>
-              <p class="subtitle">Fresh captures that still need a home.</p>
             </div>
             <div class="header-actions">
-              <button class="ghost" @click="onMoveNewToMain" :disabled="newTasks.length === 0">
-                Move to Uncategorized
-              </button>
               <button class="ghost" @click="onToggleExpand">
                 {{ expandedNew ? "Restore view" : "Expand" }}
               </button>
@@ -27,13 +23,22 @@
           </header>
 
           <div class="task-list" @dragover.prevent @drop.prevent="onDropOnCategory('new', $event)">
+            <button
+              v-if="newTasks.length === 0"
+              type="button"
+              class="empty-new"
+              @click="props.onCreateNewTask()"
+              @keydown="handleEmptyKeydown"
+            >
+              ...
+            </button>
             <TaskItem
               v-for="task in newTasks"
               :key="task.id"
               v-bind="getTaskItemBindings(task, newTasks, {
                 categoryId: 'new',
                 dragCategoryId: 'new',
-                showCategoryActions: false,
+                showCategoryActions: true,
                 showRecurrenceControls: false
               })"
             />
@@ -93,7 +98,7 @@
 import { onBeforeUnmount, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
 
-defineProps({
+const props = defineProps({
   newTasks: {
     type: Array,
     required: true
@@ -149,6 +154,10 @@ defineProps({
   onPointerUp: {
     type: Function,
     required: true
+  },
+  onCreateNewTask: {
+    type: Function,
+    required: true
   }
 });
 
@@ -162,4 +171,19 @@ watch(columnsRef, (value) => {
 onBeforeUnmount(() => {
   emit("update:dashboardColumnsRef", null);
 });
+
+const handleEmptyKeydown = (event) => {
+  if (!event) {
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    props.onCreateNewTask();
+    return;
+  }
+  if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    props.onCreateNewTask(event.key);
+  }
+};
 </script>

@@ -3,7 +3,6 @@
     <header class="top-nav">
       <div class="brand">
         <img class="brand-icon" src="/icon.png" alt="" />
-        <span class="brand-name">Glance</span>
         <span class="brand-version">{{ appVersion || "Unknown" }}</span>
       </div>
       <nav class="tabs">
@@ -42,6 +41,7 @@
         :on-pointer-down="handleDashboardPointerDown"
         :on-pointer-move="handleDashboardPointerMove"
         :on-pointer-up="handleDashboardPointerUp"
+        :on-create-new-task="createNewTaskFromEmpty"
       />
 
       <HistoryView
@@ -96,6 +96,8 @@ import HistoryView from "./components/views/HistoryView.vue";
 import SearchView from "./components/views/SearchView.vue";
 import SettingsView from "./components/views/SettingsView.vue";
 import { groupTasksByWeekday, isThisWeekCategory } from "./utils/categoryUtils.js";
+import { emptyContentDoc, emptyTitleDoc } from "./utils/taskUtils.js";
+import { DASHBOARD_NEW_PAGE } from "./utils/pageConstants.js";
 import { useHistory } from "./composables/useHistory.js";
 import { useMaintenance } from "./composables/useMaintenance.js";
 import { useSearch } from "./composables/useSearch.js";
@@ -206,6 +208,7 @@ const {
   applyTaskMove,
   findTaskById,
   getCategoryTasks,
+  createTask,
   pollChanges,
   handleDayTick,
   initDayKey
@@ -307,6 +310,17 @@ const getTaskItemBindings = (task, list, options) => ({
 
 const toggleExpandNew = () => {
   expandedNew.value = !expandedNew.value;
+};
+
+const createNewTaskFromEmpty = async (initialText = "") => {
+  const title = initialText ? initialText : emptyTitleDoc();
+  const newId = await createTask(
+    DASHBOARD_NEW_PAGE,
+    title,
+    emptyContentDoc(),
+    Date.now()
+  );
+  focusTaskId.value = newId;
 };
 
 const moveCompletedToHistory = async () => {

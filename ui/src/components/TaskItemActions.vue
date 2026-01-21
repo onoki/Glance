@@ -1,5 +1,5 @@
 <template>
-  <div class="task-actions-area" @click.stop>
+  <div class="task-actions-area">
     <button
       v-if="draggable && !readOnly"
       type="button"
@@ -51,19 +51,18 @@ const emitDragStart = (event) => {
 <style scoped>
 .task-actions-area {
   position: absolute;
-  top: -2px;
-  right: 14px;
-  display: flex;
+  top: 0;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
   opacity: 0;
   pointer-events: none;
   flex-wrap: wrap;
   justify-content: flex-end;
   z-index: 2;
-}
-
-:deep(.task-item:hover) .task-actions-area {
-  opacity: 1;
+  width: max-content;
+  max-width: calc(100% - 40px);
 }
 
 .task-actions {

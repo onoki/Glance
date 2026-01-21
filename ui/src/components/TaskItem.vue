@@ -530,10 +530,21 @@ watch(
   place-items: center;
   align-self: flex-start;
   padding-top: 1px;
+  position: relative;
+  cursor: pointer;
+  width: 12px;
+  height: 12px;
 }
 
 .task-check input {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
 }
 
 .task-check span {
@@ -543,6 +554,7 @@ watch(
   border-radius: 0;
   display: inline-block;
   position: relative;
+  pointer-events: none;
 }
 
 .task-check input:checked + span::after {

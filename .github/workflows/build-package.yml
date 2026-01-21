@@ -25,7 +25,9 @@ jobs:
         shell: pwsh
         run: |
           $version = Get-Date -Format "yyyy-MM-dd HH:mm"
+          $versionSafe = $version.Replace(":", "-").Replace(" ", "_")
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version_safe=$versionSafe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -75,7 +77,7 @@ jobs:
       - name: Create ZIP package
         shell: pwsh
         run: |
-          $zipName = "glance-${{ matrix.rid }}.zip"
+          $zipName = "glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip"
           $zipPath = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath $zipName
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
           Compress-Archive -Path "package/glance" -DestinationPath $zipPath
@@ -83,5 +85,5 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: glance-${{ matrix.rid }}-${{ matrix.arch }}
-          path: glance-${{ matrix.rid }}.zip
+          name: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}-${{ matrix.arch }}
+          path: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip

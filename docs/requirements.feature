@@ -32,6 +32,13 @@ Feature: Task completion
     And the task text color is black
     And the task is moved back to the dashboard
 
+  Scenario: Completing an empty task removes it
+    Given a task exists in any task list
+    And the task has no visible text in the title or subcontent
+    When I mark the task as completed
+    Then the task is removed
+    And the task is not shown in the history
+
 
 Feature: Dashboard task categorization
 

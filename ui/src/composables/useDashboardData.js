@@ -20,6 +20,7 @@ import {
   normalizeTitle,
   titleDocToListItem
 } from "../utils/taskUtils.js";
+import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
 
 export const useDashboardData = (options) => {
   const activeTab = options?.activeTab;
@@ -63,13 +64,8 @@ export const useDashboardData = (options) => {
     const data = await fetchDashboard();
     newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), DASHBOARD_NEW_PAGE);
     mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), DASHBOARD_MAIN_PAGE);
-    if (newTasks.value.length === 0 && !creatingDefaultNew.value) {
-      creatingDefaultNew.value = true;
-      try {
-        await createTask(DASHBOARD_NEW_PAGE, emptyTitleDoc(), emptyContentDoc(), Date.now());
-      } finally {
-        creatingDefaultNew.value = false;
-      }
+    if (newTasks.value.length === 0 && creatingDefaultNew.value) {
+      creatingDefaultNew.value = false;
     }
   };
 
@@ -218,6 +214,10 @@ export const useDashboardData = (options) => {
   };
 
   const toggleComplete = async (task) => {
+    if (shouldDeleteEmptyOnComplete(task)) {
+      await deleteTask(task);
+      return;
+    }
     const completed = !task.completedAt;
     task.completedAt = completed ? Date.now() : null;
     await completeTask(task.id, { completed });
@@ -417,11 +417,15 @@ export const useDashboardData = (options) => {
         return;
     }
 
-    await updateTaskApi(task.id, {
+    const update = {
       baseUpdatedAt: task.updatedAt,
       scheduledDate,
       recurrence
-    });
+    };
+    if (task.page === DASHBOARD_NEW_PAGE) {
+      update.page = DASHBOARD_MAIN_PAGE;
+    }
+    await updateTaskApi(task.id, update);
     if (recurrence) {
       await runRecurrenceGeneration();
     }

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5173",
-    "test": "node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/taskDocUtils.test.js",
+    "test": "node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/taskDocUtils.test.js && node tests/useDashboardData.test.js",
     "lint": "eslint \"src/**/*.{js,vue}\" \"tests/**/*.js\""
   },
   "dependencies": {

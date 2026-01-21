@@ -27,7 +27,7 @@
   --bg-app: #f2f4f6;
   --bg-panel: #eef1f4;
   --bg-header: #e6ebf0;
-  --bg-tab-active: #dbe2e9;
+  --bg-tab-active: #ccd3da;
   --bg-warning: #efe3c8;
   --bg-warning-soft: #e7d5aa;
 
@@ -72,10 +72,21 @@ body {
   font-size: var(--font-size-meta);
 }
 
-.tab.active,
 .tab:hover {
-  background: var(--bg-tab-active);
+  background: var(--bg-tab-hover, var(--bg-tab-active));
 }
+
+.tab.active {
+  background: var(--bg-tab-active);
+  font-weight: 400;
+}
+
+.task-item:hover .task-actions-area,
+.task-item:focus-within .task-actions-area {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 
 .content {
   padding: 0;
@@ -174,6 +185,20 @@ body {
 .dashboard .ProseMirror ol {
   margin: 0;
   padding-left: 12px;
+}
+
+.empty-new {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  align-self: stretch;
+  text-align: left;
+  border: 1px dashed var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  padding: 4px;
+  font-size: var(--font-size-meta);
+  cursor: text;
 }
   
   /* 8) Metadata (dates, badges) */
