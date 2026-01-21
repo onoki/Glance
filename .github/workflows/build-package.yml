@@ -65,6 +65,9 @@ jobs:
           Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageRoot -Recurse -Force
           New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "ui/dist") | Out-Null
           Copy-Item -Path "ui/dist/*" -Destination (Join-Path $packageRoot "ui/dist") -Recurse -Force
+          if (Test-Path "schema") {
+            Copy-Item -Path "schema" -Destination (Join-Path $packageRoot "schema") -Recurse -Force
+          }
           if (Test-Path "UPDATING.md") {
             Copy-Item -Path "UPDATING.md" -Destination (Join-Path $packageRoot "UPDATING.md") -Force
           }

@@ -13,8 +13,8 @@ public sealed class AppPaths
         BackupsDirectory = Path.Combine(appRoot, "backups");
         DatabasePath = Path.Combine(DataDirectory, "glance.db");
         DocsDirectory = Path.Combine(appRoot, "docs");
-        MigrationsDirectory = Path.Combine(DocsDirectory, "migrations");
-        SchemaPath = Path.Combine(DocsDirectory, "schema.sql");
+        MigrationsDirectory = Path.Combine(appRoot, "schema", "migrations");
+        SchemaPath = Path.Combine(appRoot, "schema", "schema.sql");
     }
 
     public string AppRoot { get; }
