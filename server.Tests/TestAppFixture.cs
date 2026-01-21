@@ -84,25 +84,26 @@ internal sealed class TestAppFixture : IAsyncDisposable
         var current = new DirectoryInfo(Directory.GetCurrentDirectory());
         while (current != null)
         {
+            var schemaPath = Path.Combine(current.FullName, "schema", "schema.sql");
             var docsPath = Path.Combine(current.FullName, "docs", "schema.sql");
-            if (File.Exists(docsPath))
+            if (File.Exists(schemaPath) || File.Exists(docsPath))
             {
                 return current.FullName;
             }
             current = current.Parent;
         }
-        throw new InvalidOperationException("Unable to locate repo root with docs/schema.sql");
+        throw new InvalidOperationException("Unable to locate repo root with schema/schema.sql");
     }
 
     private static void CopyDocs(string repoRoot, string targetRoot)
     {
-        var docsSource = Path.Combine(repoRoot, "docs");
-        var docsTarget = Path.Combine(targetRoot, "docs");
-        Directory.CreateDirectory(docsTarget);
-        File.Copy(Path.Combine(docsSource, "schema.sql"), Path.Combine(docsTarget, "schema.sql"), true);
+        var schemaSource = Path.Combine(repoRoot, "schema");
+        var schemaTarget = Path.Combine(targetRoot, "schema");
+        Directory.CreateDirectory(schemaTarget);
+        File.Copy(Path.Combine(schemaSource, "schema.sql"), Path.Combine(schemaTarget, "schema.sql"), true);
 
-        var migrationsSource = Path.Combine(docsSource, "migrations");
-        var migrationsTarget = Path.Combine(docsTarget, "migrations");
+        var migrationsSource = Path.Combine(schemaSource, "migrations");
+        var migrationsTarget = Path.Combine(schemaTarget, "migrations");
         Directory.CreateDirectory(migrationsTarget);
         foreach (var file in Directory.GetFiles(migrationsSource, "*.sql"))
         {

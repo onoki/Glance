@@ -60,7 +60,13 @@
 
             <div class="task-list">
               <template v-if="isThisWeekCategory(category)">
-                <div v-for="group in groupTasksByWeekday(category.tasks)" :key="group.id" class="weekday-group">
+                <div
+                  v-for="group in groupTasksByWeekday(category.tasks)"
+                  :key="group.id"
+                  class="weekday-group"
+                  @dragover.prevent
+                  @drop.prevent="handleDropOnWeekday(category.id, group.id, $event)"
+                >
                   <div class="weekday-header">{{ group.label }}</div>
                   <TaskItem
                     v-for="task in group.tasks"
@@ -158,6 +164,10 @@ const props = defineProps({
   onCreateNewTask: {
     type: Function,
     required: true
+  },
+  onDropOnWeekday: {
+    type: Function,
+    required: true
   }
 });
 
@@ -185,5 +195,18 @@ const handleEmptyKeydown = (event) => {
     event.preventDefault();
     props.onCreateNewTask(event.key);
   }
+};
+
+const handleDropOnWeekday = (categoryId, weekdayId, event) => {
+  const match = typeof weekdayId === "string" ? weekdayId.match(/weekday-(\d+)/) : null;
+  const dayIndex = match ? Number.parseInt(match[1], 10) : 1;
+  const now = new Date();
+  const weekStart = new Date(now);
+  const day = weekStart.getDay();
+  const diff = (day + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - diff + (dayIndex - 1));
+  weekStart.setHours(0, 0, 0, 0);
+  const dateKey = `${weekStart.getFullYear()}-${`${weekStart.getMonth() + 1}`.padStart(2, "0")}-${`${weekStart.getDate()}`.padStart(2, "0")}`;
+  props.onDropOnWeekday(categoryId, dateKey, event);
 };
 </script>

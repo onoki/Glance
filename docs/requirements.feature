@@ -105,7 +105,7 @@ Feature: Repeatable tasks
     Given repeatable tasks exist
     When the day changes or the application is started
     Then new tasks are created based on recurrence rules
-    And tasks are generated for the next 4 weeks
+    And weekly recurring tasks are generated only for the current week
 
 
 Feature: Daily task cleanup
@@ -357,6 +357,11 @@ Feature: Category interaction
   Scenario: This week scheduling on category change
     Given a task is moved into the This week category
     Then its scheduled date is set to today
+
+  Scenario: Dragging within This week changes the scheduled day
+    Given a task is in the This week category
+    When I drag the task to a different weekday group
+    Then its scheduled date matches the target weekday
 
 
 Feature: Dashboard layout and scrolling

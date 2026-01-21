@@ -25,12 +25,6 @@
   text-transform: uppercase;
 }
 
-.brand-icon {
-  width: 18px;
-  height: 18px;
-  image-rendering: pixelated;
-}
-
 .brand-version {
   font-size: 0.75rem;
   font-weight: 500;
@@ -108,7 +102,7 @@
 }
 
 .dashboard {
-  --column-width: 500px;
+  --column-width: 420px;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -138,7 +132,7 @@
 
 .dashboard-column {
   flex: 0 0 auto;
-  width: max-content;
+  width: clamp(260px, 28vw, var(--column-width));
   max-width: var(--column-width);
   height: 100%;
   display: flex;
@@ -211,9 +205,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: auto;
-  width: max-content;
-  max-width: var(--column-width);
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 .list-header {
@@ -308,7 +302,7 @@
 
 .weekday-header {
   position: sticky;
-  top: 44px;
+  top: 0;
   z-index: 1;
   background: var(--bg-app);
   font-size: 0.85rem;
@@ -316,6 +310,7 @@
   padding: 6px 0 2px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  margin-bottom: 2px;
 }
 
 .history-view {

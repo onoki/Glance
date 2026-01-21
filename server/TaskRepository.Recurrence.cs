@@ -10,6 +10,8 @@ public sealed partial class TaskRepository
     {
         var startDate = todayLocal.Date;
         var endDate = startDate.AddDays(27);
+        var weekStart = GetWeekStart(startDate);
+        var weekEnd = weekStart.AddDays(6);
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
@@ -25,7 +27,7 @@ public sealed partial class TaskRepository
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         foreach (var source in sources)
         {
-            var dates = GetOccurrenceDates(source.Recurrence, startDate, endDate);
+            var dates = GetOccurrenceDates(source.Recurrence, startDate, endDate, weekStart, weekEnd);
             foreach (var date in dates)
             {
                 var taskId = CreateDeterministicId(source.Id, date);
@@ -89,21 +91,29 @@ public sealed partial class TaskRepository
         RecurrenceSpec Recurrence
     );
 
-    private static IReadOnlyList<string> GetOccurrenceDates(RecurrenceSpec recurrence, DateTime startDate, DateTime endDate)
+    private static IReadOnlyList<string> GetOccurrenceDates(
+        RecurrenceSpec recurrence,
+        DateTime startDate,
+        DateTime endDate,
+        DateTime weekStart,
+        DateTime weekEnd)
     {
         var results = new List<string>();
-        for (var date = startDate; date <= endDate; date = date.AddDays(1))
+        if (recurrence.Type == "weekly")
         {
-            if (recurrence.Type == "weekly")
+            for (var date = weekStart; date <= weekEnd; date = date.AddDays(1))
             {
                 var weekday = DayOfWeekToNumber(date.DayOfWeek);
                 if (recurrence.Weekdays.Contains(weekday))
                 {
                     results.Add(FormatDateKey(date));
                 }
-                continue;
             }
+            return results;
+        }
 
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
+        {
             if (recurrence.Type == "monthly")
             {
                 if (recurrence.MonthDays.Contains(date.Day))
@@ -128,6 +138,12 @@ public sealed partial class TaskRepository
             DayOfWeek.Sunday => 7,
             _ => 1
         };
+    }
+
+    private static DateTime GetWeekStart(DateTime date)
+    {
+        var diff = ((int)date.DayOfWeek + 6) % 7;
+        return date.Date.AddDays(-diff);
     }
 
     private static async Task<List<RecurrenceSource>> GetRecurringSourcesAsync(SqliteConnection connection, CancellationToken cancellationToken)

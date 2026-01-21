@@ -99,6 +99,7 @@ body {
   border-radius: 0;
   padding: 0;
   border: none;
+  --column-width: 360px;
 }
 
 .dashboard .list-card.list-card {
@@ -154,7 +155,16 @@ body {
 }
 
 .dashboard .weekday-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-app);
   font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: var(--pad-xs) 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--pad-xs);
 }
   
   /* 5) Tasks – NO borders */

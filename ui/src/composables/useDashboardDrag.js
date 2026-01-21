@@ -58,10 +58,11 @@ export const useDashboardDrag = (options) => {
     const prev = before ? (targetIndex > 0 ? filtered[targetIndex - 1] : null) : filtered[targetIndex];
     const next = before ? filtered[targetIndex] : (targetIndex + 1 < filtered.length ? filtered[targetIndex + 1] : null);
     const position = next && prev ? (prev.position + next.position) / 2 : prev ? prev.position + 1 : next.position - 1;
-    await applyTaskMove?.(dragged, categoryId, position);
+    const scheduledDateOverride = categoryId?.startsWith("week-") ? targetTask.scheduledDate : null;
+    await applyTaskMove?.(dragged, categoryId, position, scheduledDateOverride);
   };
 
-  const dropOnCategory = async (categoryId, page, event) => {
+  const dropOnCategory = async (categoryId, page, event, scheduledDateOverride = null) => {
     const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
     const dragged = dragId ? findTaskById?.(dragId) : null;
     if (!dragged || dragged.page !== page) {
@@ -70,12 +71,16 @@ export const useDashboardDrag = (options) => {
     const list = getCategoryTasks?.(page, categoryId).filter((item) => item.id !== dragged.id);
     const last = list[list.length - 1] || null;
     const position = last ? last.position + 1 : Date.now();
-    await applyTaskMove?.(dragged, categoryId, position);
+    await applyTaskMove?.(dragged, categoryId, position, scheduledDateOverride);
   };
 
-  const dropOnCategoryFromView = (categoryId, event) => {
+  const dropOnCategoryFromView = (categoryId, event, scheduledDateOverride = null) => {
     const page = categoryId === "new" ? DASHBOARD_NEW_PAGE : DASHBOARD_MAIN_PAGE;
-    return dropOnCategory(categoryId, page, event);
+    return dropOnCategory(categoryId, page, event, scheduledDateOverride);
+  };
+
+  const dropOnWeekdayFromView = (categoryId, scheduledDate, event) => {
+    return dropOnCategoryFromView(categoryId, event, scheduledDate);
   };
 
   const handleDashboardPointerDown = (event) => {
@@ -134,6 +139,7 @@ export const useDashboardDrag = (options) => {
     dropOnTask,
     dropOnCategory,
     dropOnCategoryFromView,
+    dropOnWeekdayFromView,
     setDragOver,
     clearDragOver,
     handleDashboardPointerDown,

@@ -2,8 +2,7 @@
   <div class="app-shell">
     <header class="top-nav">
       <div class="brand">
-        <img class="brand-icon" src="/icon.png" alt="" />
-        <span class="brand-version">{{ appVersion || "Unknown" }}</span>
+        <span class="brand-version">Version: {{ appVersion || "Unknown" }}</span>
       </div>
       <nav class="tabs">
         <button
@@ -38,6 +37,7 @@
         :on-move-new-to-main="moveNewToMain"
         :on-toggle-expand="toggleExpandNew"
         :on-drop-on-category="dropOnCategoryFromView"
+        :on-drop-on-weekday="dropOnWeekdayFromView"
         :on-pointer-down="handleDashboardPointerDown"
         :on-pointer-move="handleDashboardPointerMove"
         :on-pointer-up="handleDashboardPointerUp"
@@ -248,6 +248,7 @@ const {
   endDrag,
   dropOnTask,
   dropOnCategoryFromView,
+  dropOnWeekdayFromView,
   setDragOver,
   clearDragOver,
   handleDashboardPointerDown,

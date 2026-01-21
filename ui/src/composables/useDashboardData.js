@@ -451,7 +451,7 @@ export const useDashboardData = (options) => {
     return null;
   };
 
-  const applyTaskMove = async (task, categoryId, position) => {
+  const applyTaskMove = async (task, categoryId, position, scheduledDateOverride = null) => {
     const update = {
       baseUpdatedAt: task.updatedAt,
       position
@@ -461,6 +461,9 @@ export const useDashboardData = (options) => {
     if (categoryUpdate) {
       update.scheduledDate = categoryUpdate.scheduledDate;
       update.recurrence = categoryUpdate.recurrence;
+    }
+    if (scheduledDateOverride) {
+      update.scheduledDate = scheduledDateOverride;
     }
 
     await updateTaskApi(task.id, update);
