@@ -19,14 +19,35 @@
       <input type="checkbox" :checked="!!task.completedAt" :disabled="!allowToggle" @change="toggleComplete" />
       <span></span>
     </label>
-    <div class="task-body" :class="{ 'with-actions': showCategoryActions }">
-      <TaskItemActions
-        :show-category-actions="showCategoryActions"
-        :draggable="draggable"
-        :read-only="readOnly"
-        @drag-start="handleDragStart"
-        @set-category="setCategory"
-      />
+    <div class="task-meta">
+      <span v-if="showScheduledDate" class="task-date">
+        {{ task.scheduledDate }}
+      </span>
+      <button
+        v-if="draggable && !readOnly"
+        type="button"
+        class="drag-handle"
+        aria-label="Drag task"
+        :draggable="true"
+      >
+        ::
+      </button>
+      <div v-if="canSetCategory" class="category-picker">
+        <button type="button" class="category-toggle" aria-label="Change category">cat.</button>
+        <div class="category-menu">
+          <button
+            v-for="option in categoryOptions"
+            :key="option.id"
+            type="button"
+            class="category-option"
+            @click="setCategory(option.id)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="task-body">
       <div class="title-row">
         <RichTextEditor
           ref="titleEditorRef"
@@ -38,9 +59,6 @@
           :on-split-to-new-task="noopSplit"
           :on-key-down="handleTitleKeydown"
         />
-        <span v-if="task.scheduledDate && task.scheduledDate !== 'no-date'" class="task-date">
-          {{ task.scheduledDate }}
-        </span>
         <span v-if="dirty && !readOnly" class="dirty-indicator" aria-label="Unsaved changes"></span>
       </div>
       <RecurrenceControls
@@ -70,7 +88,6 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import RichTextEditor from "./RichTextEditor.vue";
 import RecurrenceControls from "./RecurrenceControls.vue";
-import TaskItemActions from "./TaskItemActions.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
 
 const props = defineProps({
@@ -85,10 +102,6 @@ const props = defineProps({
   allowToggle: {
     type: Boolean,
     default: true
-  },
-  showCategoryActions: {
-    type: Boolean,
-    default: false
   },
   showRecurrenceControls: {
     type: Boolean,
@@ -217,6 +230,21 @@ const hasSubcontent = computed(() => {
   const first = doc.content[0];
   return first?.type === "bulletList" && Array.isArray(first.content) && first.content.length > 0;
 });
+
+const showScheduledDate = computed(
+  () => !!props.task.scheduledDate && props.task.scheduledDate !== "no-date"
+);
+
+const canSetCategory = computed(() => !!props.onSetCategory && !props.readOnly);
+
+const categoryOptions = [
+  { id: "uncategorized", label: "Uncategorized" },
+  { id: "this-week", label: "This week" },
+  { id: "next-week", label: "Next week" },
+  { id: "no-date", label: "No date" },
+  { id: "repeatable", label: "Repeatable" },
+  { id: "notes", label: "Notes" }
+];
 
 const weekdayOptions = [
   { value: 1, label: "Mon" },
@@ -494,7 +522,9 @@ watch(
 .task-item {
   display: grid;
   grid-template-columns: 20px 1fr;
-  gap: 8px;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
   padding: 4px 0;
   border: none;
   background: transparent;
@@ -534,6 +564,8 @@ watch(
   cursor: pointer;
   width: 12px;
   height: 12px;
+  grid-row: 2;
+  grid-column: 1;
 }
 
 .task-check input {
@@ -565,15 +597,35 @@ watch(
   border-radius: 0;
 }
 
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 1.1em;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.task-date,
+.category-toggle,
+.drag-handle {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
 .task-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
   position: relative;
-}
-
-.task-body.with-actions {
-  padding-right: 140px;
+  grid-row: 2;
+  grid-column: 2;
 }
 
 .title-row {
@@ -608,13 +660,88 @@ watch(
 }
 
 .task-date {
-  font-size: 0.7rem;
   color: var(--text-muted);
   background: var(--bg-panel);
   border: 1px solid var(--border-panel);
   border-radius: 0;
+}
+
+.category-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.category-toggle {
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
+  border-radius: 0;
+  cursor: pointer;
+  display: none;
+}
+
+.task-item:hover .category-toggle,
+.task-item:focus-within .category-toggle {
+  display: inline-flex;
+}
+
+.category-menu {
+  position: absolute;
+  top: 100%;
+  left: auto;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+  z-index: 3;
+}
+
+.category-picker:hover .category-menu,
+.category-picker:focus-within .category-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.category-option {
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
+  border-radius: 0;
+  font-size: 0.7rem;
+  line-height: 1;
   padding: 2px 6px;
-  margin-left: auto;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.drag-handle {
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  border-radius: 0;
+  cursor: grab;
+  user-select: none;
+  display: none;
+}
+
+.task-item:hover .drag-handle,
+.task-item:focus-within .drag-handle {
+  display: inline-flex;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 </style>

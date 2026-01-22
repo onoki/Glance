@@ -84,6 +84,55 @@ public sealed class RepositoryTests
     }
 
     [Fact]
+    public async Task History_MoveCompletedToHistory_MovesOnlyTodayTasks()
+    {
+        await using var app = TestAppFixture.Create();
+        var todayTask = await app.Tasks.CreateTaskAsync(new TaskCreateRequest(
+            TaskPages.DashboardMain,
+            TestAppFixture.CreateTitle("Today"),
+            TestAppFixture.CreateContent("Done"),
+            1,
+            null,
+            null), CancellationToken.None);
+
+        var yesterdayTask = await app.Tasks.CreateTaskAsync(new TaskCreateRequest(
+            TaskPages.DashboardMain,
+            TestAppFixture.CreateTitle("Yesterday"),
+            TestAppFixture.CreateContent("Done"),
+            2,
+            null,
+            null), CancellationToken.None);
+
+        var startOfToday = GetStartOfToday();
+        var todayCompletedAt = startOfToday + 1000;
+        var yesterdayCompletedAt = startOfToday - 1000;
+
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(app.Paths.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE tasks SET completed_at = $completed WHERE id = $id;";
+            command.Parameters.AddWithValue("$completed", todayCompletedAt);
+            command.Parameters.AddWithValue("$id", todayTask.TaskId);
+            await command.ExecuteNonQueryAsync();
+
+            command.Parameters["$completed"].Value = yesterdayCompletedAt;
+            command.Parameters["$id"].Value = yesterdayTask.TaskId;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var moved = await app.Tasks.MoveCompletedToHistoryAsync(startOfToday, CancellationToken.None);
+        Assert.Equal(1, moved);
+
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(app.Paths.ConnectionString))
+        {
+            await connection.OpenAsync();
+            Assert.Equal(startOfToday - 1, await GetCompletedAt(connection, todayTask.TaskId));
+            Assert.Equal(yesterdayCompletedAt, await GetCompletedAt(connection, yesterdayTask.TaskId));
+        }
+    }
+
+    [Fact]
     public async Task Dashboard_HidesCompletedTasksFromPreviousDays()
     {
         await using var app = TestAppFixture.Create();
@@ -109,6 +158,15 @@ public sealed class RepositoryTests
 
         var tasks = await app.Tasks.GetDashboardMainTasksAsync(GetStartOfToday(), CancellationToken.None);
         Assert.DoesNotContain(tasks, task => task.Id == created.TaskId);
+    }
+
+    private static async Task<long?> GetCompletedAt(Microsoft.Data.Sqlite.SqliteConnection connection, string taskId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT completed_at FROM tasks WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", taskId);
+        var result = await command.ExecuteScalarAsync();
+        return result is long value ? value : null;
     }
 
     private static long GetStartOfToday()

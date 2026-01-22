@@ -124,6 +124,13 @@ Feature: History view
     And the chart shows only the last 180 days
     And I see a list of completed tasks grouped by completion date
 
+  Scenario: Moving completed tasks to history
+    Given I am on the history tab
+    And completed tasks exist for today
+    When I click the Move completed to history button
+    Then the completed tasks are removed from the dashboard
+    And the tasks appear in the history list
+
   Scenario: Restoring a completed task from history
     Given I am on the history tab
     And a completed task exists

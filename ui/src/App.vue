@@ -281,8 +281,7 @@ const isLastTaskId = (task, list) => {
 
 const getTaskItemBindings = (task, list, options) => ({
   task,
-  showCategoryActions: options.showCategoryActions,
-  onSetCategory: options.showCategoryActions ? setTaskCategory : null,
+  onSetCategory: setTaskCategory,
   showRecurrenceControls: options.showRecurrenceControls,
   onSetRecurrence: setTaskRecurrence,
   draggable: true,

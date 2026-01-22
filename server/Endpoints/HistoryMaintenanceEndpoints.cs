@@ -1,10 +1,10 @@
 namespace Glance.Server;
 
-internal static class DebugEndpoints
+internal static class HistoryMaintenanceEndpoints
 {
     internal static void Map(WebApplication app)
     {
-        app.MapPost("/api/debug/move-completed-to-history", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
+        app.MapPost("/api/history/move-completed-to-history", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>
         {
             if (!EndpointHelpers.IsLocalRequest(context))
             {

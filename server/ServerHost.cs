@@ -103,7 +103,7 @@ public static class ServerHost
         SearchEndpoints.Map(app);
         MaintenanceEndpoints.Map(app);
         HistoryEndpoints.Map(app);
-        DebugEndpoints.Map(app);
+        HistoryMaintenanceEndpoints.Map(app);
         VersionEndpoints.Map(app);
     }
 

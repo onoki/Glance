@@ -58,13 +58,6 @@
   font-weight: 400;
 }
 
-.task-item:hover .task-actions-area,
-.task-item:focus-within .task-actions-area {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-
 .content {
   flex: 1;
   padding: 0;
@@ -102,7 +95,7 @@
 }
 
 .dashboard {
-  --column-width: 420px;
+  --column-width: 320px;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -115,7 +108,7 @@
 
 .dashboard-columns {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: stretch;
   flex: 1;
   min-height: 0;
@@ -132,11 +125,12 @@
 
 .dashboard-column {
   flex: 0 0 auto;
-  width: clamp(260px, 28vw, var(--column-width));
+  width: clamp(200px, 22vw, var(--column-width));
   max-width: var(--column-width);
   height: 100%;
   display: flex;
   min-height: 0;
+  text-align: left;
 }
 
 .dashboard-column.new-column.expanded {

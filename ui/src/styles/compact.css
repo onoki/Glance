@@ -81,13 +81,6 @@ body {
   font-weight: 400;
 }
 
-.task-item:hover .task-actions-area,
-.task-item:focus-within .task-actions-area {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-
 .content {
   padding: 0;
 }
@@ -99,7 +92,7 @@ body {
   border-radius: 0;
   padding: 0;
   border: none;
-  --column-width: 360px;
+  --column-width: 280px;
 }
 
 .dashboard .list-card.list-card {

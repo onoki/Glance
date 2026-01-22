@@ -38,7 +38,6 @@
               v-bind="getTaskItemBindings(task, newTasks, {
                 categoryId: 'new',
                 dragCategoryId: 'new',
-                showCategoryActions: true,
                 showRecurrenceControls: false
               })"
             />
@@ -74,7 +73,6 @@
                     v-bind="getTaskItemBindings(task, category.tasks, {
                       categoryId: category.id,
                       dragCategoryId: category.id,
-                      showCategoryActions: true,
                       showRecurrenceControls: category.id === 'repeatable'
                     })"
                   />
@@ -82,15 +80,14 @@
               </template>
               <template v-else>
                 <TaskItem
-                  v-for="task in category.tasks"
-                  :key="task.id"
-                  v-bind="getTaskItemBindings(task, category.tasks, {
-                    categoryId: category.id,
-                    dragCategoryId: category.id,
-                    showCategoryActions: true,
-                    showRecurrenceControls: category.id === 'repeatable'
-                  })"
-                />
+                v-for="task in category.tasks"
+                :key="task.id"
+                v-bind="getTaskItemBindings(task, category.tasks, {
+                  categoryId: category.id,
+                  dragCategoryId: category.id,
+                  showRecurrenceControls: category.id === 'repeatable'
+                })"
+              />
               </template>
             </div>
           </section>

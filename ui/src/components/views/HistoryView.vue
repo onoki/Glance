@@ -1,7 +1,7 @@
 <template>
   <section class="history-view">
     <div class="history-toolbar">
-      <button class="ghost" @click="onMoveCompletedToHistory">Debug: Move completed to history</button>
+      <button class="ghost" @click="onMoveCompletedToHistory">Move completed to history</button>
     </div>
     <div class="history-chart">
       <div class="chart-area">

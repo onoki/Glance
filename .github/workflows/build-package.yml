@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     name: Build (${{ matrix.os }}-${{ matrix.rid }})
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -81,6 +83,16 @@ jobs:
           $zipPath = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath $zipName
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
           Compress-Archive -Path "package/glance" -DestinationPath $zipPath
+
+      - name: Publish latest build to Releases
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          removeArtifacts: true
+          tag: latest
+          name: Latest build
+          prerelease: true
+          artifacts: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
