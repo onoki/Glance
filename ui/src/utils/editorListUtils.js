@@ -1,12 +1,47 @@
 import { TextSelection } from "prosemirror-state";
 
+const LIST_TYPES = new Set(["bulletList", "taskList"]);
+const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
+
+const isListTypeName = (name) => LIST_TYPES.has(name);
+const isListItemTypeName = (name) => LIST_ITEM_TYPES.has(name);
+
+export const getDefaultListTypeName = (schema) =>
+  schema?.nodes?.taskList ? "taskList" : "bulletList";
+
+export const getDefaultListItemTypeName = (schema) =>
+  schema?.nodes?.taskItem ? "taskItem" : "listItem";
+
+export const getListItemTypeNameForListType = (listTypeName) =>
+  listTypeName === "taskList" ? "taskItem" : "listItem";
+
+export const getListTypeNameForItemType = (listItemTypeName) =>
+  listItemTypeName === "taskItem" ? "taskList" : "bulletList";
+
+export const isListNodeName = (name) => isListTypeName(name);
+export const isListItemNodeName = (name) => isListItemTypeName(name);
+
+const buildListItem = (schema, itemTypeName) => {
+  const listItemType = schema.nodes[itemTypeName];
+  const paragraphType = schema.nodes.paragraph;
+  if (!listItemType || !paragraphType) {
+    return null;
+  }
+  const attrs = itemTypeName === "taskItem" ? { checked: false } : null;
+  const paragraph = paragraphType.createAndFill();
+  if (!paragraph) {
+    return null;
+  }
+  return listItemType.createAndFill(attrs, paragraph);
+};
+
 export const getListItemDepth = (editor) => {
   if (!editor) {
     return null;
   }
   const { $from } = editor.state.selection;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
+    if (isListItemTypeName($from.node(depth).type.name)) {
       return depth;
     }
   }
@@ -14,6 +49,33 @@ export const getListItemDepth = (editor) => {
 };
 
 export const isInListItem = (editor) => getListItemDepth(editor) !== null;
+
+export const getActiveListItemType = (editor) => {
+  if (!editor) {
+    return null;
+  }
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return null;
+  }
+  return editor.state.selection.$from.node(listItemDepth).type.name;
+};
+
+export const getActiveListType = (editor) => {
+  if (!editor) {
+    return null;
+  }
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return null;
+  }
+  const listDepth = listItemDepth - 1;
+  const listNode = editor.state.selection.$from.node(listDepth);
+  if (!listNode || !isListTypeName(listNode.type.name)) {
+    return null;
+  }
+  return listNode.type.name;
+};
 
 export const isListItemEmpty = (listItem) => {
   if (!listItem) {
@@ -61,12 +123,12 @@ export const isDocEmptyParagraph = (doc) => {
   return !hasInlineNonText;
 };
 
-export const hasBulletList = (editor) => {
+export const hasList = (editor) => {
   if (!editor) {
     return false;
   }
   const doc = editor.state.doc;
-  return doc.childCount > 0 && doc.child(0).type.name === "bulletList";
+  return doc.childCount > 0 && isListTypeName(doc.child(0).type.name);
 };
 
 export const isOutermostListItem = (editor) => {
@@ -76,7 +138,7 @@ export const isOutermostListItem = (editor) => {
   const { $from } = editor.state.selection;
   let listItemDepth = null;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
+    if (isListItemTypeName($from.node(depth).type.name)) {
       listItemDepth = depth;
       break;
     }
@@ -86,7 +148,7 @@ export const isOutermostListItem = (editor) => {
   }
   const listDepth = listItemDepth - 1;
   const listNode = $from.node(listDepth);
-  return listNode?.type?.name === "bulletList" && listDepth === 1;
+  return isListTypeName(listNode?.type?.name) && listDepth === 1;
 };
 
 export const blockNonEmptyListItemBackspace = (editor) => {
@@ -125,7 +187,7 @@ export const handleEmptyListItemBackspace = (editor) => {
   const { $from } = selection;
   let listItemDepth = null;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
+    if (isListItemTypeName($from.node(depth).type.name)) {
       listItemDepth = depth;
       break;
     }
@@ -135,7 +197,7 @@ export const handleEmptyListItemBackspace = (editor) => {
   }
   const listDepth = listItemDepth - 1;
   const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList") {
+  if (!listNode || !isListTypeName(listNode.type.name)) {
     return false;
   }
   const listIndex = $from.index(listDepth);
@@ -183,15 +245,11 @@ export const insertListItemAfterSelection = (editor) => {
   }
   const listDepth = listItemDepth - 1;
   const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList") {
+  if (!listNode || !isListTypeName(listNode.type.name)) {
     return false;
   }
-  const listItemType = state.schema.nodes.listItem;
-  const paragraphType = state.schema.nodes.paragraph;
-  if (!listItemType || !paragraphType) {
-    return false;
-  }
-  const newItem = listItemType.createAndFill(null, paragraphType.createAndFill());
+  const listItemTypeName = getListItemTypeNameForListType(listNode.type.name);
+  const newItem = buildListItem(state.schema, listItemTypeName);
   if (!newItem) {
     return false;
   }
@@ -211,17 +269,19 @@ export const appendListItem = (editor) => {
   const { state, view } = editor;
   const { doc, schema } = state;
   const listNode = doc.childCount > 0 ? doc.child(0) : null;
-  const listItemType = schema.nodes.listItem;
-  const paragraphType = schema.nodes.paragraph;
-  const listType = schema.nodes.bulletList;
-  if (!listItemType || !paragraphType || !listType) {
+  const listTypeName = listNode && isListTypeName(listNode.type.name)
+    ? listNode.type.name
+    : getDefaultListTypeName(schema);
+  const listType = schema.nodes[listTypeName];
+  if (!listType) {
     return false;
   }
-  const newItem = listItemType.createAndFill(null, paragraphType.createAndFill());
+  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
+  const newItem = buildListItem(schema, listItemTypeName);
   if (!newItem) {
     return false;
   }
-  if (!listNode || listNode.type.name !== "bulletList") {
+  if (!listNode || !isListTypeName(listNode.type.name)) {
     const list = listType.create(null, newItem);
     const tr = state.tr.replaceWith(0, doc.content.size, list);
     const selectionPos = Math.min(tr.doc.content.size, 2);
@@ -276,7 +336,7 @@ export const splitAtSelection = (editor) => {
   const { $from } = editor.state.selection;
   let listItemDepth = null;
   for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "listItem") {
+    if (isListItemTypeName($from.node(depth).type.name)) {
       listItemDepth = depth;
       break;
     }
@@ -286,9 +346,11 @@ export const splitAtSelection = (editor) => {
   }
   const listDepth = listItemDepth - 1;
   const listNode = $from.node(listDepth);
-  if (!listNode || listNode.type.name !== "bulletList" || listDepth !== 1) {
+  if (!listNode || !isListTypeName(listNode.type.name) || listDepth !== 1) {
     return null;
   }
+  const listTypeName = listNode.type.name;
+  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
   const listIndex = $from.index(listDepth);
   const doc = editor.getJSON();
   const listContent = doc.content?.[0]?.content ?? [];
@@ -299,19 +361,25 @@ export const splitAtSelection = (editor) => {
   const current = listContent[listIndex];
   const after = listContent.slice(listIndex + 1);
   const titleDoc = listItemToTitleDoc(current);
+  const emptyItem = () => {
+    const item = {
+      type: listItemTypeName,
+      content: [{ type: "paragraph" }]
+    };
+    if (listItemTypeName === "taskItem") {
+      item.attrs = { checked: false };
+    }
+    return item;
+  };
+
   const remaining = {
     type: "doc",
     content: [
       {
-        type: "bulletList",
+        type: listTypeName,
         content: before.length
           ? before
-          : [
-              {
-                type: "listItem",
-                content: [{ type: "paragraph" }]
-              }
-            ]
+          : [emptyItem()]
       }
     ]
   };
@@ -319,15 +387,10 @@ export const splitAtSelection = (editor) => {
     type: "doc",
     content: [
       {
-        type: "bulletList",
+        type: listTypeName,
         content: after.length
           ? after
-          : [
-              {
-                type: "listItem",
-                content: [{ type: "paragraph" }]
-              }
-            ]
+          : [emptyItem()]
       }
     ]
   };

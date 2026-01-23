@@ -113,12 +113,12 @@ export const deriveCategories = (tasks) => {
     categories.push({ id: "no-date", label: "No date", tasks: noDate });
   }
 
-  if (repeatable.length) {
-    categories.push({ id: "repeatable", label: "Repeatable", tasks: repeatable });
-  }
-
   if (notes.length) {
     categories.push({ id: "notes", label: "Notes", tasks: notes });
+  }
+
+  if (repeatable.length) {
+    categories.push({ id: "repeatable", label: "Repeatable", tasks: repeatable });
   }
 
   return categories;

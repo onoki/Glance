@@ -21,6 +21,7 @@
           :task="result.task"
           :read-only="true"
           :allow-toggle="false"
+          :allow-delete="false"
           :focus-title-id="null"
           :focus-content-target="null"
           :on-save="noop"

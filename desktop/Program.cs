@@ -1,20 +1,35 @@
 using Glance.Server;
+using Microsoft.AspNetCore.Builder;
 using PhotinoNET;
 
 namespace Glance.Desktop;
 
 internal static class Program
 {
+    private static string? _logPath;
+
     [STAThread]
     private static void Main()
     {
         var appRoot = ResolveAppRoot();
         EnsureDirectories(appRoot);
+        InitLogging(appRoot);
+        Log($"App root: {appRoot}");
 
         var port = ResolvePort();
-        var server = ServerHost.StartAsync(appRoot, port, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        Log($"Server port: {port}");
+        WebApplication server;
+        try
+        {
+            server = ServerHost.StartAsync(appRoot, port, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log($"Server startup failed: {ex}");
+            return;
+        }
 
         var devServer = Environment.GetEnvironmentVariable("GLANCE_DEV_SERVER_URL");
         var forceDevServer = ParseBool(Environment.GetEnvironmentVariable("GLANCE_USE_DEV_SERVER"));
@@ -24,6 +39,10 @@ internal static class Program
             ? string.IsNullOrWhiteSpace(devServer) ? "http://localhost:5173/" : devServer
             : $"http://127.0.0.1:{port}/";
         var iconPath = ResolveIconPath();
+        Log($"Dev server URL: {devServer ?? "<empty>"}");
+        Log($"Force dev server: {forceDevServer}");
+        Log($"Dist index exists: {File.Exists(distIndex)}");
+        Log($"Start URL: {startUrl}");
 
         var window = new PhotinoWindow()
             .SetTitle("Glance")
@@ -40,6 +59,7 @@ internal static class Program
 
         window.Load(startUrl);
         window.WaitForClose();
+        Log("Window closed, stopping server.");
 
         server.StopAsync().GetAwaiter().GetResult();
     }
@@ -78,6 +98,36 @@ internal static class Program
         Directory.CreateDirectory(Path.Combine(appRoot, "data"));
         Directory.CreateDirectory(Path.Combine(appRoot, "blobs"));
         Directory.CreateDirectory(Path.Combine(appRoot, "blobs", "attachments"));
+    }
+
+    private static void InitLogging(string appRoot)
+    {
+        _logPath = Path.Combine(appRoot, "data", "desktop.log");
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            Log($"Unhandled exception: {args.ExceptionObject}");
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Log($"Unobserved task exception: {args.Exception}");
+            args.SetObserved();
+        };
+    }
+
+    private static void Log(string message)
+    {
+        if (string.IsNullOrWhiteSpace(_logPath))
+        {
+            return;
+        }
+        try
+        {
+            File.AppendAllText(_logPath, $"[{DateTime.UtcNow:O}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // ignore logging failures
+        }
     }
 
     private static string ResolveIconPath()

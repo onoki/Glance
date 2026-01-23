@@ -53,11 +53,12 @@ A **task** is the atomic unit of organization.
 Each task consists of:
 - a formatted title (may be empty)
 - structured rich-text subcontent (optional)
+- optional checkbox or star markers in subcontent text (☐/☑/⭐)
 - completion state
 - optional scheduling and recurrence metadata
 
 Subtasks exist only as **textual structure inside a task**.
-They are not independently completable or movable.
+They are not independently movable and do not become tasks when checked.
 
 ---
 
@@ -73,8 +74,9 @@ The editor must enforce:
   - may contain nested lists
   - may contain bold, italic, and highlight (green/yellow/red)
   - may contain links and images
-- Subcontent has no independent completion state
-- Only tasks are reorderable and completable
+- Subcontent list items may include inline checkbox or star markers (☐/☑/⭐) as plain text
+- Checkbox markers do not affect task completion
+- Only tasks are reorderable and completable at the task level
 - Tasks can be deleted when both title and subcontent are empty
 
 ### Keyboard behavior

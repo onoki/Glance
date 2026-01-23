@@ -46,9 +46,19 @@
           </button>
         </div>
       </div>
+      <button
+        v-if="canDelete"
+        type="button"
+        class="delete-task"
+        aria-label="Delete task"
+        @click.stop="handleDelete"
+      >
+        x
+      </button>
     </div>
     <div class="task-body">
       <div class="title-row">
+        <span class="title-bullet" aria-hidden="true">•</span>
         <RichTextEditor
           ref="titleEditorRef"
           class="title-editor"
@@ -100,6 +110,10 @@ const props = defineProps({
     default: false
   },
   allowToggle: {
+    type: Boolean,
+    default: true
+  },
+  allowDelete: {
     type: Boolean,
     default: true
   },
@@ -236,14 +250,15 @@ const showScheduledDate = computed(
 );
 
 const canSetCategory = computed(() => !!props.onSetCategory && !props.readOnly);
+const canDelete = computed(() => !!props.onDelete && props.allowDelete);
 
 const categoryOptions = [
   { id: "uncategorized", label: "Uncategorized" },
   { id: "this-week", label: "This week" },
   { id: "next-week", label: "Next week" },
   { id: "no-date", label: "No date" },
-  { id: "repeatable", label: "Repeatable" },
-  { id: "notes", label: "Notes" }
+  { id: "notes", label: "Notes" },
+  { id: "repeatable", label: "Repeatable" }
 ];
 
 const weekdayOptions = [
@@ -341,6 +356,10 @@ const toggleComplete = () => {
     return;
   }
   props.onComplete(props.task);
+};
+
+const handleDelete = () => {
+  props.onDelete?.(props.task);
 };
 
 const isEditorTarget = (event) =>
@@ -582,7 +601,7 @@ watch(
 .task-check span {
   width: 12px;
   height: 12px;
-  border: 1px solid var(--border-panel);
+  border: 1px solid var(--text-muted);
   border-radius: 0;
   display: inline-block;
   position: relative;
@@ -601,7 +620,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 1.1em;
+  min-height: 18px;
   font-size: 0.7rem;
   color: var(--text-muted);
   grid-column: 2;
@@ -619,6 +638,21 @@ watch(
   padding: 2px 6px;
 }
 
+.delete-task {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  border-radius: 0;
+  cursor: pointer;
+  display: none;
+}
+
 .task-body {
   display: flex;
   flex-direction: column;
@@ -634,6 +668,17 @@ watch(
   gap: 6px;
   padding-right: 0;
   position: relative;
+}
+
+.title-bullet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  flex: 0 0 12px;
 }
 
 .title-editor {
@@ -737,6 +782,11 @@ watch(
 
 .task-item:hover .drag-handle,
 .task-item:focus-within .drag-handle {
+  display: inline-flex;
+}
+
+.task-item:hover .delete-task,
+.task-item:focus-within .delete-task {
   display: inline-flex;
 }
 

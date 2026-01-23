@@ -31,6 +31,9 @@ TASK MODEL (API REPRESENTATION)
   "completedAt": null
 }
 
+NOTES
+- content may include inline checkbox or star markers (☐/☑/⭐) as plain text
+
 ==================================================
 CREATE TASK
 ==================================================

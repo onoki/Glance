@@ -493,7 +493,11 @@ export const useDashboardData = (options) => {
     const data = await fetchChanges(previous);
     lastChangeId.value = data.lastId;
     if (data.lastId > previous) {
-      await loadDashboard();
+      try {
+        await loadDashboard();
+      } catch {
+        // keep going so history refresh can still run
+      }
       if (activeTab?.value === "History") {
         await loadHistory?.();
       }

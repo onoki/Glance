@@ -131,6 +131,7 @@
   display: flex;
   min-height: 0;
   text-align: left;
+  position: relative;
 }
 
 .dashboard-column.new-column.expanded {
@@ -140,8 +141,38 @@
   min-width: 100%;
 }
 
+.dashboard-column.new-column.empty {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+}
+
 .dashboard-columns.expanded-new .dashboard-column:not(.new-column) {
   display: none;
+}
+
+.column-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.column-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+}
+
+.column-resizer:hover::after {
+  background: var(--border-panel);
 }
 
 .search-view {

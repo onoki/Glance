@@ -3,3 +3,7 @@ Glance is a lightweight desktop app for capturing and organizing tasks with a fa
 The app stores data locally and keeps the interface focused on quick capture, simple categorization, and minimal friction. It ships with a dashboard for active work, search for retrieval, and history for review.
 
 This repository contains the desktop host, server, and UI. Build and run from the solution file at the root, or use the UI and server projects directly during development.
+
+Dev UI notes:
+- Set `GLANCE_USE_DEV_SERVER=1` to force the desktop app to load the Vite dev server (`http://localhost:5173/`).
+- Optionally set `GLANCE_DEV_SERVER_URL` to point at a different dev server URL.

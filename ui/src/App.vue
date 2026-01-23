@@ -52,6 +52,7 @@
         :history-groups="historyGroups"
         :on-move-completed-to-history="moveCompletedToHistory"
         :on-complete="toggleComplete"
+        :on-delete="deleteTask"
         :noop="noop"
         :noop-async="noopAsync"
       />

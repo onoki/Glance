@@ -63,8 +63,8 @@ Feature: Task categories
       | Uncategorized |
       | Week starting on YYYY-MM-DD |
       | No date       |
-      | Repeatable    |
       | Notes         |
+      | Repeatable    |
 
   Scenario: Weekly categories visibility
     Given tasks are categorized by week
@@ -204,7 +204,6 @@ Feature: Subcontent list editing
     Then the item is indented one level
     When I press Shift+Tab inside a subcontent item
     Then the item is outdented one level
-
 
 Feature: Task restructuring via Tab
 
@@ -417,12 +416,29 @@ Feature: Keyboard shortcuts
 
   Scenario: Highlight shortcuts
     Given a rich text editor has focus
-    When I press Ctrl+1 or Cmd+1
-    Then green highlight is toggled
-    When I press Ctrl+2 or Cmd+2
-    Then yellow highlight is toggled
     When I press Ctrl+3 or Cmd+3
+    Then green highlight is toggled
+    When I press Ctrl+4 or Cmd+4
+    Then yellow highlight is toggled
+    When I press Ctrl+5 or Cmd+5
     Then red highlight is toggled
+
+  Scenario: Subcontent checkbox shortcut
+    Given a subcontent list item has focus
+    When I press Ctrl+1 or Cmd+1
+    Then an empty checkbox marker is inserted at the start of the line
+    When I press Ctrl+1 or Cmd+1 again
+    Then the checkbox marker is toggled to checked
+    When I press Ctrl+1 or Cmd+1 a third time
+    Then the checkbox marker is removed
+
+  Scenario: Subcontent star shortcut
+    Given a subcontent list item has focus
+    When I press Ctrl+2 or Cmd+2
+    Then a yellow star marker (⭐) is inserted at the start of the line
+    When I press Ctrl+2 or Cmd+2 again
+    Then the star marker is removed
+    And if a checkbox marker is present it appears before the star marker
 
   Scenario: Search shortcut
     Given I am not focused on an editor

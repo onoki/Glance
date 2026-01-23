@@ -1,6 +1,7 @@
 import { onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
+import { getListItemDepth, isListNodeName } from "../utils/editorListUtils.js";
 
 export const useTaskEditing = (options) => {
   const {
@@ -78,19 +79,13 @@ export const useTaskEditing = (options) => {
     if (!empty) {
       return null;
     }
-    let listItemDepth = null;
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      if ($from.node(depth).type.name === "listItem") {
-        listItemDepth = depth;
-        break;
-      }
-    }
+    const listItemDepth = getListItemDepth(editor);
     if (!listItemDepth) {
       return null;
     }
     const listDepth = listItemDepth - 1;
     const listNode = $from.node(listDepth);
-    if (!listNode || listNode.type.name !== "bulletList" || listDepth !== 1) {
+    if (!listNode || !isListNodeName(listNode.type.name) || listDepth !== 1) {
       return null;
     }
     const listIndex = $from.index(listDepth);
@@ -110,19 +105,13 @@ export const useTaskEditing = (options) => {
       return false;
     }
     const { $from } = selection;
-    let listItemDepth = null;
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      if ($from.node(depth).type.name === "listItem") {
-        listItemDepth = depth;
-        break;
-      }
-    }
+    const listItemDepth = getListItemDepth(editor);
     if (!listItemDepth) {
       return false;
     }
     const listDepth = listItemDepth - 1;
     const listNode = $from.node(listDepth);
-    if (!listNode || listNode.type.name !== "bulletList") {
+    if (!listNode || !isListNodeName(listNode.type.name)) {
       return false;
     }
     const listIndex = $from.index(listDepth);
@@ -161,19 +150,13 @@ export const useTaskEditing = (options) => {
       return false;
     }
     const { $from } = selection;
-    let listItemDepth = null;
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      if ($from.node(depth).type.name === "listItem") {
-        listItemDepth = depth;
-        break;
-      }
-    }
+    const listItemDepth = getListItemDepth(editor);
     if (!listItemDepth) {
       return false;
     }
     const listDepth = listItemDepth - 1;
     const listNode = $from.node(listDepth);
-    if (!listNode || listNode.type.name !== "bulletList" || listNode.childCount !== 1) {
+    if (!listNode || !isListNodeName(listNode.type.name) || listNode.childCount !== 1) {
       return false;
     }
     const listItem = $from.node(listItemDepth);

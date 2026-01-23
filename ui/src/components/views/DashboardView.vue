@@ -4,16 +4,19 @@
       ref="columnsRef"
       class="dashboard-columns"
       :class="{ 'expanded-new': expandedNew, 'dragging-dashboard': isDashboardDragging }"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointerleave="onPointerUp"
+      @pointerdown="handlePointerDown"
+      @pointermove="handlePointerMove"
+      @pointerup="handlePointerUp"
+      @pointerleave="handlePointerUp"
     >
-      <div class="dashboard-column new-column" :class="{ expanded: expandedNew }">
+      <div
+        class="dashboard-column new-column"
+        :class="{ expanded: expandedNew, empty: newTasks.length === 0 && !expandedNew }"
+      >
         <section class="list-card">
           <header class="list-header column-header">
             <div>
-              <h2>New tasks</h2>
+              <h3 class="category-title">New tasks</h3>
             </div>
             <div class="header-actions">
               <button class="ghost" @click="onToggleExpand">
@@ -49,6 +52,7 @@
         <div
           v-if="category.tasks.length"
           class="dashboard-column"
+          :style="getColumnStyle(category.id)"
           @dragover.prevent
           @drop.prevent="onDropOnCategory(category.id, $event)"
         >
@@ -91,6 +95,10 @@
               </template>
             </div>
           </section>
+          <div
+            class="column-resizer"
+            @pointerdown="startResize(category.id, $event)"
+          ></div>
         </div>
       </template>
     </div>
@@ -170,6 +178,8 @@ const props = defineProps({
 
 const emit = defineEmits(["update:dashboardColumnsRef"]);
 const columnsRef = ref(null);
+const resizing = ref(null);
+const MIN_COLUMN_WIDTH = 200;
 
 watch(columnsRef, (value) => {
   emit("update:dashboardColumnsRef", value);
@@ -205,5 +215,87 @@ const handleDropOnWeekday = (categoryId, weekdayId, event) => {
   weekStart.setHours(0, 0, 0, 0);
   const dateKey = `${weekStart.getFullYear()}-${`${weekStart.getMonth() + 1}`.padStart(2, "0")}-${`${weekStart.getDate()}`.padStart(2, "0")}`;
   props.onDropOnWeekday(categoryId, dateKey, event);
+};
+
+const loadColumnWidths = () => {
+  try {
+    const raw = localStorage.getItem("glance:column-widths");
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveColumnWidths = () => {
+  try {
+    localStorage.setItem("glance:column-widths", JSON.stringify(columnWidths.value));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const columnWidths = ref(loadColumnWidths());
+
+const getColumnStyle = (categoryId) => {
+  const width = columnWidths.value?.[categoryId];
+  if (!width) {
+    return null;
+  }
+  const resolved = Math.max(MIN_COLUMN_WIDTH, width);
+  return {
+    width: `${resolved}px`,
+    minWidth: `${resolved}px`,
+    maxWidth: `${resolved}px`
+  };
+};
+
+const startResize = (categoryId, event) => {
+  if (!event || event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const column = event.target?.closest?.(".dashboard-column");
+  const measuredWidth = column ? column.getBoundingClientRect().width : null;
+  const startWidth = measuredWidth || columnWidths.value?.[categoryId] || MIN_COLUMN_WIDTH;
+  resizing.value = {
+    id: categoryId,
+    startX: event.clientX,
+    startWidth,
+    pointerId: event.pointerId
+  };
+  event.target?.setPointerCapture?.(event.pointerId);
+};
+
+const handlePointerDown = (event) => {
+  if (event?.target?.closest?.(".column-resizer")) {
+    return;
+  }
+  props.onPointerDown(event);
+};
+
+const handlePointerMove = (event) => {
+  if (resizing.value) {
+    event.preventDefault();
+    const delta = event.clientX - resizing.value.startX;
+    const nextWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(resizing.value.startWidth + delta));
+    columnWidths.value = { ...columnWidths.value, [resizing.value.id]: nextWidth };
+    return;
+  }
+  props.onPointerMove(event);
+};
+
+const handlePointerUp = (event) => {
+  if (resizing.value) {
+    event?.target?.releasePointerCapture?.(resizing.value.pointerId);
+    resizing.value = null;
+    saveColumnWidths();
+    return;
+  }
+  props.onPointerUp(event);
 };
 </script>

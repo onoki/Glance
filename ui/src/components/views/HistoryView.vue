@@ -35,6 +35,7 @@
               :task="task"
               :read-only="true"
               :allow-toggle="true"
+              :allow-delete="true"
               :focus-title-id="null"
               :focus-content-target="null"
               :on-save="noop"
@@ -45,7 +46,7 @@
               :on-split-to-new-task="noop"
               :on-focus-prev-task-from-title="noop"
               :on-focus-next-task-from-content="noop"
-              :on-delete="noop"
+              :on-delete="onDelete"
             />
           </div>
         </section>
@@ -79,6 +80,10 @@ defineProps({
     required: true
   },
   onComplete: {
+    type: Function,
+    required: true
+  },
+  onDelete: {
     type: Function,
     required: true
   },

@@ -16,8 +16,12 @@ import RichTextToolbar from "./RichTextToolbar.vue";
 import {
   appendListItem,
   blockNonEmptyListItemBackspace,
+  getActiveListItemType,
+  getDefaultListTypeName,
+  getListItemTypeNameForListType,
+  getListItemDepth,
   handleEmptyListItemBackspace,
-  hasBulletList,
+  hasList,
   insertListItemAfterSelection,
   isDocEmptyParagraph,
   isInListItem,
@@ -124,19 +128,22 @@ const editorRef = useEditor({
       if (isTitle.value || !editor) {
         return false;
       }
-      if (hasBulletList(editor) || !isDocEmptyParagraph(editor.state.doc)) {
+      if (hasList(editor) || !isDocEmptyParagraph(editor.state.doc)) {
         return false;
       }
       const { schema } = editor.state;
-      const listType = schema.nodes.bulletList;
-      const listItemType = schema.nodes.listItem;
+      const listTypeName = getDefaultListTypeName(schema);
+      const listItemTypeName = getListItemTypeNameForListType(listTypeName);
+      const listType = schema.nodes[listTypeName];
+      const listItemType = schema.nodes[listItemTypeName];
       const paragraphType = schema.nodes.paragraph;
       if (!listType || !listItemType || !paragraphType) {
         return false;
       }
       const textNode = text ? schema.text(text) : null;
       const paragraph = paragraphType.create(null, textNode ? [textNode] : undefined);
-      const listItem = listItemType.create(null, paragraph);
+      const attrs = listItemTypeName === "taskItem" ? { checked: false } : null;
+      const listItem = listItemType.create(attrs, paragraph);
       const list = listType.create(null, listItem);
       const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, list);
       const selectionPos = Math.min(tr.doc.content.size, 2 + text.length);
@@ -162,7 +169,8 @@ const editorRef = useEditor({
       if (event.key === "Enter" && !event.shiftKey && !isTitle.value) {
         if (isInListItem(editor)) {
           event.preventDefault();
-          const split = editor?.commands.splitListItem("listItem");
+          const listItemType = getActiveListItemType(editor);
+          const split = listItemType ? editor?.commands.splitListItem(listItemType) : false;
           if (split) {
             return true;
           }
@@ -189,17 +197,29 @@ const editorRef = useEditor({
         return true;
       }
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-        if (event.key === "1") {
+        if (event.key === "1" && !isTitle.value) {
+          if (toggleCheckboxAtSelection(editor)) {
+            event.preventDefault();
+            return true;
+          }
+        }
+        if (event.key === "2" && !isTitle.value) {
+          if (toggleStarAtSelection(editor)) {
+            event.preventDefault();
+            return true;
+          }
+        }
+        if (event.key === "3") {
           event.preventDefault();
           editor?.chain().focus().toggleHighlight({ color: "green" }).run();
           return true;
         }
-        if (event.key === "2") {
+        if (event.key === "4") {
           event.preventDefault();
           editor?.chain().focus().toggleHighlight({ color: "yellow" }).run();
           return true;
         }
-        if (event.key === "3") {
+        if (event.key === "5") {
           event.preventDefault();
           editor?.chain().focus().toggleHighlight({ color: "red" }).run();
           return true;
@@ -223,9 +243,11 @@ const editorRef = useEditor({
               return true;
             }
           }
-          return editor?.commands.liftListItem('listItem') ?? false;
+          const listItemType = getActiveListItemType(editor) || "listItem";
+          return editor?.commands.liftListItem(listItemType) ?? false;
         }
-        return editor?.commands.sinkListItem('listItem') ?? false;
+        const listItemType = getActiveListItemType(editor) || "listItem";
+        return editor?.commands.sinkListItem(listItemType) ?? false;
       }
       return false;
     }
@@ -239,6 +261,127 @@ const editorRef = useEditor({
 
 const editor = editorRef;
 const editorInstance = computed(() => editorRef?.value);
+
+const CHECKBOX_EMPTY = "☐";
+const CHECKBOX_CHECKED = "☑";
+const STAR_MARK = "⭐";
+const LEGACY_STAR_MARK = "★";
+const STAR_MARKS = new Set([STAR_MARK, LEGACY_STAR_MARK]);
+
+const parsePrefix = (text) => {
+  let index = 0;
+  let checkboxState = null;
+  let hasStar = false;
+  if (text.startsWith(CHECKBOX_EMPTY)) {
+    checkboxState = "empty";
+    index = 1;
+    if (text[index] === " ") {
+      index += 1;
+    }
+  } else if (text.startsWith(CHECKBOX_CHECKED)) {
+    checkboxState = "checked";
+    index = 1;
+    if (text[index] === " ") {
+      index += 1;
+    }
+  }
+  const starChar = text.slice(index, index + 1);
+  if (STAR_MARKS.has(starChar)) {
+    hasStar = true;
+    index += 1;
+    if (text[index] === " ") {
+      index += 1;
+    }
+  }
+  return { checkboxState, hasStar, prefixLength: index };
+};
+
+const buildPrefix = (checkboxState, hasStar) => {
+  let prefix = "";
+  if (checkboxState === "empty") {
+    prefix += `${CHECKBOX_EMPTY} `;
+  } else if (checkboxState === "checked") {
+    prefix += `${CHECKBOX_CHECKED} `;
+  }
+  if (hasStar) {
+    prefix += `${STAR_MARK} `;
+  }
+  return prefix;
+};
+
+const getListItemParagraph = (editor, listItemDepth) => {
+  const { $from } = editor.state.selection;
+  const listItemNode = $from.node(listItemDepth);
+  const paragraph = listItemNode?.child(0);
+  if (!paragraph || paragraph.type.name !== "paragraph") {
+    return null;
+  }
+  return paragraph;
+};
+
+const applyPrefixChange = (editor, prefixLength, nextPrefix) => {
+  const { state, view } = editor;
+  const { selection } = state;
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const insertPos = state.selection.$from.start(listItemDepth) + 1;
+  let tr = state.tr;
+  if (prefixLength > 0) {
+    tr = tr.delete(insertPos, insertPos + prefixLength);
+  }
+  if (nextPrefix) {
+    tr = tr.insertText(nextPrefix, insertPos);
+  }
+  const mappedSelection = selection.map(tr.doc, tr.mapping);
+  tr.setSelection(mappedSelection);
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const toggleCheckboxAtSelection = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const paragraph = getListItemParagraph(editor, listItemDepth);
+  if (!paragraph) {
+    return false;
+  }
+  const text = paragraph.textContent || "";
+  const { checkboxState, hasStar, prefixLength } = parsePrefix(text);
+  let nextCheckbox = null;
+  if (!checkboxState) {
+    nextCheckbox = "empty";
+  } else if (checkboxState === "empty") {
+    nextCheckbox = "checked";
+  }
+  const nextPrefix = buildPrefix(nextCheckbox, hasStar);
+  return applyPrefixChange(editor, prefixLength, nextPrefix);
+};
+
+const toggleStarAtSelection = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const paragraph = getListItemParagraph(editor, listItemDepth);
+  if (!paragraph) {
+    return false;
+  }
+  const text = paragraph.textContent || "";
+  const { checkboxState, hasStar, prefixLength } = parsePrefix(text);
+  const nextPrefix = buildPrefix(checkboxState, !hasStar);
+  return applyPrefixChange(editor, prefixLength, nextPrefix);
+};
 
 const insertImageFromFile = async (editor, file) => {
   if (!editor) {
@@ -273,7 +416,7 @@ const focusListItem = (listIndex, place = "start") => {
   }
   const doc = editor.state.doc;
   const listNode = doc.childCount > 0 ? doc.child(0) : null;
-  if (!listNode || listNode.type.name !== "bulletList") {
+  if (!listNode || (listNode.type.name !== "bulletList" && listNode.type.name !== "taskList")) {
     editor.commands.focus("end");
     return;
   }

@@ -15,8 +15,8 @@
       <button type="button" class="task-action" @click="emitSetCategory('this-week')">This week</button>
       <button type="button" class="task-action" @click="emitSetCategory('next-week')">Next week</button>
       <button type="button" class="task-action" @click="emitSetCategory('no-date')">No date</button>
-      <button type="button" class="task-action" @click="emitSetCategory('repeatable')">Repeatable</button>
       <button type="button" class="task-action" @click="emitSetCategory('notes')">Notes</button>
+      <button type="button" class="task-action" @click="emitSetCategory('repeatable')">Repeatable</button>
     </div>
   </div>
 </template>

@@ -84,7 +84,8 @@ public static class TaskTextExtractor
             {
                 var type = typeProperty.GetString();
                 if (string.Equals(type, "bulletList", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(type, "orderedList", StringComparison.OrdinalIgnoreCase))
+                    string.Equals(type, "orderedList", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(type, "taskList", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }

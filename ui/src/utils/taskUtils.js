@@ -10,6 +10,39 @@ export const emptyContentDoc = () => ({
   content: [{ type: "paragraph" }]
 });
 
+const SUBCONTENT_LIST_TYPES = new Set(["bulletList", "taskList"]);
+const CHECKBOX_EMPTY = "☐";
+const CHECKBOX_CHECKED = "☑";
+
+const ensureCheckboxPrefix = (paragraph, checked) => {
+  const prefix = checked ? `${CHECKBOX_CHECKED} ` : `${CHECKBOX_EMPTY} `;
+  const content = paragraph.content ? [...paragraph.content] : [];
+  if (content.length > 0 && content[0].type === "text") {
+    const text = content[0].text || "";
+    if (text.startsWith(CHECKBOX_EMPTY) || text.startsWith(CHECKBOX_CHECKED)) {
+      const rest = text.slice(1);
+      const restText = rest.startsWith(" ") ? rest.slice(1) : rest;
+      content[0] = { ...content[0], text: `${prefix}${restText}` };
+      return { ...paragraph, content };
+    }
+  }
+  return { ...paragraph, content: [{ type: "text", text: prefix }, ...content] };
+};
+
+const taskItemToListItem = (item) => {
+  const checked = item?.attrs?.checked ?? false;
+  const rawContent = Array.isArray(item?.content) ? item.content : [];
+  const content = rawContent.length
+    ? rawContent.map((node, index) => {
+        if (index === 0 && node.type === "paragraph") {
+          return ensureCheckboxPrefix(node, checked);
+        }
+        return node;
+      })
+    : [ensureCheckboxPrefix({ type: "paragraph", content: [] }, checked)];
+  return { type: "listItem", content };
+};
+
 const titleFromText = (text) => ({
   type: "doc",
   content: [
@@ -29,9 +62,24 @@ export const normalizeContent = (content) => {
     return emptyContentDoc();
   }
   const list = nodes[0];
-  if (list && list.type === "bulletList") {
+  if (list && SUBCONTENT_LIST_TYPES.has(list.type)) {
     if (!list.content || list.content.length === 0) {
       return emptyContentDoc();
+    }
+    if (list.type === "taskList") {
+      const converted = list.content.map(taskItemToListItem);
+      if (!converted.length) {
+        return emptyContentDoc();
+      }
+      return {
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: converted
+          }
+        ]
+      };
     }
     return content;
   }
