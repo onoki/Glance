@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./client.js";
+import { apiGet, apiPost, apiUpload } from "./client.js";
 
 export const fetchWarnings = () => apiGet("/api/warnings");
 
@@ -11,3 +11,9 @@ export const triggerBackup = () => apiPost("/api/backup", {});
 export const triggerReindex = () => apiPost("/api/search/reindex", {});
 
 export const runDailyMaintenance = () => apiPost("/api/maintenance/daily", {});
+
+export const installUpdate = (file) => {
+  const formData = new FormData();
+  formData.append("package", file);
+  return apiUpload("/api/update", formData);
+};

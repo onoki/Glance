@@ -77,8 +77,11 @@
         :reindex-status="reindexStatus"
         :maintenance-status="maintenanceStatus"
         :app-version="appVersion"
+        :is-updating="isUpdating"
+        :update-status="updateStatus"
         :on-backup-now="backupNow"
         :on-reindex-search="reindexSearch"
+        :on-apply-update="applyUpdate"
       />
 
       <section v-else class="placeholder">
@@ -130,17 +133,20 @@ const {
 
 const {
   appVersion,
+  applyUpdate,
   backupNow,
   backupStatus,
   dismissWarning,
   isBackingUp,
   isReindexing,
+  isUpdating,
   loadMaintenanceStatus,
   loadVersion,
   loadWarnings,
   maintenanceStatus,
   reindexSearch,
   reindexStatus,
+  updateStatus,
   visibleWarnings
 } = useMaintenance();
 

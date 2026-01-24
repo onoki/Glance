@@ -26,7 +26,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $version = Get-Date -Format "yyyy-MM-dd HH:mm"
+          $version = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm")
           $versionSafe = $version.Replace(":", "-").Replace(" ", "_")
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "version_safe=$versionSafe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -76,13 +76,43 @@ jobs:
             Copy-Item -Path "UPDATING.md" -Destination (Join-Path $packageRoot "UPDATING.md") -Force
           }
 
+      - name: Write update manifest
+        shell: pwsh
+        run: |
+          $packageRoot = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath "package/glance"
+          $manifestName = "glance.update.json"
+          $manifestPath = Join-Path -Path $packageRoot -ChildPath $manifestName
+          if (Test-Path $manifestPath) { Remove-Item $manifestPath -Force }
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $nullByte = [byte[]](0)
+          $files = Get-ChildItem -Path $packageRoot -File -Recurse | Where-Object { $_.FullName -ne $manifestPath } | Sort-Object FullName
+          foreach ($file in $files) {
+            $relative = $file.FullName.Substring($packageRoot.Length + 1).Replace("\\", "/")
+            $nameBytes = [System.Text.Encoding]::UTF8.GetBytes($relative)
+            $sha.TransformBlock($nameBytes, 0, $nameBytes.Length, $null, 0) | Out-Null
+            $sha.TransformBlock($nullByte, 0, $nullByte.Length, $null, 0) | Out-Null
+            $contentBytes = [System.IO.File]::ReadAllBytes($file.FullName)
+            $sha.TransformBlock($contentBytes, 0, $contentBytes.Length, $null, 0) | Out-Null
+            $sha.TransformBlock($nullByte, 0, $nullByte.Length, $null, 0) | Out-Null
+          }
+          $sha.TransformFinalBlock(@(), 0, 0) | Out-Null
+          $hash = [BitConverter]::ToString($sha.Hash).Replace("-", "").ToLowerInvariant()
+          $payload = @{
+            version = "${{ steps.version.outputs.version }}"
+            algorithm = "sha256"
+            hash = $hash
+            format = "glance-update-1"
+          }
+          $payload | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 -Path $manifestPath
+
       - name: Create ZIP package
         shell: pwsh
         run: |
           $zipName = "glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip"
           $zipPath = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath $zipName
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-          Compress-Archive -Path "package/glance" -DestinationPath $zipPath
+          $packageRoot = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath "package/glance"
+          Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $zipPath
 
       - name: Publish latest build to Releases
         uses: ncipollo/release-action@v1
@@ -98,4 +128,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}-${{ matrix.arch }}
-          path: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip
+          path: package/glance

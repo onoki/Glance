@@ -3,6 +3,7 @@ import {
   fetchMaintenanceStatus,
   fetchVersion,
   fetchWarnings,
+  installUpdate,
   triggerBackup,
   triggerReindex
 } from "../api/maintenance.js";
@@ -15,6 +16,8 @@ export const useMaintenance = () => {
   const isReindexing = ref(false);
   const backupStatus = ref("");
   const reindexStatus = ref("");
+  const updateStatus = ref("");
+  const isUpdating = ref(false);
   const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
 
   const visibleWarnings = computed(() =>
@@ -91,19 +94,38 @@ export const useMaintenance = () => {
     }
   };
 
+  const applyUpdate = async (file) => {
+    if (!file || isUpdating.value) {
+      return;
+    }
+    isUpdating.value = true;
+    updateStatus.value = "";
+    try {
+      const response = await installUpdate(file);
+      updateStatus.value = response.message || "Update staged. Restarting...";
+    } catch (error) {
+      updateStatus.value = error?.message || "Update failed. Check the server logs.";
+    } finally {
+      isUpdating.value = false;
+    }
+  };
+
   return {
     appVersion,
     backupNow,
     backupStatus,
     dismissWarning,
+    applyUpdate,
     isBackingUp,
     isReindexing,
+    isUpdating,
     loadMaintenanceStatus,
     loadVersion,
     loadWarnings,
     maintenanceStatus,
     reindexSearch,
     reindexStatus,
+    updateStatus,
     visibleWarnings
   };
 };

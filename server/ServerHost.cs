@@ -50,6 +50,7 @@ public static class ServerHost
         builder.Services.AddSingleton<AttachmentMaintenance>();
         builder.Services.AddSingleton<MaintenanceService>();
         builder.Services.AddSingleton<AppMetaRepository>();
+        builder.Services.AddSingleton<UpdateService>();
         builder.Services.AddHostedService<StartupReporter>();
 
         var app = builder.Build();
@@ -105,6 +106,7 @@ public static class ServerHost
         HistoryEndpoints.Map(app);
         HistoryMaintenanceEndpoints.Map(app);
         VersionEndpoints.Map(app);
+        UpdateEndpoints.Map(app);
     }
 
     private static string ResolveAppRoot()

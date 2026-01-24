@@ -191,6 +191,30 @@ RULES
 - Clients reload affected tasks
 
 ==================================================
+APP UPDATE (LOCAL PACKAGE)
+==================================================
+
+POST /api/update
+
+REQUEST (multipart/form-data)
+- field name: package
+- file type: .zip
+
+RESPONSE
+{
+  "ok": true,
+  "version": "2026-01-24 17:02",
+  "message": "Update staged. Restarting now..."
+}
+
+RULES
+- Local-only endpoint
+- The ZIP must include a glance.update.json manifest
+- The manifest defines version, algorithm, hash, and format
+- Server validates the hash against extracted package contents
+- Update version must be newer than the currently running version
+
+==================================================
 ERRORS
 ==================================================
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="rich-editor">
     <RichTextToolbar v-if="showToolbar" :editor="editorInstance" />
     <EditorContent class="editor-surface" :editor="editor" />
@@ -519,5 +519,6 @@ defineExpose({
   outline-offset: 2px;
 }
 </style>
+
 
 

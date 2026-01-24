@@ -274,6 +274,26 @@ Feature: Update safety invariants
     Then the data folder remains untouched
     And the application starts with the existing data
 
+  Scenario: Installing an update package from settings
+    Given I am on the settings tab
+    And I choose a valid update ZIP package
+    When I click the Install update button
+    Then the package hash is validated
+    And the update version is greater than the current version
+    And the app shuts down to apply the update
+
+  Scenario: Rejecting a downgrade package
+    Given I am on the settings tab
+    And I choose an update ZIP package with an older version
+    When I click the Install update button
+    Then I see an error explaining that downgrades are not allowed
+
+  Scenario: Rejecting a package with a mismatched hash
+    Given I am on the settings tab
+    And I choose an update ZIP package with an invalid hash
+    When I click the Install update button
+    Then I see an error explaining the hash mismatch
+
 
 Feature: Backups and maintenance
 

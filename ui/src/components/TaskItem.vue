@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     class="task-item"
     :class="{ completed: !!task.completedAt }"
@@ -540,9 +540,9 @@ watch(
 <style scoped>
 .task-item {
   display: grid;
-  grid-template-columns: 20px 1fr;
+  grid-template-columns: 12px 1fr;
   grid-template-rows: auto auto;
-  column-gap: 8px;
+  column-gap: 2px;
   row-gap: 2px;
   padding: 4px 0;
   border: none;
@@ -554,7 +554,7 @@ watch(
 .drop-indicator {
   position: absolute;
   top: 0;
-  left: 20px;
+  left: 12px;
   right: 0;
   height: 2px;
   background: #d94a3d;
@@ -664,7 +664,7 @@ watch(
 
 .title-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding-right: 0;
   position: relative;
@@ -795,3 +795,4 @@ watch(
 }
 
 </style>
+
