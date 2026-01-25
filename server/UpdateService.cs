@@ -41,59 +41,94 @@ internal sealed class UpdateService
 
     private async Task<string> ApplyUpdateInternalAsync(IFormFile package, CancellationToken token)
     {
-        var updatesRoot = Path.Combine(_paths.DataDirectory, "updates");
-        Directory.CreateDirectory(updatesRoot);
-
-        var updateId = Guid.NewGuid().ToString("N");
-        var zipPath = Path.Combine(updatesRoot, $"update-{updateId}.zip");
-        await using (var output = File.Create(zipPath))
+        try
         {
-            await package.CopyToAsync(output, token);
+            var updatesRoot = Path.Combine(_paths.DataDirectory, "updates");
+            Directory.CreateDirectory(updatesRoot);
+
+            var updateId = Guid.NewGuid().ToString("N");
+            var zipPath = Path.Combine(updatesRoot, $"update-{updateId}.zip");
+            _logger.LogInformation("Staging update package {FileName} ({Size} bytes) to {Path}.", package.FileName, package.Length, zipPath);
+            AppendDesktopLog($"Update: staging {package.FileName} ({package.Length} bytes).");
+            await using (var output = File.Create(zipPath))
+            {
+                await package.CopyToAsync(output, token);
+            }
+
+            using var archive = ZipFile.OpenRead(zipPath);
+            var manifestEntry = FindManifestEntry(archive);
+            var manifest = await ReadManifestAsync(manifestEntry, token);
+            ValidateManifest(manifest);
+            _logger.LogInformation(
+                "Update manifest: version {Version}, algorithm {Algorithm}, format {Format}.",
+                manifest.Version,
+                manifest.Algorithm,
+                manifest.Format);
+            AppendDesktopLog($"Update: manifest version {manifest.Version}, algorithm {manifest.Algorithm}.");
+
+            var currentVersion = ParseVersion(BuildInfo.Version, "current");
+            var updateVersion = ParseVersion(manifest.Version, "update");
+            if (updateVersion <= currentVersion)
+            {
+                throw new UpdatePackageException(
+                    $"Update version {manifest.Version} is not newer than current version {BuildInfo.Version}.");
+            }
+
+            var stagingRoot = Path.Combine(updatesRoot, $"staging-{updateId}");
+            Directory.CreateDirectory(stagingRoot);
+            var rootPrefix = GetRootPrefix(manifestEntry.FullName);
+            _logger.LogInformation("Extracting update package with root prefix '{RootPrefix}'.", rootPrefix);
+            AppendDesktopLog($"Update: extracting package (root prefix '{rootPrefix}').");
+            ExtractArchive(archive, stagingRoot, rootPrefix);
+
+            var computedHash = ComputeContentHash(stagingRoot);
+            _logger.LogInformation("Computed update hash {Hash}.", computedHash);
+            AppendDesktopLog($"Update: computed hash {computedHash}.");
+            if (!string.Equals(computedHash, manifest.Hash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UpdatePackageException("Update package hash mismatch.");
+            }
+
+            var manifestPath = Path.Combine(stagingRoot, ManifestFileName);
+            if (File.Exists(manifestPath))
+            {
+                File.Delete(manifestPath);
+            }
+
+            var scriptPath = Path.Combine(updatesRoot, $"apply-{updateId}.ps1");
+            WriteUpdateScript(scriptPath);
+
+            var exePath = ResolveExePath();
+            AppendDesktopLog("Update: launching updater script.");
+            LaunchUpdater(scriptPath, stagingRoot, _paths.AppRoot, exePath);
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(750);
+                Environment.Exit(0);
+            });
+
+            return manifest.Version;
         }
-
-        using var archive = ZipFile.OpenRead(zipPath);
-        var manifestEntry = FindManifestEntry(archive);
-        var manifest = await ReadManifestAsync(manifestEntry, token);
-        ValidateManifest(manifest);
-
-        var currentVersion = ParseVersion(BuildInfo.Version, "current");
-        var updateVersion = ParseVersion(manifest.Version, "update");
-        if (updateVersion <= currentVersion)
+        catch (Exception ex)
         {
-            throw new UpdatePackageException(
-                $"Update version {manifest.Version} is not newer than current version {BuildInfo.Version}.");
+            AppendDesktopLog($"Update failed: {ex.Message}");
+            throw;
         }
+    }
 
-        var stagingRoot = Path.Combine(updatesRoot, $"staging-{updateId}");
-        Directory.CreateDirectory(stagingRoot);
-        var rootPrefix = GetRootPrefix(manifestEntry.FullName);
-        ExtractArchive(archive, stagingRoot, rootPrefix);
-
-        var computedHash = ComputeContentHash(stagingRoot);
-        if (!string.Equals(computedHash, manifest.Hash, StringComparison.OrdinalIgnoreCase))
+    private void AppendDesktopLog(string message)
+    {
+        var logPath = Path.Combine(_paths.DataDirectory, "desktop.log");
+        try
         {
-            throw new UpdatePackageException("Update package hash mismatch.");
+            Directory.CreateDirectory(_paths.DataDirectory);
+            File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] {message}{Environment.NewLine}");
         }
-
-        var manifestPath = Path.Combine(stagingRoot, ManifestFileName);
-        if (File.Exists(manifestPath))
+        catch
         {
-            File.Delete(manifestPath);
+            // ignore logging failures
         }
-
-        var scriptPath = Path.Combine(updatesRoot, $"apply-{updateId}.ps1");
-        WriteUpdateScript(scriptPath);
-
-        var exePath = ResolveExePath();
-        LaunchUpdater(scriptPath, stagingRoot, _paths.AppRoot, exePath);
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(750);
-            Environment.Exit(0);
-        });
-
-        return manifest.Version;
     }
 
     private static ZipArchiveEntry FindManifestEntry(ZipArchive archive)

@@ -11,6 +11,11 @@ internal static class UpdateEndpoints
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
+            app.Logger.LogInformation(
+                "Update request received. Content-Length={ContentLength}, Content-Type={ContentType}",
+                request.ContentLength,
+                request.ContentType ?? "<none>");
+
             if (!request.HasFormContentType)
             {
                 return Results.BadRequest(new { error = "ValidationError", message = "Update package must be sent as multipart form data" });
@@ -36,17 +41,24 @@ internal static class UpdateEndpoints
 
             try
             {
+                app.Logger.LogInformation(
+                    "Update requested: {FileName} ({Size} bytes)",
+                    file.FileName,
+                    file.Length);
                 var version = await updates.ApplyUpdateAsync(file, token);
                 return Results.Ok(new { ok = true, version, message = "Update staged. Restarting now..." });
             }
             catch (UpdatePackageException ex)
             {
+                app.Logger.LogWarning(ex, "Update package rejected.");
                 return Results.BadRequest(new { error = "ValidationError", message = ex.Message });
             }
             catch (Exception ex)
             {
                 app.Logger.LogError(ex, "Update failed.");
-                return Results.StatusCode(StatusCodes.Status500InternalServerError);
+                return Results.Json(
+                    new { error = "UpdateError", message = ex.Message },
+                    statusCode: StatusCodes.Status500InternalServerError);
             }
         });
     }
