@@ -452,6 +452,18 @@ Feature: Keyboard shortcuts
     When I press Ctrl+1 or Cmd+1 a third time
     Then the checkbox marker is removed
 
+  Scenario: Title completion shortcut
+    Given a task title has focus
+    When I press Ctrl+1 or Cmd+1
+    Then the task is marked as completed
+    When I press Ctrl+1 or Cmd+1 again
+    Then the task is marked as not completed
+
+  Scenario: Title completion shortcut is disabled for read-only tasks
+    Given a read-only task title has focus
+    When I press Ctrl+1 or Cmd+1
+    Then the task completion state does not change
+
   Scenario: Subcontent star shortcut
     Given a subcontent list item has focus
     When I press Ctrl+2 or Cmd+2

@@ -656,7 +656,7 @@ watch(
 .task-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   position: relative;
   grid-row: 2;
   grid-column: 2;
@@ -665,7 +665,7 @@ watch(
 .title-row {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 2px;
   padding-right: 0;
   position: relative;
 }
@@ -694,6 +694,10 @@ watch(
   font-size: 1rem;
   color: var(--text-title);
   min-height: 1.2em;
+}
+
+.content-editor {
+  margin-top: -2px;
 }
 
 .dirty-indicator {

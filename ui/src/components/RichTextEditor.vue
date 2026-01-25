@@ -203,8 +203,11 @@ const editorRef = useEditor({
             return true;
           }
         }
-        if (event.key === "2" && !isTitle.value) {
-          if (toggleStarAtSelection(editor)) {
+        if (event.key === "2") {
+          const handled = isTitle.value
+            ? toggleStarInTitle(editor)
+            : toggleStarAtSelection(editor);
+          if (handled) {
             event.preventDefault();
             return true;
           }
@@ -327,6 +330,11 @@ const applyPrefixChange = (editor, prefixLength, nextPrefix) => {
     return false;
   }
   const insertPos = state.selection.$from.start(listItemDepth) + 1;
+  return applyPrefixChangeAt(editor, insertPos, prefixLength, nextPrefix, selection);
+};
+
+const applyPrefixChangeAt = (editor, insertPos, prefixLength, nextPrefix, selection) => {
+  const { state, view } = editor;
   let tr = state.tr;
   if (prefixLength > 0) {
     tr = tr.delete(insertPos, insertPos + prefixLength);
@@ -334,8 +342,10 @@ const applyPrefixChange = (editor, prefixLength, nextPrefix) => {
   if (nextPrefix) {
     tr = tr.insertText(nextPrefix, insertPos);
   }
-  const mappedSelection = selection.map(tr.doc, tr.mapping);
-  tr.setSelection(mappedSelection);
+  if (selection) {
+    const mappedSelection = selection.map(tr.doc, tr.mapping);
+    tr.setSelection(mappedSelection);
+  }
   view.dispatch(tr);
   editor.commands.focus();
   return true;
@@ -381,6 +391,35 @@ const toggleStarAtSelection = (editor) => {
   const { checkboxState, hasStar, prefixLength } = parsePrefix(text);
   const nextPrefix = buildPrefix(checkboxState, !hasStar);
   return applyPrefixChange(editor, prefixLength, nextPrefix);
+};
+
+const toggleStarInTitle = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state } = editor;
+  const doc = state.doc;
+  if (doc.childCount === 0) {
+    editor.commands.setContent({ type: "doc", content: [{ type: "paragraph" }] });
+  }
+  const firstNode = editor.state.doc.child(0);
+  if (!firstNode || firstNode.type.name !== "paragraph") {
+    return false;
+  }
+  const text = firstNode.textContent || "";
+  let prefixLength = 0;
+  let hasStar = false;
+  const starChar = text.slice(0, 1);
+  if (STAR_MARKS.has(starChar)) {
+    hasStar = true;
+    prefixLength = 1;
+    if (text[1] === " ") {
+      prefixLength = 2;
+    }
+  }
+  const nextPrefix = hasStar ? "" : `${STAR_MARK} `;
+  const insertPos = 1;
+  return applyPrefixChangeAt(editor, insertPos, prefixLength, nextPrefix, state.selection);
 };
 
 const insertImageFromFile = async (editor, file) => {

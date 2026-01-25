@@ -174,6 +174,14 @@ export const useTaskEditing = (options) => {
     if (props.readOnly) {
       return false;
     }
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key === "1") {
+      event.preventDefault();
+      if (!props.allowToggle) {
+        return true;
+      }
+      props.onComplete(props.task);
+      return true;
+    }
     if (event.key === "Backspace" && isTitleEmpty(editor) && isContentEmpty(null)) {
       event.preventDefault();
       props.onDelete(props.task);
