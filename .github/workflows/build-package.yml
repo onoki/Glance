@@ -123,9 +123,7 @@ jobs:
           name: Latest build
           prerelease: true
           artifacts: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}.zip
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: glance-${{ steps.version.outputs.version_safe }}-${{ matrix.rid }}-${{ matrix.arch }}
-          path: package/glance
+          body: |
+            Build: ${{ steps.version.outputs.version }} UTC
+            Commit: ${{ github.sha }}
+            Run: ${{ github.run_id }}
