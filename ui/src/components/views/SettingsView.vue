@@ -22,6 +22,22 @@
       <p v-if="reindexStatus" class="settings-status">{{ reindexStatus }}</p>
     </div>
     <div class="settings-card">
+      <h2>Repeatables</h2>
+      <p>Reset repeatable generation and recreate items starting today.</p>
+      <div class="settings-actions">
+        <button class="ghost" :disabled="isResettingRecurrence" @click="handleResetRecurrence">
+          {{ isResettingRecurrence ? "Resetting..." : "Reset repeatables" }}
+        </button>
+      </div>
+      <div class="settings-status-list">
+        <div>
+          <strong>Generated until:</strong>
+          {{ maintenanceStatus.recurrenceGeneratedUntil || "Unknown" }}
+        </div>
+      </div>
+      <p v-if="recurrenceStatus" class="settings-status">{{ recurrenceStatus }}</p>
+    </div>
+    <div class="settings-card">
       <h2>About</h2>
       <div class="settings-status-list">
         <div><strong>Version:</strong> {{ appVersion || "Unknown" }} UTC</div>
@@ -89,11 +105,23 @@ const props = defineProps({
     type: String,
     required: true
   },
+  isResettingRecurrence: {
+    type: Boolean,
+    required: true
+  },
+  recurrenceStatus: {
+    type: String,
+    required: true
+  },
   onBackupNow: {
     type: Function,
     required: true
   },
   onReindexSearch: {
+    type: Function,
+    required: true
+  },
+  onResetRecurrence: {
     type: Function,
     required: true
   },
@@ -104,6 +132,14 @@ const props = defineProps({
 });
 
 const updateInput = ref(null);
+
+const handleResetRecurrence = () => {
+  const confirmed = window.confirm("Reset repeatables and regenerate starting today?");
+  if (!confirmed) {
+    return;
+  }
+  props.onResetRecurrence();
+};
 
 const pickUpdate = () => {
   updateInput.value?.click();

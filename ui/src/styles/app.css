@@ -295,6 +295,26 @@
   overflow-x: hidden;
 }
 
+.task-list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-move-move {
+  transition: transform 0.18s ease;
+}
+
+.task-move-enter-active,
+.task-move-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.task-move-enter-from,
+.task-move-leave-to {
+  opacity: 0;
+}
+
 .empty-new {
   display: block;
   width: 100%;
@@ -436,6 +456,12 @@
   background: var(--bg-app);
   border-radius: 0;
   padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-card {
@@ -445,7 +471,21 @@
   box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+}
+
+.settings-card h2 {
+  margin: 0;
+}
+
+.settings-card p {
+  margin: 0;
+}
+
+.settings-card .settings-actions,
+.settings-card .settings-status-list,
+.settings-card .settings-status {
+  margin-left: 10px;
 }
 
 .settings-actions {

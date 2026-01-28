@@ -244,9 +244,12 @@ body {
 
 .dashboard .task-date {
   border-radius: 0;
-  padding: 1px 4px;
-  border: 1px solid var(--border-panel);
-  background: var(--bg-panel);
+  padding: 0;
+  border: none;
+  background: transparent;
+  margin-top: 2px;
+  position: relative;
+  top: 2px;
 }
 
 .dashboard .dirty-badge {

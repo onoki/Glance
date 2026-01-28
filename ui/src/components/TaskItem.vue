@@ -3,6 +3,7 @@
     class="task-item"
     :class="{ completed: !!task.completedAt }"
     :draggable="false"
+    :data-task-id="task.id"
     @dragstart="handleDragStart"
     @dragover.prevent="handleDragOver"
     @dragenter.prevent="handleDragEnter"
@@ -29,12 +30,24 @@
         class="drag-handle"
         aria-label="Drag task"
         :draggable="true"
+        @dragstart.stop="handleDragStart"
+        @dragend.stop="handleDragEnd"
       >
         ::
       </button>
-      <div v-if="canSetCategory" class="category-picker">
+      <div
+        v-if="canSetCategory"
+        ref="categoryPickerRef"
+        class="category-picker"
+        @mouseenter="updateCategoryMenuPosition"
+        @focusin="updateCategoryMenuPosition"
+      >
         <button type="button" class="category-toggle" aria-label="Change category">cat.</button>
-        <div class="category-menu">
+        <div
+          ref="categoryMenuRef"
+          class="category-menu"
+          :style="{ left: `${categoryMenuLeft}px`, top: `${categoryMenuTop}px` }"
+        >
           <button
             v-for="option in categoryOptions"
             :key="option.id"
@@ -99,6 +112,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import RichTextEditor from "./RichTextEditor.vue";
 import RecurrenceControls from "./RecurrenceControls.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
+import { isDocEmptyJson } from "../utils/taskDocUtils.js";
 
 const props = defineProps({
   task: {
@@ -224,6 +238,10 @@ const content = ref(props.task.content);
 const dirty = ref(false);
 const titleEditorRef = ref(null);
 const contentEditorRef = ref(null);
+const categoryPickerRef = ref(null);
+const categoryMenuRef = ref(null);
+const categoryMenuTop = ref(0);
+const categoryMenuLeft = ref(0);
 const recurrenceType = ref("");
 const weeklyDays = ref([]);
 const monthDaysInput = ref("");
@@ -238,11 +256,14 @@ onBeforeUnmount(() => {
 
 const hasSubcontent = computed(() => {
   const doc = content.value;
-  if (!doc || !doc.content || doc.content.length === 0) {
+  if (!doc || isDocEmptyJson(doc)) {
     return false;
   }
-  const first = doc.content[0];
-  return first?.type === "bulletList" && Array.isArray(first.content) && first.content.length > 0;
+  const first = doc.content?.[0];
+  if (!first || first.type !== "bulletList" || !Array.isArray(first.content)) {
+    return false;
+  }
+  return first.content.some((item) => !isDocEmptyJson(item));
 });
 
 const showScheduledDate = computed(
@@ -251,6 +272,37 @@ const showScheduledDate = computed(
 
 const canSetCategory = computed(() => !!props.onSetCategory && !props.readOnly);
 const canDelete = computed(() => !!props.onDelete && props.allowDelete);
+
+const updateCategoryMenuPosition = () => {
+  if (props.readOnly) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    const picker = categoryPickerRef.value;
+    const menu = categoryMenuRef.value;
+    if (!picker || !menu) {
+      return;
+    }
+    const pickerRect = picker.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const gap = 0;
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    let top = pickerRect.bottom + gap;
+    if (top + menuRect.height > viewportHeight - gap && pickerRect.top - gap - menuRect.height >= gap) {
+      top = pickerRect.top - gap - menuRect.height;
+    }
+    let left = pickerRect.left;
+    if (left + menuRect.width > viewportWidth - gap) {
+      left = Math.max(gap, viewportWidth - gap - menuRect.width);
+    }
+    if (left < gap) {
+      left = gap;
+    }
+    categoryMenuTop.value = Math.round(top);
+    categoryMenuLeft.value = Math.round(left);
+  });
+};
 
 const categoryOptions = [
   { id: "uncategorized", label: "Uncategorized" },
@@ -422,7 +474,8 @@ const handleSplitToNewTask = async (payload) => {
   await saveNow();
   props.onSplitToNewTask(props.task, {
     title: payload?.title,
-    content: payload?.content
+    content: payload?.content,
+    categoryId: props.categoryId
   });
 };
 
@@ -574,6 +627,11 @@ watch(
   text-decoration: line-through;
 }
 
+.task-item.completed .title-editor :deep(.ProseMirror) {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
 .task-check {
   display: grid;
   place-items: center;
@@ -710,9 +768,13 @@ watch(
 
 .task-date {
   color: var(--text-muted);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-panel);
+  background: transparent;
   border-radius: 0;
+  padding: 0;
+  align-self: flex-end;
+  margin-top: 2px;
+  position: relative;
+  top: 2px;
 }
 
 .category-picker {
@@ -736,10 +798,9 @@ watch(
 }
 
 .category-menu {
-  position: absolute;
-  top: 100%;
-  left: auto;
-  right: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -751,7 +812,7 @@ watch(
   opacity: 0;
   pointer-events: none;
   transform: none;
-  z-index: 3;
+  z-index: 10;
 }
 
 .category-picker:hover .category-menu,

@@ -35,15 +35,17 @@
             >
               ...
             </button>
-            <TaskItem
-              v-for="task in newTasks"
-              :key="task.id"
-              v-bind="getTaskItemBindings(task, newTasks, {
-                categoryId: 'new',
-                dragCategoryId: 'new',
-                showRecurrenceControls: false
-              })"
-            />
+            <TransitionGroup name="task-move" tag="div" class="task-list-group">
+              <TaskItem
+                v-for="task in newTasks"
+                :key="task.id"
+                v-bind="getTaskItemBindings(task, newTasks, {
+                  categoryId: 'new',
+                  dragCategoryId: 'new',
+                  showRecurrenceControls: false
+                })"
+              />
+            </TransitionGroup>
           </div>
         </section>
       </div>
@@ -71,8 +73,23 @@
                   @drop.prevent="handleDropOnWeekday(category.id, group.id, $event)"
                 >
                   <div class="weekday-header">{{ group.label }}</div>
+                  <TransitionGroup name="task-move" tag="div" class="task-list-group">
+                    <TaskItem
+                      v-for="task in group.tasks"
+                      :key="task.id"
+                      v-bind="getTaskItemBindings(task, category.tasks, {
+                        categoryId: category.id,
+                        dragCategoryId: category.id,
+                        showRecurrenceControls: category.id === 'repeatable'
+                      })"
+                    />
+                  </TransitionGroup>
+                </div>
+              </template>
+              <template v-else>
+                <TransitionGroup name="task-move" tag="div" class="task-list-group">
                   <TaskItem
-                    v-for="task in group.tasks"
+                    v-for="task in category.tasks"
                     :key="task.id"
                     v-bind="getTaskItemBindings(task, category.tasks, {
                       categoryId: category.id,
@@ -80,18 +97,7 @@
                       showRecurrenceControls: category.id === 'repeatable'
                     })"
                   />
-                </div>
-              </template>
-              <template v-else>
-                <TaskItem
-                v-for="task in category.tasks"
-                :key="task.id"
-                v-bind="getTaskItemBindings(task, category.tasks, {
-                  categoryId: category.id,
-                  dragCategoryId: category.id,
-                  showRecurrenceControls: category.id === 'repeatable'
-                })"
-              />
+                </TransitionGroup>
               </template>
             </div>
           </section>

@@ -115,5 +115,17 @@ internal static class TaskEndpoints
             await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
             return Results.Ok(new { ok = true });
         });
+
+        app.MapPost("/api/recurrence/reset", async (HttpContext context, TaskRepository tasks, AppMetaRepository appMeta, CancellationToken token) =>
+        {
+            if (!EndpointHelpers.IsLocalRequest(context))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            var today = TimeProvider.Now.Date.ToString("yyyy-MM-dd");
+            await appMeta.SetValueAsync("recurrence_generated_until", today, token);
+            var created = await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
+            return Results.Ok(new { ok = true, created });
+        });
     }
 }

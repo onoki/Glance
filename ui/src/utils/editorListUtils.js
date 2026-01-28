@@ -1,4 +1,5 @@
 import { TextSelection } from "prosemirror-state";
+import { isDocEmptyJson } from "./taskDocUtils.js";
 
 const LIST_TYPES = new Set(["bulletList", "taskList"]);
 const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
@@ -357,9 +358,10 @@ export const splitAtSelection = (editor) => {
   if (listIndex < 0 || listIndex >= listContent.length) {
     return null;
   }
-  const before = listContent.slice(0, listIndex);
+  const removeEmptyItems = (items) => items.filter((item) => !isDocEmptyJson(item));
+  const before = removeEmptyItems(listContent.slice(0, listIndex));
   const current = listContent[listIndex];
-  const after = listContent.slice(listIndex + 1);
+  const after = removeEmptyItems(listContent.slice(listIndex + 1));
   const titleDoc = listItemToTitleDoc(current);
   const emptyItem = () => {
     const item = {
@@ -372,27 +374,31 @@ export const splitAtSelection = (editor) => {
     return item;
   };
 
-  const remaining = {
+  const emptyDoc = {
     type: "doc",
-    content: [
-      {
-        type: listTypeName,
-        content: before.length
-          ? before
-          : [emptyItem()]
-      }
-    ]
+    content: [{ type: "paragraph" }]
   };
-  const newTaskContent = {
-    type: "doc",
-    content: [
-      {
-        type: listTypeName,
-        content: after.length
-          ? after
-          : [emptyItem()]
-      }
-    ]
-  };
+  const remaining = before.length
+    ? {
+      type: "doc",
+      content: [
+        {
+          type: listTypeName,
+          content: before
+        }
+      ]
+    }
+    : emptyDoc;
+  const newTaskContent = after.length
+    ? {
+      type: "doc",
+      content: [
+        {
+          type: listTypeName,
+          content: after
+        }
+      ]
+    }
+    : emptyDoc;
   return { remainingContent: remaining, newTaskContent, title: titleDoc };
 };

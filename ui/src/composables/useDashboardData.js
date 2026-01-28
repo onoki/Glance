@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import {
   completeTask,
   createTask as createTaskApi,
@@ -39,6 +39,7 @@ export const useDashboardData = (options) => {
 
   const dirtySnapshots = new Map();
   const recurrenceCache = new Map();
+  const scrollTargetId = ref(null);
 
   const mainCategories = computed(() => deriveCategories(mainTasks.value));
 
@@ -66,6 +67,29 @@ export const useDashboardData = (options) => {
     mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), DASHBOARD_MAIN_PAGE);
     if (newTasks.value.length === 0 && creatingDefaultNew.value) {
       creatingDefaultNew.value = false;
+    }
+    if (scrollTargetId.value) {
+      await nextTick();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const target = scrollTargetId.value;
+      const element = document.querySelector(`[data-task-id="${target}"]`);
+      if (element) {
+        element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        const container = element.closest(".list-card");
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const elementRect = element.getBoundingClientRect();
+          const padding = 12;
+          if (elementRect.bottom > containerRect.bottom - padding) {
+            const delta = elementRect.bottom - containerRect.bottom + padding;
+            container.scrollTo({ top: container.scrollTop + delta, behavior: "smooth" });
+          } else if (elementRect.top < containerRect.top + padding) {
+            const delta = elementRect.top - containerRect.top - padding;
+            container.scrollTo({ top: container.scrollTop + delta, behavior: "smooth" });
+          }
+        }
+      }
+      scrollTargetId.value = null;
     }
   };
 
@@ -336,11 +360,12 @@ export const useDashboardData = (options) => {
   };
 
   const splitSubcontentToNewTask = async (task, payload) => {
+    const categoryId = payload?.categoryId ?? null;
     const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
     const index = list.findIndex((item) => item.id === task.id);
     const next = index >= 0 ? list[index + 1] : null;
     const position = next ? (task.position + next.position) / 2 : task.position + 1;
-    const newId = await createTask(task.page, payload.title, payload.content, position);
+    const newId = await createTask(task.page, payload.title, payload.content, position, categoryId);
     focusTaskId.value = newId;
   };
 
@@ -429,6 +454,7 @@ export const useDashboardData = (options) => {
     if (recurrence) {
       await runRecurrenceGeneration();
     }
+    scrollTargetId.value = task.id;
     await loadDashboard();
   };
 
@@ -470,6 +496,7 @@ export const useDashboardData = (options) => {
     if (update.recurrence) {
       await runRecurrenceGeneration();
     }
+    scrollTargetId.value = task.id;
     await loadDashboard();
   };
 

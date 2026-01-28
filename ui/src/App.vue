@@ -2,7 +2,7 @@
   <div class="app-shell">
     <header class="top-nav">
       <div class="brand">
-        <span class="brand-version">Version: {{ appVersion || "Unknown" }}</span>
+        <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
       </div>
       <nav class="tabs">
         <button
@@ -78,9 +78,12 @@
         :maintenance-status="maintenanceStatus"
         :app-version="appVersion"
         :is-updating="isUpdating"
+        :is-resetting-recurrence="isResettingRecurrence"
+        :recurrence-status="recurrenceStatus"
         :update-status="updateStatus"
         :on-backup-now="backupNow"
         :on-reindex-search="reindexSearch"
+        :on-reset-recurrence="resetRecurrenceGeneration"
         :on-apply-update="applyUpdate"
       />
 
@@ -140,12 +143,15 @@ const {
   isBackingUp,
   isReindexing,
   isUpdating,
+  isResettingRecurrence,
   loadMaintenanceStatus,
   loadVersion,
   loadWarnings,
   maintenanceStatus,
+  recurrenceStatus,
   reindexSearch,
   reindexStatus,
+  resetRecurrenceGeneration,
   updateStatus,
   visibleWarnings
 } = useMaintenance();
@@ -169,7 +175,8 @@ onMounted(async () => {
   dayTimer = setInterval(handleDayTick, 60000);
 
   window.addEventListener("keydown", handleGlobalShortcut);
-  window.addEventListener("wheel", handleDashboardWheel, { passive: false });
+  window.addEventListener("wheel", handleDashboardWheel, wheelOptions);
+  window.addEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
 
 onBeforeUnmount(() => {
@@ -183,7 +190,8 @@ onBeforeUnmount(() => {
     clearTimeout(maintenanceTimer);
   }
   window.removeEventListener("keydown", handleGlobalShortcut);
-  window.removeEventListener("wheel", handleDashboardWheel);
+  window.removeEventListener("wheel", handleDashboardWheel, wheelOptions);
+  window.removeEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
 
 watch(activeTab, (tab) => {
@@ -278,6 +286,7 @@ const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
 let pollTimer = null;
 let dayTimer = null;
 let maintenanceTimer = null;
+const wheelOptions = { passive: false, capture: true };
 
 const isLastTaskId = (task, list) => {
   if (!list || list.length === 0) {

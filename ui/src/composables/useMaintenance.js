@@ -4,6 +4,7 @@ import {
   fetchVersion,
   fetchWarnings,
   installUpdate,
+  resetRecurrence,
   triggerBackup,
   triggerReindex
 } from "../api/maintenance.js";
@@ -18,7 +19,14 @@ export const useMaintenance = () => {
   const reindexStatus = ref("");
   const updateStatus = ref("");
   const isUpdating = ref(false);
-  const maintenanceStatus = ref({ lastBackupAt: null, lastBackupError: null, lastReindexAt: null });
+  const isResettingRecurrence = ref(false);
+  const recurrenceStatus = ref("");
+  const maintenanceStatus = ref({
+    lastBackupAt: null,
+    lastBackupError: null,
+    lastReindexAt: null,
+    recurrenceGeneratedUntil: null
+  });
 
   const visibleWarnings = computed(() =>
     warnings.value.filter((warning) => !dismissedWarningIds.value.includes(warning.id))
@@ -48,10 +56,16 @@ export const useMaintenance = () => {
       maintenanceStatus.value = {
         lastBackupAt: data.lastBackupAt || null,
         lastBackupError: data.lastBackupError || null,
-        lastReindexAt: data.lastReindexAt || null
+        lastReindexAt: data.lastReindexAt || null,
+        recurrenceGeneratedUntil: data.recurrenceGeneratedUntil || null
       };
     } catch {
-      maintenanceStatus.value = { lastBackupAt: null, lastBackupError: null, lastReindexAt: null };
+      maintenanceStatus.value = {
+        lastBackupAt: null,
+        lastBackupError: null,
+        lastReindexAt: null,
+        recurrenceGeneratedUntil: null
+      };
     }
   };
 
@@ -110,6 +124,26 @@ export const useMaintenance = () => {
     }
   };
 
+  const resetRecurrenceGeneration = async () => {
+    if (isResettingRecurrence.value) {
+      return;
+    }
+    isResettingRecurrence.value = true;
+    recurrenceStatus.value = "";
+    try {
+      const response = await resetRecurrence();
+      const created = Number.isInteger(response?.created) ? response.created : null;
+      recurrenceStatus.value = created !== null
+        ? `Repeatable tasks regenerated (${created} new).`
+        : "Repeatable tasks regenerated.";
+      await loadMaintenanceStatus();
+    } catch {
+      recurrenceStatus.value = "Recurrence reset failed. Check the server logs.";
+    } finally {
+      isResettingRecurrence.value = false;
+    }
+  };
+
   return {
     appVersion,
     backupNow,
@@ -119,12 +153,15 @@ export const useMaintenance = () => {
     isBackingUp,
     isReindexing,
     isUpdating,
+    isResettingRecurrence,
     loadMaintenanceStatus,
     loadVersion,
     loadWarnings,
     maintenanceStatus,
+    recurrenceStatus,
     reindexSearch,
     reindexStatus,
+    resetRecurrenceGeneration,
     updateStatus,
     visibleWarnings
   };

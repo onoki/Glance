@@ -27,17 +27,31 @@ export const useKeyboardShortcuts = (options) => {
       return;
     }
     const target = event.target;
-    if (!target?.closest?.(".dashboard")) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    const isInDashboard = path.includes(container) || target?.closest?.(".dashboard");
+    if (!isInDashboard) {
       return;
     }
-    const deltaX = event.deltaX || 0;
-    const deltaY = event.deltaY || 0;
-    const horizontalDelta = deltaX !== 0 ? deltaX : (event.shiftKey ? deltaY : 0);
+    const deltaX = typeof event.deltaX === "number" ? event.deltaX : 0;
+    const deltaY = typeof event.deltaY === "number" ? event.deltaY : 0;
+    const legacyDeltaX = typeof event.wheelDeltaX === "number" ? -event.wheelDeltaX : 0;
+    const legacyDeltaY = typeof event.wheelDeltaY === "number" ? -event.wheelDeltaY : 0;
+    let horizontalDelta = deltaX !== 0 ? deltaX : (legacyDeltaX !== 0 ? legacyDeltaX : 0);
+    if (horizontalDelta === 0 && event.shiftKey) {
+      horizontalDelta = deltaY !== 0 ? deltaY : legacyDeltaY;
+    }
     if (horizontalDelta === 0) {
       return;
     }
+    const maxScrollLeft = container.scrollWidth - container.clientWidth;
+    if (maxScrollLeft <= 0) {
+      return;
+    }
     event.preventDefault();
-    container.scrollLeft += horizontalDelta;
+    container.scrollLeft = Math.min(
+      maxScrollLeft,
+      Math.max(0, container.scrollLeft + horizontalDelta)
+    );
   };
 
   return {

@@ -20,6 +20,7 @@ import {
   getDefaultListTypeName,
   getListItemTypeNameForListType,
   getListItemDepth,
+  isListItemEmpty,
   handleEmptyListItemBackspace,
   hasList,
   insertListItemAfterSelection,
@@ -89,6 +90,32 @@ const editorRef = useEditor({
     })
   ],
   editorProps: {
+    attributes: {
+      spellcheck: "false",
+      autocorrect: "off",
+      autocapitalize: "off",
+      autocomplete: "off"
+    },
+    handleDOMEvents: {
+      blur(view) {
+        if (!isTitle.value) {
+          const doc = view.state.doc;
+          const listNode = doc.childCount > 0 ? doc.child(0) : null;
+          if (listNode && (listNode.type.name === "bulletList" || listNode.type.name === "taskList")) {
+            const hasItems = listNode.childCount > 0;
+            const hasContent = hasItems && Array.from({ length: listNode.childCount })
+              .some((_, index) => !isListItemEmpty(listNode.child(index)));
+            if (!hasContent) {
+              editorRef.value?.commands.setContent({
+                type: "doc",
+                content: [{ type: "paragraph" }]
+              });
+            }
+          }
+        }
+        return false;
+      }
+    },
     handlePaste(view, event) {
       const editor = editorRef?.value ?? editorRef;
       const items = Array.from(event.clipboardData?.items ?? []);

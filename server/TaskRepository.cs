@@ -62,7 +62,9 @@ public sealed partial class TaskRepository
             : existing.ScheduledDate;
         var newRecurrenceJson = request.Recurrence.HasValue
             ? NormalizeRecurrenceJson(request.Recurrence)
-            : existing.RecurrenceJson;
+            : request.ScheduledDate.HasValue
+                ? null
+                : existing.RecurrenceJson;
 
         JsonElement contentElement;
         if (request.Content.HasValue)

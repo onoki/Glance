@@ -11,7 +11,7 @@ export const isDocEmptyJson = (node) => {
   if (node.content && Array.isArray(node.content)) {
     return node.content.every((child) => isDocEmptyJson(child));
   }
-  const containerTypes = new Set(["doc", "paragraph", "bulletList", "listItem"]);
+  const containerTypes = new Set(["doc", "paragraph", "bulletList", "listItem", "taskList", "taskItem"]);
   if (node.type && containerTypes.has(node.type)) {
     return true;
   }

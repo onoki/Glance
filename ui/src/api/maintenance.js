@@ -12,6 +12,8 @@ export const triggerReindex = () => apiPost("/api/search/reindex", {});
 
 export const runDailyMaintenance = () => apiPost("/api/maintenance/daily", {});
 
+export const resetRecurrence = () => apiPost("/api/recurrence/reset", {});
+
 export const installUpdate = (file) => {
   const formData = new FormData();
   formData.append("package", file);

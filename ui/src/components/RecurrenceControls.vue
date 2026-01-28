@@ -83,6 +83,7 @@ const handleMonthDaysInput = (event) => {
   padding: 2px 8px;
   background: var(--bg-panel);
   font-size: 0.75rem;
+  font-family: inherit;
 }
 
 .weekday-row {
