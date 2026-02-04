@@ -85,13 +85,15 @@ jobs:
           if (Test-Path $manifestPath) { Remove-Item $manifestPath -Force }
           $sha = [System.Security.Cryptography.SHA256]::Create()
           $nullByte = [byte[]](0)
-          $files = Get-ChildItem -Path $packageRoot -File -Recurse |
-            Where-Object { $_.FullName -ne $manifestPath } |
-            ForEach-Object {
-              $relative = $_.FullName.Substring($packageRoot.Length + 1).Replace('\', '/')
-              [pscustomobject]@{ File = $_; Relative = $relative }
-            } |
-            Sort-Object Relative
+          $files = New-Object 'System.Collections.Generic.List[object]'
+          foreach ($file in (Get-ChildItem -Path $packageRoot -File -Recurse | Where-Object { $_.FullName -ne $manifestPath })) {
+            $relative = $file.FullName.Substring($packageRoot.Length + 1).Replace('\', '/')
+            $files.Add([pscustomobject]@{ File = $file; Relative = $relative })
+          }
+          $files.Sort([System.Comparison[object]]{
+            param($a, $b)
+            [StringComparer]::OrdinalIgnoreCase.Compare($a.Relative, $b.Relative)
+          })
           foreach ($item in $files) {
             $relative = $item.Relative
             $nameBytes = [System.Text.Encoding]::UTF8.GetBytes($relative)
