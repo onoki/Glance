@@ -166,6 +166,15 @@ export const blockNonEmptyListItemBackspace = (editor) => {
   if (!listItemDepth) {
     return false;
   }
+  const listDepth = listItemDepth - 1;
+  const listNode = $from.node(listDepth);
+  if (!listNode || !isListTypeName(listNode.type.name)) {
+    return false;
+  }
+  const listIndex = $from.index(listDepth);
+  if (listIndex > 0) {
+    return false;
+  }
   const listItem = $from.node(listItemDepth);
   if (isListItemEmpty(listItem)) {
     return false;

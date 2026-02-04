@@ -93,7 +93,23 @@ public static class ServerHost
             });
             app.UseStaticFiles(new StaticFileOptions
             {
-                FileProvider = fileProvider
+                FileProvider = fileProvider,
+                OnPrepareResponse = context =>
+                {
+                    var fileName = context.File?.Name;
+                    if (string.IsNullOrWhiteSpace(fileName))
+                    {
+                        return;
+                    }
+
+                    if (fileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var headers = context.Context.Response.Headers;
+                        headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+                        headers["Pragma"] = "no-cache";
+                        headers["Expires"] = "0";
+                    }
+                }
             });
         }
         else

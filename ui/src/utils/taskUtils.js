@@ -10,6 +10,43 @@ export const emptyContentDoc = () => ({
   content: [{ type: "paragraph" }]
 });
 
+const cloneMarks = (marks) => (marks ? marks.map((mark) => ({ ...mark })) : undefined);
+
+const cloneInlineNode = (node) => {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  const cloned = { ...node };
+  if (node.marks) {
+    cloned.marks = cloneMarks(node.marks);
+  }
+  if (node.content) {
+    cloned.content = node.content.map(cloneInlineNode);
+  }
+  return cloned;
+};
+
+const titleDocToInlineContent = (titleDoc) => {
+  const paragraphs = [];
+  if (titleDoc?.content) {
+    for (const node of titleDoc.content) {
+      if (node.type === "paragraph") {
+        paragraphs.push(node);
+      }
+    }
+  }
+  const inlineContent = [];
+  paragraphs.forEach((para, index) => {
+    if (para.content) {
+      inlineContent.push(...para.content.map(cloneInlineNode));
+    }
+    if (index < paragraphs.length - 1) {
+      inlineContent.push({ type: "hardBreak" });
+    }
+  });
+  return inlineContent;
+};
+
 const SUBCONTENT_LIST_TYPES = new Set(["bulletList", "taskList"]);
 const CHECKBOX_EMPTY = "☐";
 const CHECKBOX_CHECKED = "☑";
@@ -119,6 +156,24 @@ export const normalizeTitle = (title) => {
     return emptyTitleDoc();
   }
   return title;
+};
+
+export const mergeTitleDocs = (first, second) => {
+  const safeFirst = first && first.type === "doc" ? first : emptyTitleDoc();
+  const safeSecond = second && second.type === "doc" ? second : emptyTitleDoc();
+  const inline = [
+    ...titleDocToInlineContent(safeFirst),
+    ...titleDocToInlineContent(safeSecond)
+  ];
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: inline.length ? inline : []
+      }
+    ]
+  };
 };
 
 export const normalizeTask = (task) => ({

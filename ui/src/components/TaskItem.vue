@@ -102,6 +102,8 @@
         :on-dirty="handleContentDirty"
         :on-split-to-new-task="handleSplitToNewTask"
         :on-key-down="handleContentKeydown"
+        :on-focus="handleContentFocus"
+        :on-blur="handleContentBlur"
       />
     </div>
   </div>
@@ -175,6 +177,10 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  undoSignal: {
+    type: Number,
+    default: 0
+  },
   onSave: {
     type: Function,
     required: true
@@ -191,9 +197,17 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  onSplitTitleToNewTask: {
+    type: Function,
+    default: null
+  },
   onTabToPrevious: {
     type: Function,
     required: true
+  },
+  onMergeToPrevious: {
+    type: Function,
+    default: null
   },
   onSplitToNewTask: {
     type: Function,
@@ -238,6 +252,8 @@ const content = ref(props.task.content);
 const dirty = ref(false);
 const titleEditorRef = ref(null);
 const contentEditorRef = ref(null);
+const forceSubcontent = ref(false);
+const contentFocused = ref(false);
 const categoryPickerRef = ref(null);
 const categoryMenuRef = ref(null);
 const categoryMenuTop = ref(0);
@@ -256,14 +272,12 @@ onBeforeUnmount(() => {
 
 const hasSubcontent = computed(() => {
   const doc = content.value;
-  if (!doc || isDocEmptyJson(doc)) {
-    return false;
-  }
-  const first = doc.content?.[0];
+  const first = doc?.content?.[0];
   if (!first || first.type !== "bulletList" || !Array.isArray(first.content)) {
     return false;
   }
-  return first.content.some((item) => !isDocEmptyJson(item));
+  const hasContent = first.content.some((item) => !isDocEmptyJson(item));
+  return hasContent || forceSubcontent.value || contentFocused.value;
 });
 
 const showScheduledDate = computed(
@@ -347,12 +361,15 @@ const scheduleSave = () => {
   saveTimer = setTimeout(saveNow, 800);
 };
 
-const saveNow = async () => {
+const saveNow = async (force = false, options = null) => {
   if (props.readOnly) {
     return;
   }
-  if (!dirty.value) {
+  if (!dirty.value && !force) {
     return;
+  }
+  if (force && !dirty.value) {
+    markDirty();
   }
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -370,7 +387,8 @@ const saveNow = async () => {
       title: title.value,
       content: content.value,
       baseUpdatedAt: props.task.updatedAt,
-      page: props.task.page
+      page: props.task.page,
+      suppressUndo: options?.suppressUndo ?? false
     });
     dirty.value = false;
     props.onDirty(props.task.id, false, null);
@@ -391,6 +409,23 @@ const handleContentDirty = () => {
     return;
   }
   scheduleSave();
+};
+
+const handleContentFocus = () => {
+  contentFocused.value = true;
+  forceSubcontent.value = true;
+};
+
+const handleContentBlur = () => {
+  contentFocused.value = false;
+  const doc = content.value;
+  const first = doc?.content?.[0];
+  const hasContent = first?.type === "bulletList"
+    && Array.isArray(first.content)
+    && first.content.some((item) => !isDocEmptyJson(item));
+  if (!hasContent) {
+    forceSubcontent.value = false;
+  }
 };
 
 const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
@@ -467,14 +502,17 @@ const handleSplitToNewTask = async (payload) => {
   if (props.readOnly) {
     return;
   }
+  const previousContent = content.value;
   if (payload?.remainingContent) {
     content.value = payload.remainingContent;
     markDirty();
   }
-  await saveNow();
+  await saveNow(false, { suppressUndo: true });
   props.onSplitToNewTask(props.task, {
     title: payload?.title,
     content: payload?.content,
+    previousContent,
+    remainingContent: payload?.remainingContent,
     categoryId: props.categoryId
   });
 };
@@ -572,8 +610,21 @@ watch(
     if (!target || target.taskId !== props.task.id) {
       return;
     }
+    forceSubcontent.value = true;
     await nextTick();
     contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
+  }
+);
+
+watch(
+  () => props.undoSignal,
+  () => {
+    if (dirty.value) {
+      dirty.value = false;
+      props.onDirty(props.task.id, false, null);
+    }
+    title.value = props.task.title;
+    content.value = props.task.content;
   }
 );
 

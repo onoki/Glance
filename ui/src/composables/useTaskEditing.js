@@ -2,6 +2,8 @@ import { onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
 import { getListItemDepth, isListNodeName } from "../utils/editorListUtils.js";
+import { splitTitleDocAtOffsets } from "../utils/titleSplitUtils.js";
+import { emptyContentDoc } from "../utils/taskUtils.js";
 
 export const useTaskEditing = (options) => {
   const {
@@ -182,10 +184,21 @@ export const useTaskEditing = (options) => {
       props.onComplete(props.task);
       return true;
     }
-    if (event.key === "Backspace" && isTitleEmpty(editor) && isContentEmpty(null)) {
-      event.preventDefault();
-      props.onDelete(props.task);
-      return true;
+    if (event.key === "Backspace") {
+      if (isTitleEmpty(editor) && isContentEmpty(null)) {
+        event.preventDefault();
+        props.onDelete(props.task);
+        return true;
+      }
+      if (isSelectionAtStart(editor) && props.onMergeToPrevious) {
+        event.preventDefault();
+        if (pendingCreateTimer) {
+          clearTimeout(pendingCreateTimer);
+          pendingCreateTimer = null;
+        }
+        props.onMergeToPrevious(props.task);
+        return true;
+      }
     }
     if (event.key === "Tab") {
       if (pendingCreateTimer) {
@@ -226,6 +239,41 @@ export const useTaskEditing = (options) => {
     if (event.key === "Enter" && !event.shiftKey) {
       if (pendingCreateTimer) {
         clearTimeout(pendingCreateTimer);
+      }
+      if (editor) {
+        const { selection } = editor.state;
+        const inParagraph = selection.$from?.parent?.type?.name === "paragraph"
+          && selection.$from.parent === selection.$to.parent;
+        if (inParagraph && (!selection.empty || !isSelectionAtEnd(editor))) {
+          const fromOffset = selection.$from.parentOffset;
+          const toOffset = selection.$to.parentOffset;
+          const currentDoc = editor.getJSON();
+          const split = splitTitleDocAtOffsets(currentDoc, fromOffset, toOffset);
+          if (!isDocEmptyJson(split.after)) {
+            const remainingContent = contentRef.value;
+            const clearedContent = emptyContentDoc();
+            titleRef.value = split.before;
+            contentRef.value = clearedContent;
+            editor.commands.setContent(split.before);
+            saveNow(true, { suppressUndo: true });
+            if (props.onSplitTitleToNewTask) {
+              props.onSplitTitleToNewTask(props.task, props.categoryId, {
+                beforeTitle: currentDoc,
+                beforeContent: remainingContent,
+                afterTitle: split.before,
+                afterContent: clearedContent,
+                newTitle: split.after,
+                newContent: remainingContent
+              });
+            } else {
+              props.onCreateBelow(props.task, props.categoryId, {
+                title: split.after,
+                content: remainingContent
+              });
+            }
+            return true;
+          }
+        }
       }
       saveNow();
       pendingCreateTimer = setTimeout(() => {

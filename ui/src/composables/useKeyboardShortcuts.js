@@ -2,8 +2,25 @@ export const useKeyboardShortcuts = (options) => {
   const activeTab = options?.activeTab;
   const searchInputRef = options?.searchInputRef;
   const dashboardColumnsRef = options?.dashboardColumnsRef;
+  const onUndo = options?.onUndo;
+  const onRedo = options?.onRedo;
 
   const handleGlobalShortcut = (event) => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        onUndo?.();
+        return;
+      }
+      if (key === "r" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        onRedo?.();
+        return;
+      }
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
       const target = event.target;
       const tag = target?.tagName?.toLowerCase();

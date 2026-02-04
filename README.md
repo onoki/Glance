@@ -5,5 +5,5 @@ The app stores data locally and keeps the interface focused on quick capture, si
 This repository contains the desktop host, server, and UI. Build and run from the solution file at the root, or use the UI and server projects directly during development.
 
 Dev UI notes:
-- Set `GLANCE_USE_DEV_SERVER=1` to force the desktop app to load the Vite dev server (`http://localhost:5173/`).
+- Set `GLANCE_USE_DEV_SERVER=1` (or `true`/`yes`) to force the desktop app to load the Vite dev server (`http://localhost:5173/`).
 - Optionally set `GLANCE_DEV_SERVER_URL` to point at a different dev server URL.

@@ -174,7 +174,7 @@ onMounted(async () => {
   pollTimer = setInterval(pollChanges, 750);
   dayTimer = setInterval(handleDayTick, 60000);
 
-  window.addEventListener("keydown", handleGlobalShortcut);
+  window.addEventListener("keydown", handleGlobalShortcut, true);
   window.addEventListener("wheel", handleDashboardWheel, wheelOptions);
   window.addEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
   if (maintenanceTimer) {
     clearTimeout(maintenanceTimer);
   }
-  window.removeEventListener("keydown", handleGlobalShortcut);
+  window.removeEventListener("keydown", handleGlobalShortcut, true);
   window.removeEventListener("wheel", handleDashboardWheel, wheelOptions);
   window.removeEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
@@ -209,6 +209,8 @@ const {
   mainCategories,
   loadDashboard,
   createTaskBelow,
+  undo,
+  redo,
   saveTask,
   deleteTask,
   toggleComplete,
@@ -216,7 +218,9 @@ const {
   setTaskCategory,
   setTaskRecurrence,
   splitSubcontentToNewTask,
+  splitTitleToNewTask,
   moveTaskToPrevious,
+  mergeTaskToPrevious,
   focusPrevTaskFromTitle,
   focusNextTaskFromContent,
   handleDirtyChange,
@@ -224,6 +228,7 @@ const {
   findTaskById,
   getCategoryTasks,
   createTask,
+  undoSignal,
   pollChanges,
   handleDayTick,
   initDayKey
@@ -280,7 +285,9 @@ const {
 const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
   activeTab,
   searchInputRef,
-  dashboardColumnsRef
+  dashboardColumnsRef,
+  onUndo: undo,
+  onRedo: redo
 });
 
 let pollTimer = null;
@@ -313,11 +320,14 @@ const getTaskItemBindings = (task, list, options) => ({
   onDragLeave: clearDragOver,
   focusTitleId: focusTaskId.value,
   focusContentTarget: focusContentTarget.value,
+  undoSignal: undoSignal.value,
   onSave: saveTask,
   onComplete: toggleComplete,
   onDirty: handleDirtyChange,
   onCreateBelow: createTaskBelow,
+  onSplitTitleToNewTask: splitTitleToNewTask,
   onTabToPrevious: moveTaskToPrevious,
+  onMergeToPrevious: mergeTaskToPrevious,
   onSplitToNewTask: splitSubcontentToNewTask,
   onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
   onFocusNextTaskFromContent: focusNextTaskFromContent,

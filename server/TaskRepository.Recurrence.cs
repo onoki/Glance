@@ -212,6 +212,7 @@ public sealed partial class TaskRepository
                 weekdays = weekdayElement.EnumerateArray()
                     .Where(item => item.ValueKind == JsonValueKind.Number)
                     .Select(item => item.GetInt32())
+                    .Select(value => value == 0 ? 7 : value)
                     .Where(value => value >= 1 && value <= 7)
                     .Distinct()
                     .ToArray();

@@ -105,7 +105,7 @@ Feature: Repeatable tasks
     Given repeatable tasks exist
     When the day changes or the application is started
     Then new tasks are created based on recurrence rules
-    And weekly recurring tasks are generated only for the current week
+    And weekly recurring tasks are generated for the current week only, starting on Monday
 
 
 Feature: Daily task cleanup
@@ -192,6 +192,7 @@ Feature: Subcontent list editing
     When I press Enter inside a subcontent line
     Then a new subcontent list item is created below
     And if the cursor was in the middle of the line the trailing text moves to the new item
+    And pressing Backspace at the start of the new item merges it into the previous line
 
   Scenario: Merging subcontent items with Backspace
     Given a task has multiple subcontent list items
@@ -213,6 +214,14 @@ Feature: Task restructuring via Tab
     When I press Tab in the task title
     Then the task becomes subcontent of the previous task
     And any existing subcontent is moved under the previous task
+    And hidden empty subcontent lines are removed before the moved task
+
+  Scenario: Tab on an empty new task creates editable subcontent
+    Given a task has no subcontent
+    And I create a new empty task below it
+    When I press Tab in the new task title
+    Then the new task becomes an empty subcontent line under the previous task
+    And the empty subcontent line is ready for typing
 
   Scenario: Shift+Tab at outermost level splits subcontent into a new task
     Given a task has subcontent items at the outermost level
@@ -412,6 +421,15 @@ Feature: Title-only tasks and deletion
     Then a new task is created below
     And focus moves to the new task title
 
+  Scenario: Splitting a task title into a new task
+    Given a task title has focus
+    And the caret is in the middle of the title
+    When I press Enter
+    Then the text after the caret becomes the title of a new task below
+    And the text after the caret is removed from the original task
+    And the original task subcontent is moved to the new task
+    And pressing Backspace at the start of the new title merges the tasks back together
+
   Scenario: Removing the last subcontent item
     Given a task has a single empty subcontent item
     When I press Backspace in the subcontent
@@ -437,11 +455,35 @@ Feature: Keyboard shortcuts
   Scenario: Highlight shortcuts
     Given a rich text editor has focus
     When I press Ctrl+3 or Cmd+3
-    Then green highlight is toggled
+    Then green highlight is toggled for the whole line
     When I press Ctrl+4 or Cmd+4
-    Then yellow highlight is toggled
+    Then yellow highlight is toggled for the whole line
     When I press Ctrl+5 or Cmd+5
-    Then red highlight is toggled
+    Then red highlight is toggled for the whole line
+    And if multiple subcontent lines are selected the highlight applies to each line
+
+  Scenario: Undo and redo shortcuts
+    Given a rich text editor has focus
+    When I press Ctrl+Z or Cmd+Z
+    Then the last edit is undone even if it was in another task or subcontent
+    When I press Ctrl+R or Cmd+R
+    Then the last edit is redone
+
+Feature: Window size
+
+  Scenario: Remembering window size
+    Given I resize the application window
+    When I restart the application
+    Then the window size is restored
+    And the minimum size is 100x100 pixels
+    And if the window was maximized on close the last non-maximized size is restored
+
+Feature: UI cache
+
+  Scenario: Loading fresh UI assets after updates
+    Given the application binaries have been updated
+    When the application starts
+    Then the UI is loaded without stale cached assets
 
   Scenario: Subcontent checkbox shortcut
     Given a subcontent list item has focus

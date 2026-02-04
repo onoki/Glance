@@ -15,12 +15,14 @@ import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.
 import {
   emptyContentDoc,
   emptyTitleDoc,
+  mergeTitleDocs,
   normalizeContent,
   normalizeTask,
   normalizeTitle,
   titleDocToListItem
 } from "../utils/taskUtils.js";
 import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
+import { isDocEmptyJson } from "../utils/taskDocUtils.js";
 
 export const useDashboardData = (options) => {
   const activeTab = options?.activeTab;
@@ -43,6 +45,101 @@ export const useDashboardData = (options) => {
 
   const mainCategories = computed(() => deriveCategories(mainTasks.value));
 
+  const undoStack = ref([]);
+  const redoStack = ref([]);
+  const undoLimit = 100;
+  let isApplyingUndo = false;
+  let suppressUndoCount = 0;
+  const undoSignal = ref(0);
+  const logicalToActual = new Map();
+  const actualToLogical = new Map();
+
+  const registerTaskId = (actualId) => {
+    if (!actualToLogical.has(actualId)) {
+      actualToLogical.set(actualId, actualId);
+      logicalToActual.set(actualId, actualId);
+    }
+    return actualToLogical.get(actualId);
+  };
+
+  const resolveLogicalId = (actualId) => actualToLogical.get(actualId) ?? registerTaskId(actualId);
+
+  const resolveActualId = (logicalId) => {
+    if (logicalToActual.has(logicalId)) {
+      return logicalToActual.get(logicalId);
+    }
+    return logicalId;
+  };
+
+  const updateMappingForCreate = (logicalId, actualId) => {
+    const previousActual = logicalToActual.get(logicalId);
+    if (previousActual && actualToLogical.get(previousActual) === logicalId) {
+      actualToLogical.delete(previousActual);
+    }
+    logicalToActual.set(logicalId, actualId);
+    actualToLogical.set(actualId, logicalId);
+  };
+
+  const markLogicalDeleted = (logicalId, actualId) => {
+    logicalToActual.set(logicalId, null);
+    if (actualId) {
+      actualToLogical.delete(actualId);
+    }
+  };
+
+  const snapshotTask = (task) => ({
+    page: task.page,
+    title: normalizeTitle(task.title),
+    content: normalizeContent(task.content),
+    position: task.position,
+    scheduledDate: task.scheduledDate ?? null,
+    recurrence: task.recurrence ?? null
+  });
+
+  const snapshotFromPayload = (payload) => ({
+    page: payload.page,
+    title: normalizeTitle(payload.title),
+    content: normalizeContent(payload.content),
+    position: payload.position,
+    scheduledDate: payload.scheduledDate ?? null,
+    recurrence: payload.recurrence ?? null
+  });
+
+  const snapshotsEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+
+  const pushUndoEntry = (entry) => {
+    if (isApplyingUndo || suppressUndoCount > 0) {
+      return;
+    }
+    undoStack.value = [...undoStack.value, entry];
+    if (undoStack.value.length > undoLimit) {
+      undoStack.value.shift();
+    }
+    redoStack.value = [];
+  };
+
+  const withUndoSuppressed = async (action) => {
+    suppressUndoCount += 1;
+    try {
+      return await action();
+    } finally {
+      suppressUndoCount = Math.max(0, suppressUndoCount - 1);
+    }
+  };
+
+  const resolveTaskSnapshot = (candidate) => {
+    const snapshot = candidate ? dirtySnapshots.get(candidate.id) : null;
+    return snapshot && snapshot.dirty ? snapshot.task : candidate;
+  };
+
+  const getStartOfToday = () => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now.getTime();
+  };
+
+  const isTaskVisibleToday = (task, cutoff) => !task.completedAt || task.completedAt >= cutoff;
+
   const mergeTasks = (tasks, page) => {
     const merged = tasks.map((task) => {
       const snapshot = dirtySnapshots.get(task.id);
@@ -61,10 +158,17 @@ export const useDashboardData = (options) => {
     return merged;
   };
 
+  const getStoredTaskById = (id) =>
+    newTasks.value.find((task) => task.id === id) || mainTasks.value.find((task) => task.id === id);
+
   const loadDashboard = async () => {
     const data = await fetchDashboard();
-    newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), DASHBOARD_NEW_PAGE);
-    mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), DASHBOARD_MAIN_PAGE);
+    const cutoff = getStartOfToday();
+    newTasks.value = mergeTasks(data.newTasks.map(normalizeTask), DASHBOARD_NEW_PAGE)
+      .filter((task) => isTaskVisibleToday(task, cutoff));
+    mainTasks.value = mergeTasks(data.mainTasks.map(normalizeTask), DASHBOARD_MAIN_PAGE)
+      .filter((task) => isTaskVisibleToday(task, cutoff));
+    [...newTasks.value, ...mainTasks.value].forEach((task) => registerTaskId(task.id));
     if (newTasks.value.length === 0 && creatingDefaultNew.value) {
       creatingDefaultNew.value = false;
     }
@@ -146,7 +250,45 @@ export const useDashboardData = (options) => {
     return { scheduledDate, recurrence };
   };
 
-  const createTask = async (page, titleOverride, contentOverride, positionOverride, categoryId = null) => {
+  const createTaskInternal = async (payload, options = {}) => {
+    const response = await createTaskApi(payload);
+    const created = {
+      id: response.taskId,
+      page: payload.page,
+      title: payload.title,
+      content: payload.content,
+      position: payload.position,
+      createdAt: Date.now(),
+      updatedAt: response.updatedAt,
+      completedAt: null,
+      scheduledDate: payload.scheduledDate,
+      recurrence: payload.recurrence
+    };
+    insertTaskLocal(created);
+    if (options.logicalId) {
+      updateMappingForCreate(options.logicalId, response.taskId);
+    } else {
+      registerTaskId(response.taskId);
+    }
+    if (!options.suppressUndo) {
+      const logicalId = options.logicalId ?? resolveLogicalId(response.taskId);
+      pushUndoEntry({
+        label: "create",
+        diffs: [{ logicalId, before: null, after: snapshotFromPayload(payload) }]
+      });
+    }
+    await loadDashboard();
+    return response.taskId;
+  };
+
+  const createTask = async (
+    page,
+    titleOverride,
+    contentOverride,
+    positionOverride,
+    categoryId = null,
+    options = {}
+  ) => {
     let scheduledDate = null;
     let recurrence = null;
     if (page === DASHBOARD_MAIN_PAGE && categoryId) {
@@ -164,29 +306,17 @@ export const useDashboardData = (options) => {
       scheduledDate,
       recurrence
     };
-    const response = await createTaskApi(payload);
-    insertTaskLocal({
-      id: response.taskId,
-      page: payload.page,
-      title: payload.title,
-      content: payload.content,
-      position: payload.position,
-      createdAt: Date.now(),
-      updatedAt: response.updatedAt,
-      completedAt: null,
-      scheduledDate: payload.scheduledDate,
-      recurrence: payload.recurrence
-    });
-    await loadDashboard();
-    return response.taskId;
+    return createTaskInternal(payload, options);
   };
 
-  const createTaskBelow = async (task, categoryId = null) => {
+  const createTaskBelow = async (task, categoryId = null, overrides = null, options = {}) => {
     const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
     const index = list.findIndex((item) => item.id === task.id);
     const next = index >= 0 ? list[index + 1] : null;
     const position = next ? (task.position + next.position) / 2 : task.position + 1;
-    const newId = await createTask(task.page, emptyTitleDoc(), emptyContentDoc(), position, categoryId);
+    const title = overrides?.title ?? emptyTitleDoc();
+    const content = overrides?.content ?? emptyContentDoc();
+    const newId = await createTask(task.page, title, content, position, categoryId, options);
     focusTaskId.value = newId;
     return newId;
   };
@@ -202,21 +332,47 @@ export const useDashboardData = (options) => {
     apply(mainTasks.value);
   };
 
-  const saveTask = async ({ id, title, content, baseUpdatedAt, page }) => {
+  const saveTask = async ({ id, title, content, baseUpdatedAt, page, suppressUndo = false }) => {
+    const stored = getStoredTaskById(id);
+    const logicalId = stored ? resolveLogicalId(stored.id) : resolveLogicalId(id);
+    const beforeSnapshot = stored ? snapshotTask(stored) : null;
+    const normalizedTitle = normalizeTitle(title);
+    const normalizedContent = normalizeContent(content);
+    const afterSnapshot = beforeSnapshot
+      ? { ...beforeSnapshot, title: normalizedTitle, content: normalizedContent }
+      : {
+          page: page ?? stored?.page ?? DASHBOARD_MAIN_PAGE,
+          title: normalizedTitle,
+          content: normalizedContent,
+          position: stored?.position ?? Date.now(),
+          scheduledDate: stored?.scheduledDate ?? null,
+          recurrence: stored?.recurrence ?? null
+        };
+
+    if (!suppressUndo && beforeSnapshot && !snapshotsEqual(beforeSnapshot, afterSnapshot)) {
+      pushUndoEntry({
+        label: "edit",
+        diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
+      });
+    }
+
     const response = await updateTaskApi(id, {
       baseUpdatedAt,
-      title: normalizeTitle(title),
-      content: normalizeContent(content),
+      title: normalizedTitle,
+      content: normalizedContent,
       page
     });
-    updateTaskLocal(id, { title, content, updatedAt: response.updatedAt });
+    updateTaskLocal(id, { title: normalizedTitle, content: normalizedContent, updatedAt: response.updatedAt });
     await loadDashboard();
   };
 
-  const deleteTask = async (task) => {
+  const deleteTask = async (task, options = {}) => {
     if (!task?.id) {
       return;
     }
+    const snapshot = resolveTaskSnapshot(task);
+    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
+    const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
     const list = getOrderedTasksForPage(task);
     const index = list.findIndex((item) => item.id === task.id);
     const prevTask = index > 0 ? list[index - 1] : null;
@@ -225,6 +381,13 @@ export const useDashboardData = (options) => {
     } catch {
       return;
     }
+    if (!options.suppressUndo && beforeSnapshot) {
+      pushUndoEntry({
+        label: "delete",
+        diffs: [{ logicalId, before: beforeSnapshot, after: null }]
+      });
+    }
+    markLogicalDeleted(logicalId, task.id);
     dirtySnapshots.delete(task.id);
     newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
     mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
@@ -252,7 +415,14 @@ export const useDashboardData = (options) => {
   };
 
   const moveNewToMain = async () => {
-    const updates = newTasks.value.map((task) =>
+    const snapshots = newTasks.value.map((task) => resolveTaskSnapshot(task));
+    const diffs = snapshots.map((task) => {
+      const logicalId = resolveLogicalId(task.id);
+      const before = snapshotTask(task);
+      const after = { ...before, page: DASHBOARD_MAIN_PAGE };
+      return { logicalId, before, after };
+    });
+    const updates = snapshots.map((task) =>
       updateTaskApi(task.id, {
         baseUpdatedAt: task.updatedAt,
         title: task.title,
@@ -262,6 +432,12 @@ export const useDashboardData = (options) => {
     );
     await Promise.all(updates);
     await loadDashboard();
+    if (diffs.length > 0) {
+      pushUndoEntry({
+        label: "move",
+        diffs
+      });
+    }
   };
 
   const getOrderedTasksForPage = (task) => {
@@ -281,21 +457,36 @@ export const useDashboardData = (options) => {
       return false;
     }
 
-    const previous = list[index - 1];
+    const previous = resolveTaskSnapshot(list[index - 1]);
+    const current = resolveTaskSnapshot(task);
     const prevContent = normalizeContent(previous.content);
     const prevList = prevContent.content?.[0]?.content ?? [];
-    const currentContent = normalizeContent(task.content);
+    const currentContent = normalizeContent(current.content);
     const currentList = currentContent.content?.[0]?.content ?? [];
-    const titleItem = titleDocToListItem(task.title);
+    const titleItem = titleDocToListItem(current.title);
+    const filteredPrevList = prevList.filter((item) => !isDocEmptyJson(item));
+    const filteredCurrentList = currentList.filter((item) => !isDocEmptyJson(item));
 
     const merged = {
       type: "doc",
       content: [
         {
           type: "bulletList",
-          content: [...prevList, titleItem, ...currentList]
+          content: [...filteredPrevList, titleItem, ...filteredCurrentList]
         }
       ]
+    };
+
+    const prevLogicalId = resolveLogicalId(previous.id);
+    const currentLogicalId = resolveLogicalId(current.id);
+    const beforePrevSnapshot = snapshotTask(previous);
+    const beforeCurrentSnapshot = snapshotTask(current);
+    const afterPrevSnapshot = { ...beforePrevSnapshot, content: merged };
+    const afterCurrentSnapshot = {
+      ...beforeCurrentSnapshot,
+      page: "dashboard:hidden",
+      content: currentContent,
+      title: current.title || "Untitled"
     };
 
     await saveTask({
@@ -303,25 +494,116 @@ export const useDashboardData = (options) => {
       title: previous.title,
       content: merged,
       baseUpdatedAt: previous.updatedAt,
-      page: previous.page
+      page: previous.page,
+      suppressUndo: true
     });
 
     await saveTask({
-      id: task.id,
-      title: task.title || "Untitled",
+      id: current.id,
+      title: current.title || "Untitled",
       content: currentContent,
-      baseUpdatedAt: task.updatedAt,
-      page: "dashboard:hidden"
+      baseUpdatedAt: current.updatedAt,
+      page: "dashboard:hidden",
+      suppressUndo: true
     });
 
     focusContentTarget.value = {
       taskId: previous.id,
-      listIndex: prevList.length,
+      listIndex: filteredPrevList.length,
       atEnd: true
     };
 
     newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
     mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
+
+    pushUndoEntry({
+      label: "indent",
+      diffs: [
+        { logicalId: prevLogicalId, before: beforePrevSnapshot, after: afterPrevSnapshot },
+        { logicalId: currentLogicalId, before: beforeCurrentSnapshot, after: afterCurrentSnapshot }
+      ]
+    });
+
+    return true;
+  };
+
+  const mergeTaskToPrevious = async (task) => {
+    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
+    const index = list.findIndex((item) => item.id === task.id);
+    if (index <= 0) {
+      return false;
+    }
+
+    const previous = resolveTaskSnapshot(list[index - 1]);
+    const current = resolveTaskSnapshot(task);
+    if (!previous || !current) {
+      return false;
+    }
+
+    const mergedTitle = mergeTitleDocs(previous.title, current.title);
+    const prevContent = normalizeContent(previous.content);
+    const currentContent = normalizeContent(current.content);
+    const prevList = prevContent.content?.[0]?.content ?? [];
+    const currentList = currentContent.content?.[0]?.content ?? [];
+    const filteredPrevList = prevList.filter((item) => !isDocEmptyJson(item));
+    const filteredCurrentList = currentList.filter((item) => !isDocEmptyJson(item));
+    const mergedList = [...filteredPrevList, ...filteredCurrentList];
+    const mergedContent = mergedList.length
+      ? {
+          type: "doc",
+          content: [
+            {
+              type: "bulletList",
+              content: mergedList
+            }
+          ]
+        }
+      : emptyContentDoc();
+
+    const prevLogicalId = resolveLogicalId(previous.id);
+    const currentLogicalId = resolveLogicalId(current.id);
+    const beforePrevSnapshot = snapshotTask(previous);
+    const beforeCurrentSnapshot = snapshotTask(current);
+    const afterPrevSnapshot = { ...beforePrevSnapshot, title: mergedTitle, content: mergedContent };
+    const afterCurrentSnapshot = {
+      ...beforeCurrentSnapshot,
+      page: "dashboard:hidden",
+      title: emptyTitleDoc(),
+      content: emptyContentDoc()
+    };
+
+    await saveTask({
+      id: previous.id,
+      title: mergedTitle,
+      content: mergedContent,
+      baseUpdatedAt: previous.updatedAt,
+      page: previous.page,
+      suppressUndo: true
+    });
+
+    await saveTask({
+      id: current.id,
+      title: emptyTitleDoc(),
+      content: emptyContentDoc(),
+      baseUpdatedAt: current.updatedAt,
+      page: "dashboard:hidden",
+      suppressUndo: true
+    });
+
+    dirtySnapshots.delete(previous.id);
+    dirtySnapshots.delete(current.id);
+    focusTaskId.value = previous.id;
+
+    newTasks.value = newTasks.value.filter((item) => item.id !== current.id);
+    mainTasks.value = mainTasks.value.filter((item) => item.id !== current.id);
+
+    pushUndoEntry({
+      label: "merge",
+      diffs: [
+        { logicalId: prevLogicalId, before: beforePrevSnapshot, after: afterPrevSnapshot },
+        { logicalId: currentLogicalId, before: beforeCurrentSnapshot, after: afterCurrentSnapshot }
+      ]
+    });
 
     return true;
   };
@@ -365,8 +647,99 @@ export const useDashboardData = (options) => {
     const index = list.findIndex((item) => item.id === task.id);
     const next = index >= 0 ? list[index + 1] : null;
     const position = next ? (task.position + next.position) / 2 : task.position + 1;
-    const newId = await createTask(task.page, payload.title, payload.content, position, categoryId);
+    const snapshot = resolveTaskSnapshot(task);
+    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
+    const beforeSnapshot = snapshot
+      ? { ...snapshotTask(snapshot), content: payload?.previousContent ?? snapshot.content }
+      : null;
+    const afterSnapshot = beforeSnapshot && payload?.remainingContent
+      ? { ...beforeSnapshot, content: payload.remainingContent }
+      : null;
+    const newId = await createTask(
+      task.page,
+      payload.title,
+      payload.content,
+      position,
+      categoryId,
+      { suppressUndo: true }
+    );
     focusTaskId.value = newId;
+
+    const newTask = getStoredTaskById(newId);
+    const newLogicalId = newTask ? resolveLogicalId(newTask.id) : resolveLogicalId(newId);
+    const newAfterSnapshot = newTask ? snapshotTask(newTask) : snapshotFromPayload({
+      page: task.page,
+      title: payload.title,
+      content: payload.content,
+      position,
+      scheduledDate: null,
+      recurrence: null
+    });
+
+    if (beforeSnapshot && afterSnapshot) {
+      pushUndoEntry({
+        label: "split",
+        diffs: [
+          { logicalId, before: beforeSnapshot, after: afterSnapshot },
+          { logicalId: newLogicalId, before: null, after: newAfterSnapshot }
+        ]
+      });
+    }
+  };
+
+  const splitTitleToNewTask = async (task, categoryId, payload) => {
+    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
+    const index = list.findIndex((item) => item.id === task.id);
+    const next = index >= 0 ? list[index + 1] : null;
+    const position = next ? (task.position + next.position) / 2 : task.position + 1;
+
+    const snapshot = resolveTaskSnapshot(task);
+    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
+    const beforeSnapshot = snapshot
+      ? {
+          ...snapshotTask(snapshot),
+          title: payload?.beforeTitle ?? snapshot.title,
+          content: payload?.beforeContent ?? snapshot.content
+        }
+      : null;
+    const afterSnapshot = beforeSnapshot
+      ? {
+          ...beforeSnapshot,
+          title: payload?.afterTitle ?? snapshot.title,
+          content: payload?.afterContent ?? snapshot.content
+        }
+      : null;
+
+    const newId = await createTask(
+      task.page,
+      payload?.newTitle ?? emptyTitleDoc(),
+      payload?.newContent ?? emptyContentDoc(),
+      position,
+      categoryId,
+      { suppressUndo: true }
+    );
+    focusTaskId.value = newId;
+
+    const newTask = getStoredTaskById(newId);
+    const newLogicalId = newTask ? resolveLogicalId(newTask.id) : resolveLogicalId(newId);
+    const newAfterSnapshot = newTask ? snapshotTask(newTask) : snapshotFromPayload({
+      page: task.page,
+      title: payload?.newTitle ?? emptyTitleDoc(),
+      content: payload?.newContent ?? emptyContentDoc(),
+      position,
+      scheduledDate: null,
+      recurrence: null
+    });
+
+    if (beforeSnapshot && afterSnapshot) {
+      pushUndoEntry({
+        label: "split",
+        diffs: [
+          { logicalId, before: beforeSnapshot, after: afterSnapshot },
+          { logicalId: newLogicalId, before: null, after: newAfterSnapshot }
+        ]
+      });
+    }
   };
 
   const handleDirtyChange = (id, dirty, snapshot) => {
@@ -378,6 +751,119 @@ export const useDashboardData = (options) => {
       return;
     }
     dirtySnapshots.set(id, { dirty: true, task: snapshot });
+  };
+
+  const applyUndoEntry = async (entry, direction) => {
+    if (!entry?.diffs?.length) {
+      return false;
+    }
+    const targetKey = direction === "undo" ? "before" : "after";
+    isApplyingUndo = true;
+    try {
+      await withUndoSuppressed(async () => {
+        dirtySnapshots.clear();
+
+        for (const diff of entry.diffs) {
+          const target = diff[targetKey];
+          if (target !== null) {
+            continue;
+          }
+          const actualId = resolveActualId(diff.logicalId);
+          if (!actualId) {
+            continue;
+          }
+          try {
+            await deleteTaskApi(actualId);
+          } catch {
+            // ignore delete failures during undo
+          }
+          markLogicalDeleted(diff.logicalId, actualId);
+        }
+
+        for (const diff of entry.diffs) {
+          const target = diff[targetKey];
+          if (!target) {
+            continue;
+          }
+          const actualId = resolveActualId(diff.logicalId);
+          const exists = actualId && getStoredTaskById(actualId);
+          if (exists) {
+            continue;
+          }
+          const payload = {
+            page: target.page,
+            title: normalizeTitle(target.title),
+            content: normalizeContent(target.content),
+            position: target.position ?? Date.now(),
+            scheduledDate: target.scheduledDate ?? null,
+            recurrence: target.recurrence ?? null
+          };
+          try {
+            const response = await createTaskApi(payload);
+            updateMappingForCreate(diff.logicalId, response.taskId);
+          } catch {
+            // ignore create failures during undo
+          }
+        }
+
+        for (const diff of entry.diffs) {
+          const target = diff[targetKey];
+          if (!target) {
+            continue;
+          }
+          const actualId = resolveActualId(diff.logicalId);
+          const existing = actualId ? getStoredTaskById(actualId) : null;
+          if (!existing) {
+            continue;
+          }
+          try {
+            await updateTaskApi(actualId, {
+              baseUpdatedAt: existing.updatedAt,
+              title: normalizeTitle(target.title),
+              content: normalizeContent(target.content),
+              page: target.page,
+              position: target.position,
+              scheduledDate: target.scheduledDate ?? null,
+              recurrence: target.recurrence ?? null
+            });
+          } catch {
+            // ignore update failures during undo
+          }
+        }
+
+        await loadDashboard();
+        undoSignal.value += 1;
+      });
+      return true;
+    } finally {
+      isApplyingUndo = false;
+    }
+  };
+
+  const undo = async () => {
+    if (undoStack.value.length === 0) {
+      return false;
+    }
+    const entry = undoStack.value[undoStack.value.length - 1];
+    undoStack.value = undoStack.value.slice(0, -1);
+    const applied = await applyUndoEntry(entry, "undo");
+    if (applied) {
+      redoStack.value = [...redoStack.value, entry];
+    }
+    return applied;
+  };
+
+  const redo = async () => {
+    if (redoStack.value.length === 0) {
+      return false;
+    }
+    const entry = redoStack.value[redoStack.value.length - 1];
+    redoStack.value = redoStack.value.slice(0, -1);
+    const applied = await applyUndoEntry(entry, "redo");
+    if (applied) {
+      undoStack.value = [...undoStack.value, entry];
+    }
+    return applied;
   };
 
   const runRecurrenceGeneration = async () => {
@@ -398,6 +884,9 @@ export const useDashboardData = (options) => {
   };
 
   const setTaskCategory = async (task, category) => {
+    const snapshot = resolveTaskSnapshot(task);
+    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
+    const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
     let scheduledDate = undefined;
     let recurrence = undefined;
     const weekStart = getWeekStart(new Date());
@@ -456,6 +945,21 @@ export const useDashboardData = (options) => {
     }
     scrollTargetId.value = task.id;
     await loadDashboard();
+
+    if (beforeSnapshot) {
+      const afterSnapshot = {
+        ...beforeSnapshot,
+        page: update.page ?? beforeSnapshot.page,
+        scheduledDate: update.scheduledDate ?? beforeSnapshot.scheduledDate,
+        recurrence: update.recurrence ?? beforeSnapshot.recurrence
+      };
+      if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {
+        pushUndoEntry({
+          label: "move",
+          diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
+        });
+      }
+    }
   };
 
   const setTaskRecurrence = async (task, recurrence) => {
@@ -478,6 +982,9 @@ export const useDashboardData = (options) => {
   };
 
   const applyTaskMove = async (task, categoryId, position, scheduledDateOverride = null) => {
+    const snapshot = resolveTaskSnapshot(task);
+    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
+    const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
     const update = {
       baseUpdatedAt: task.updatedAt,
       position
@@ -498,6 +1005,22 @@ export const useDashboardData = (options) => {
     }
     scrollTargetId.value = task.id;
     await loadDashboard();
+
+    if (beforeSnapshot) {
+      const afterSnapshot = {
+        ...beforeSnapshot,
+        position: update.position ?? beforeSnapshot.position,
+        scheduledDate: update.scheduledDate ?? beforeSnapshot.scheduledDate,
+        recurrence: update.recurrence ?? beforeSnapshot.recurrence,
+        page: update.page ?? beforeSnapshot.page
+      };
+      if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {
+        pushUndoEntry({
+          label: "move",
+          diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
+        });
+      }
+    }
   };
 
   const findTaskById = (id) => {
@@ -559,6 +1082,8 @@ export const useDashboardData = (options) => {
     loadDashboard,
     createTask,
     createTaskBelow,
+    undo,
+    redo,
     saveTask,
     deleteTask,
     toggleComplete,
@@ -566,7 +1091,9 @@ export const useDashboardData = (options) => {
     setTaskCategory,
     setTaskRecurrence,
     splitSubcontentToNewTask,
+    splitTitleToNewTask,
     moveTaskToPrevious,
+    mergeTaskToPrevious,
     focusPrevTaskFromTitle,
     focusNextTaskFromContent,
     handleDirtyChange,
@@ -574,6 +1101,7 @@ export const useDashboardData = (options) => {
     findTaskById,
     getCategoryTasks,
     getOrderedTasksForPage,
+    undoSignal,
     pollChanges,
     handleDayTick,
     initDayKey,

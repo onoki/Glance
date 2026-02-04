@@ -84,6 +84,53 @@ public sealed class RepositoryTests
     }
 
     [Fact]
+    public async Task Recurrence_GeneratesWeeklyTasksForCurrentWeekOnly()
+    {
+        await using var app = TestAppFixture.Create();
+        using var recurrenceDoc = JsonDocument.Parse("{\"type\":\"weekly\",\"weekdays\":[1]}");
+        var request = new TaskCreateRequest(
+            TaskPages.DashboardMain,
+            TestAppFixture.CreateTitle("Weekly"),
+            TestAppFixture.CreateContent("Recurring"),
+            1,
+            null,
+            recurrenceDoc.RootElement.Clone());
+        await app.Tasks.CreateTaskAsync(request, CancellationToken.None);
+
+        var startDate = new DateTime(2024, 3, 6);
+        await app.Tasks.GenerateRecurringTasksAsync(startDate, CancellationToken.None);
+
+        var currentWeekMonday = "2024-03-04";
+        var nextWeekMonday = "2024-03-11";
+        var currentCount = await CountTasksForDate(app.Paths.ConnectionString, currentWeekMonday);
+        var nextCount = await CountTasksForDate(app.Paths.ConnectionString, nextWeekMonday);
+        Assert.True(currentCount > 0);
+        Assert.Equal(0, nextCount);
+    }
+
+    [Fact]
+    public async Task Recurrence_AcceptsZeroBasedWeekdays()
+    {
+        await using var app = TestAppFixture.Create();
+        using var recurrenceDoc = JsonDocument.Parse("{\"type\":\"weekly\",\"weekdays\":[0]}");
+        var request = new TaskCreateRequest(
+            TaskPages.DashboardMain,
+            TestAppFixture.CreateTitle("Weekly"),
+            TestAppFixture.CreateContent("Recurring"),
+            1,
+            null,
+            recurrenceDoc.RootElement.Clone());
+        await app.Tasks.CreateTaskAsync(request, CancellationToken.None);
+
+        var startDate = new DateTime(2024, 3, 6);
+        await app.Tasks.GenerateRecurringTasksAsync(startDate, CancellationToken.None);
+
+        var sunday = "2024-03-10";
+        var count = await CountTasksForDate(app.Paths.ConnectionString, sunday);
+        Assert.True(count > 0);
+    }
+
+    [Fact]
     public async Task History_MoveCompletedToHistory_MovesOnlyTodayTasks()
     {
         await using var app = TestAppFixture.Create();
@@ -174,5 +221,20 @@ public sealed class RepositoryTests
         var now = DateTimeOffset.Now;
         var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
         return start.ToUnixTimeMilliseconds();
+    }
+
+    private static async Task<int> CountTasksForDate(string connectionString, string date)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM tasks
+            WHERE scheduled_date = $date;
+            """;
+        command.Parameters.AddWithValue("$date", date);
+        var result = await command.ExecuteScalarAsync();
+        return result is long value ? (int)value : 0;
     }
 }

@@ -31,6 +31,7 @@ The application consists of a **single OS process** per instance:
 - Photino window hosting the UI
 - Embedded ASP.NET Core server (localhost only)
 - SQLite database and filesystem blobs
+  - HTML UI responses are served with no-store headers to avoid stale caches after updates
 
 Multiple instances may run simultaneously and share the same data directory.
 
@@ -97,6 +98,7 @@ The editor must enforce:
 - tasks
 - task_search (FTS5)
 - changes
+- app_meta (app metadata such as window size)
 
 ### Attachments
 - Stored as files under a blobs directory

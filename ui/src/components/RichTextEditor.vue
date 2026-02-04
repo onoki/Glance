@@ -52,6 +52,14 @@ const props = defineProps({
     type: Function,
     default: null
   },
+  onFocus: {
+    type: Function,
+    default: null
+  },
+  onBlur: {
+    type: Function,
+    default: null
+  },
   mode: {
     type: String,
     default: "content"
@@ -97,6 +105,12 @@ const editorRef = useEditor({
       autocomplete: "off"
     },
     handleDOMEvents: {
+      focus() {
+        if (props.onFocus) {
+          props.onFocus();
+        }
+        return false;
+      },
       blur(view) {
         if (!isTitle.value) {
           const doc = view.state.doc;
@@ -112,6 +126,9 @@ const editorRef = useEditor({
               });
             }
           }
+        }
+        if (props.onBlur) {
+          props.onBlur();
         }
         return false;
       }
@@ -241,18 +258,15 @@ const editorRef = useEditor({
         }
         if (event.key === "3") {
           event.preventDefault();
-          editor?.chain().focus().toggleHighlight({ color: "green" }).run();
-          return true;
+          return toggleLineHighlight(editor, "green");
         }
         if (event.key === "4") {
           event.preventDefault();
-          editor?.chain().focus().toggleHighlight({ color: "yellow" }).run();
-          return true;
+          return toggleLineHighlight(editor, "yellow");
         }
         if (event.key === "5") {
           event.preventDefault();
-          editor?.chain().focus().toggleHighlight({ color: "red" }).run();
-          return true;
+          return toggleLineHighlight(editor, "red");
         }
       }
       if (event.key === 'Tab') {
@@ -447,6 +461,82 @@ const toggleStarInTitle = (editor) => {
   const nextPrefix = hasStar ? "" : `${STAR_MARK} `;
   const insertPos = 1;
   return applyPrefixChangeAt(editor, insertPos, prefixLength, nextPrefix, state.selection);
+};
+
+const getParagraphRangesForSelection = (editor) => {
+  const { state } = editor;
+  const { selection } = state;
+  const ranges = new Map();
+
+  if (selection.empty) {
+    const { $from } = selection;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth);
+      if (node.type.name === "paragraph") {
+        const start = $from.start(depth);
+        const end = start + node.content.size;
+        ranges.set(start, { from: start, to: end, node });
+        break;
+      }
+    }
+  } else {
+    state.doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+      if (node.type.name !== "paragraph") {
+        return;
+      }
+      const from = pos + 1;
+      const to = pos + node.nodeSize - 1;
+      ranges.set(from, { from, to, node });
+    });
+  }
+
+  return Array.from(ranges.values());
+};
+
+const isParagraphFullyHighlighted = (paragraph, markType, color) => {
+  let hasText = false;
+  let fullyHighlighted = true;
+  paragraph.descendants((node) => {
+    if (!node.isText) {
+      return true;
+    }
+    hasText = true;
+    const hasMark = node.marks?.some((mark) =>
+      mark.type === markType && mark.attrs?.color === color
+    );
+    if (!hasMark) {
+      fullyHighlighted = false;
+      return false;
+    }
+    return true;
+  });
+  return hasText && fullyHighlighted;
+};
+
+const toggleLineHighlight = (editor, color) => {
+  if (!editor) {
+    return false;
+  }
+  const markType = editor.state.schema.marks.highlight;
+  if (!markType) {
+    return false;
+  }
+  const ranges = getParagraphRangesForSelection(editor);
+  if (ranges.length === 0) {
+    return false;
+  }
+  const mark = markType.create({ color });
+  let tr = editor.state.tr;
+  ranges.forEach(({ from, to, node }) => {
+    if (isParagraphFullyHighlighted(node, markType, color)) {
+      tr = tr.removeMark(from, to, mark);
+    } else {
+      tr = tr.addMark(from, to, mark);
+    }
+  });
+  editor.view.dispatch(tr);
+  editor.commands.focus();
+  return true;
 };
 
 const insertImageFromFile = async (editor, file) => {
