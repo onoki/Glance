@@ -99,7 +99,7 @@ internal sealed class UpdateService
             WriteUpdateScript(scriptPath);
 
             var exePath = ResolveExePath();
-            AppendDesktopLog("Update: launching updater script.");
+            AppendDesktopLog($"Update: launching updater script at {scriptPath}.");
             LaunchUpdater(scriptPath, stagingRoot, _paths.AppRoot, exePath);
 
             _ = Task.Run(async () =>
@@ -331,23 +331,86 @@ param(
   [string]$exe
 )
 
+function Write-UpdateLog([string]$message) {
+  $timestamp = (Get-Date).ToUniversalTime().ToString("o")
+  $line = "[$timestamp] $message"
+  $logPath = $null
+  try {
+    if ($target) {
+      $logPath = Join-Path $target "data\\desktop.log"
+    }
+    if ($logPath) {
+      Add-Content -Path $logPath -Value $line -Encoding UTF8
+      return
+    }
+  } catch {}
+  try {
+    $fallback = Join-Path $env:TEMP "glance-update.log"
+    Add-Content -Path $fallback -Value $line -Encoding UTF8
+  } catch {}
+}
+
+Write-UpdateLog "Updater script starting. pid=$pid source=$source target=$target exe=$exe"
+
 try { Wait-Process -Id $pid -ErrorAction SilentlyContinue } catch {}
+Write-UpdateLog "Waited for pid $pid."
 Start-Sleep -Milliseconds 500
 
-if (!(Test-Path -LiteralPath $source)) { exit 2 }
-if (!(Test-Path -LiteralPath $target)) { exit 3 }
+if (!(Test-Path -LiteralPath $source)) { Write-UpdateLog "Source path missing: $source"; exit 2 }
+if (!(Test-Path -LiteralPath $target)) { Write-UpdateLog "Target path missing: $target"; exit 3 }
 
-Get-ChildItem -LiteralPath $source | Where-Object {
-  $_.Name -notin @("data", "blobs")
-} | ForEach-Object {
-  $destination = Join-Path $target $_.Name
-  Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+try {
+  $sourceExe = Join-Path $source "glance.exe"
+  $targetExe = Join-Path $target "glance.exe"
+  if (Test-Path -LiteralPath $sourceExe) {
+    $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExe).Hash
+    Write-UpdateLog "Source glance.exe hash: $sourceHash"
+  }
+  if (Test-Path -LiteralPath $targetExe) {
+    $targetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetExe).Hash
+    Write-UpdateLog "Target glance.exe hash (before): $targetHash"
+    $targetInfo = Get-Item -LiteralPath $targetExe
+    Write-UpdateLog ("Target glance.exe info (before): {0} bytes, {1}" -f $targetInfo.Length, $targetInfo.LastWriteTimeUtc.ToString("o"))
+  }
+} catch {
+  Write-UpdateLog "Failed to compute pre-copy hashes: $($_.Exception.Message)"
+}
+
+try {
+  $items = @(Get-ChildItem -LiteralPath $source | Where-Object {
+    $_.Name -notin @("data", "blobs")
+  })
+  Write-UpdateLog "Copying $($items.Count) top-level items."
+  foreach ($item in $items) {
+    $destination = Join-Path $target $item.Name
+    Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force -ErrorAction Stop
+  }
+  Write-UpdateLog "Copied update files into target."
+} catch {
+  Write-UpdateLog "Copy failed: $($_.Exception.Message)"
+  throw
+}
+
+try {
+  $targetExe = Join-Path $target "glance.exe"
+  if (Test-Path -LiteralPath $targetExe) {
+    $targetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetExe).Hash
+    Write-UpdateLog "Target glance.exe hash (after): $targetHash"
+    $targetInfo = Get-Item -LiteralPath $targetExe
+    Write-UpdateLog ("Target glance.exe info (after): {0} bytes, {1}" -f $targetInfo.Length, $targetInfo.LastWriteTimeUtc.ToString("o"))
+  }
+} catch {
+  Write-UpdateLog "Failed to compute post-copy hash: $($_.Exception.Message)"
 }
 
 if (Test-Path -LiteralPath $exe) {
+  Write-UpdateLog "Launching updated app."
   Start-Process -FilePath $exe -WorkingDirectory $target
+} else {
+  Write-UpdateLog "Updated app executable missing: $exe"
 }
 
+Write-UpdateLog "Updater script finished."
 try { Remove-Item -LiteralPath $source -Recurse -Force } catch {}
 """;
 
