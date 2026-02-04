@@ -39,14 +39,14 @@ export const useKeyboardShortcuts = (options) => {
   };
 
   const handleDashboardWheel = (event) => {
-    const container = dashboardColumnsRef.value;
-    if (!container || activeTab.value !== "Dashboard") {
+    if (!event || activeTab.value !== "Dashboard") {
       return;
     }
-    const target = event.target;
-    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-    const isInDashboard = path.includes(container) || target?.closest?.(".dashboard");
-    if (!isInDashboard) {
+    if (event.__glanceHorizontalHandled) {
+      return;
+    }
+    const container = dashboardColumnsRef.value || document.querySelector(".dashboard-columns");
+    if (!container) {
       return;
     }
     const deltaX = typeof event.deltaX === "number" ? event.deltaX : 0;
@@ -64,6 +64,7 @@ export const useKeyboardShortcuts = (options) => {
     if (maxScrollLeft <= 0) {
       return;
     }
+    event.__glanceHorizontalHandled = true;
     event.preventDefault();
     container.scrollLeft = Math.min(
       maxScrollLeft,

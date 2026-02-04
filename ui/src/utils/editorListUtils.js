@@ -172,15 +172,21 @@ export const blockNonEmptyListItemBackspace = (editor) => {
     return false;
   }
   const listIndex = $from.index(listDepth);
-  if (listIndex > 0) {
-    return false;
-  }
   const listItem = $from.node(listItemDepth);
   if (isListItemEmpty(listItem)) {
     return false;
   }
   if ($from.parentOffset !== 0) {
     return false;
+  }
+  if (listIndex > 0) {
+    const joined = editor.commands?.joinItemBackward?.()
+      ?? editor.commands?.joinBackward?.()
+      ?? false;
+    if (joined) {
+      editor.commands?.focus?.();
+      return true;
+    }
   }
   return true;
 };
@@ -217,9 +223,19 @@ export const handleEmptyListItemBackspace = (editor) => {
   }
 
   if (listIndex <= 0) {
-    const startPos = $from.start(listItemDepth) + 1;
-    const trStart = state.tr.setSelection(TextSelection.create(state.doc, startPos));
-    view.dispatch(trStart);
+    if (listNode.childCount <= 1) {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "paragraph" }]
+      });
+      return true;
+    }
+    const from = $from.before(listItemDepth);
+    const to = $from.after(listItemDepth);
+    const tr = state.tr.delete(from, to);
+    const resolved = tr.doc.resolve(Math.min(from, tr.doc.content.size));
+    tr.setSelection(TextSelection.near(resolved, 1));
+    view.dispatch(tr);
     editor.commands.focus();
     return true;
   }

@@ -177,6 +177,8 @@ onMounted(async () => {
   window.addEventListener("keydown", handleGlobalShortcut, true);
   window.addEventListener("wheel", handleDashboardWheel, wheelOptions);
   window.addEventListener("mousewheel", handleDashboardWheel, wheelOptions);
+  document.addEventListener("wheel", handleDashboardWheel, wheelOptions);
+  document.addEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
 
 onBeforeUnmount(() => {
@@ -192,6 +194,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalShortcut, true);
   window.removeEventListener("wheel", handleDashboardWheel, wheelOptions);
   window.removeEventListener("mousewheel", handleDashboardWheel, wheelOptions);
+  document.removeEventListener("wheel", handleDashboardWheel, wheelOptions);
+  document.removeEventListener("mousewheel", handleDashboardWheel, wheelOptions);
 });
 
 watch(activeTab, (tab) => {
@@ -206,6 +210,8 @@ const {
   expandedNew,
   focusTaskId,
   focusContentTarget,
+  highlightTaskId,
+  highlightNonce,
   mainCategories,
   loadDashboard,
   createTaskBelow,
@@ -234,6 +240,7 @@ const {
   initDayKey
 } = useDashboardData({
   activeTab,
+  dashboardColumnsRef,
   loadHistory,
   loadMaintenanceStatus,
   loadWarnings
@@ -321,6 +328,8 @@ const getTaskItemBindings = (task, list, options) => ({
   focusTitleId: focusTaskId.value,
   focusContentTarget: focusContentTarget.value,
   undoSignal: undoSignal.value,
+  highlightId: highlightTaskId.value,
+  highlightNonce: highlightNonce.value,
   onSave: saveTask,
   onComplete: toggleComplete,
   onDirty: handleDirtyChange,

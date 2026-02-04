@@ -12,8 +12,9 @@
       <div
         class="dashboard-column new-column"
         :class="{ expanded: expandedNew, empty: newTasks.length === 0 && !expandedNew }"
+        data-category-id="new"
       >
-        <section class="list-card">
+        <section class="list-card" data-category-id="new">
           <header class="list-header column-header">
             <div>
               <h3 class="category-title">New tasks</h3>
@@ -55,10 +56,11 @@
           v-if="category.tasks.length"
           class="dashboard-column"
           :style="getColumnStyle(category.id)"
+          :data-category-id="category.id"
           @dragover.prevent
           @drop.prevent="onDropOnCategory(category.id, $event)"
         >
-          <section class="list-card">
+          <section class="list-card" :data-category-id="category.id">
             <header class="column-header">
               <h3 class="category-title">{{ category.label }}</h3>
             </header>

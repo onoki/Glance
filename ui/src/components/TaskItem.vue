@@ -1,7 +1,7 @@
 ﻿<template>
   <div
     class="task-item"
-    :class="{ completed: !!task.completedAt }"
+    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash }"
     :draggable="false"
     :data-task-id="task.id"
     @dragstart="handleDragStart"
@@ -177,6 +177,14 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  highlightId: {
+    type: String,
+    default: null
+  },
+  highlightNonce: {
+    type: Number,
+    default: 0
+  },
   undoSignal: {
     type: Number,
     default: 0
@@ -254,6 +262,7 @@ const titleEditorRef = ref(null);
 const contentEditorRef = ref(null);
 const forceSubcontent = ref(false);
 const contentFocused = ref(false);
+const highlightFlash = ref(false);
 const categoryPickerRef = ref(null);
 const categoryMenuRef = ref(null);
 const categoryMenuTop = ref(0);
@@ -262,11 +271,16 @@ const recurrenceType = ref("");
 const weeklyDays = ref([]);
 const monthDaysInput = ref("");
 let saveTimer = null;
+let highlightTimer = null;
 
 onBeforeUnmount(() => {
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
+  }
+  if (highlightTimer) {
+    clearTimeout(highlightTimer);
+    highlightTimer = null;
   }
 });
 
@@ -617,6 +631,25 @@ watch(
 );
 
 watch(
+  () => [props.highlightId, props.highlightNonce],
+  ([id]) => {
+    if (!id || id !== props.task.id) {
+      return;
+    }
+    highlightFlash.value = false;
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+    }
+    requestAnimationFrame(() => {
+      highlightFlash.value = true;
+      highlightTimer = setTimeout(() => {
+        highlightFlash.value = false;
+      }, 1000);
+    });
+  }
+);
+
+watch(
   () => props.undoSignal,
   () => {
     if (dirty.value) {
@@ -653,6 +686,22 @@ watch(
   background: transparent;
   align-items: start;
   position: relative;
+}
+
+.task-item.task-highlight {
+  background: transparent;
+  animation: task-flash 0.6s ease-out;
+}
+
+@keyframes task-flash {
+  0% {
+    background-color: rgba(225, 199, 128, 0.5);
+    box-shadow: 0 0 0 1px rgba(120, 92, 40, 0.25);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
 }
 
 .drop-indicator {

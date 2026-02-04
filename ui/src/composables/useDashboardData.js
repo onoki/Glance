@@ -29,6 +29,7 @@ export const useDashboardData = (options) => {
   const loadHistory = options?.loadHistory;
   const loadMaintenanceStatus = options?.loadMaintenanceStatus;
   const loadWarnings = options?.loadWarnings;
+  const dashboardColumnsRef = options?.dashboardColumnsRef;
 
   const newTasks = ref([]);
   const mainTasks = ref([]);
@@ -42,6 +43,8 @@ export const useDashboardData = (options) => {
   const dirtySnapshots = new Map();
   const recurrenceCache = new Map();
   const scrollTargetId = ref(null);
+  const highlightTaskId = ref(null);
+  const highlightNonce = ref(0);
 
   const mainCategories = computed(() => deriveCategories(mainTasks.value));
 
@@ -158,6 +161,26 @@ export const useDashboardData = (options) => {
     return merged;
   };
 
+  const triggerHighlight = (taskId) => {
+    if (!taskId) {
+      return;
+    }
+    highlightTaskId.value = taskId;
+    highlightNonce.value += 1;
+  };
+
+  const findCategoryIdForTask = (id) => {
+    if (newTasks.value.some((task) => task.id === id)) {
+      return "new";
+    }
+    for (const category of mainCategories.value) {
+      if (category.tasks.some((task) => task.id === id)) {
+        return category.id;
+      }
+    }
+    return null;
+  };
+
   const getStoredTaskById = (id) =>
     newTasks.value.find((task) => task.id === id) || mainTasks.value.find((task) => task.id === id);
 
@@ -176,22 +199,119 @@ export const useDashboardData = (options) => {
       await nextTick();
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const target = scrollTargetId.value;
-      const element = document.querySelector(`[data-task-id="${target}"]`);
+      const targetCategoryId = findCategoryIdForTask(target);
+      const columnSelector = targetCategoryId
+        ? `.dashboard-column[data-category-id="${targetCategoryId}"]`
+        : null;
+      const columnElement = columnSelector ? document.querySelector(columnSelector) : null;
+      const elements = Array.from(document.querySelectorAll(`[data-task-id="${target}"]`));
+      const element = columnElement
+        ? columnElement.querySelector(`[data-task-id="${target}"]`)
+        : elements[0] || null;
       if (element) {
-        element.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        const container = element.closest(".list-card");
-        if (container) {
-          const containerRect = container.getBoundingClientRect();
-          const elementRect = element.getBoundingClientRect();
-          const padding = 12;
-          if (elementRect.bottom > containerRect.bottom - padding) {
-            const delta = elementRect.bottom - containerRect.bottom + padding;
-            container.scrollTo({ top: container.scrollTop + delta, behavior: "smooth" });
-          } else if (elementRect.top < containerRect.top + padding) {
-            const delta = elementRect.top - containerRect.top - padding;
-            container.scrollTo({ top: container.scrollTop + delta, behavior: "smooth" });
+        const padding = 12;
+        const container = columnElement?.querySelector(".list-card") || element.closest(".list-card");
+        const columns = dashboardColumnsRef?.value;
+        const column = element.closest(".dashboard-column");
+        const isScrollable = (node, axis) => {
+          if (!node) {
+            return false;
           }
-        }
+          const style = window.getComputedStyle(node);
+          const overflow = axis === "y" ? style.overflowY : style.overflowX;
+          const isScrollableOverflow = overflow === "auto" || overflow === "scroll" || overflow === "overlay";
+          if (!isScrollableOverflow) {
+            return false;
+          }
+          const size = axis === "y"
+            ? node.scrollHeight - node.clientHeight
+            : node.scrollWidth - node.clientWidth;
+          return size > 1;
+        };
+        const findScrollableAncestor = (node, axis) => {
+          let current = node?.parentElement;
+          while (current && current !== document.body) {
+            if (isScrollable(current, axis)) {
+              return current;
+            }
+            current = current.parentElement;
+          }
+          return null;
+        };
+        const getVerticalContainer = () => {
+          if (container) {
+            const taskList = container.querySelector(".task-list");
+            if (isScrollable(container, "y")) {
+              return container;
+            }
+            if (isScrollable(taskList, "y")) {
+              return taskList;
+            }
+          }
+          return findScrollableAncestor(element, "y") || container;
+        };
+        const getHorizontalContainer = () => {
+          if (isScrollable(columns, "x")) {
+            return columns;
+          }
+          return findScrollableAncestor(element, "x") || columns;
+        };
+        const adjustVertical = (behavior) => {
+          const verticalContainer = getVerticalContainer();
+          if (!verticalContainer) {
+            return;
+          }
+          const containerRect = verticalContainer.getBoundingClientRect();
+          const elementRect = element.getBoundingClientRect();
+          const maxScrollTop = verticalContainer.scrollHeight - verticalContainer.clientHeight;
+          if (maxScrollTop <= 0) {
+            return;
+          }
+          const relativeTop = verticalContainer.scrollTop + (elementRect.top - containerRect.top);
+          const relativeBottom = relativeTop + elementRect.height;
+          let nextTop = null;
+          if (elementRect.top < containerRect.top + padding) {
+            nextTop = Math.max(0, relativeTop - padding);
+          } else if (elementRect.bottom > containerRect.bottom - padding) {
+            nextTop = Math.min(maxScrollTop, relativeBottom - verticalContainer.clientHeight + padding);
+          }
+          if (nextTop !== null && nextTop !== verticalContainer.scrollTop) {
+            verticalContainer.scrollTo({ top: nextTop, behavior });
+          }
+        };
+        const adjustHorizontal = (behavior) => {
+          const horizontalContainer = getHorizontalContainer();
+          if (!horizontalContainer || !column) {
+            return;
+          }
+          const columnsRect = horizontalContainer.getBoundingClientRect();
+          const columnRect = column.getBoundingClientRect();
+          const maxScrollLeft = horizontalContainer.scrollWidth - horizontalContainer.clientWidth;
+          if (maxScrollLeft <= 0) {
+            return;
+          }
+          const relativeLeft = horizontalContainer.scrollLeft + (columnRect.left - columnsRect.left);
+          const relativeRight = relativeLeft + columnRect.width;
+          let nextLeft = null;
+          if (columnRect.left < columnsRect.left + padding) {
+            nextLeft = Math.max(0, relativeLeft - padding);
+          } else if (columnRect.right > columnsRect.right - padding) {
+            nextLeft = Math.min(maxScrollLeft, relativeRight - horizontalContainer.clientWidth + padding);
+          }
+          if (nextLeft !== null && nextLeft !== horizontalContainer.scrollLeft) {
+            horizontalContainer.scrollTo({ left: nextLeft, behavior });
+          }
+        };
+
+        element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+        adjustVertical("smooth");
+        adjustHorizontal("smooth");
+
+        requestAnimationFrame(() => {
+          adjustVertical("auto");
+          adjustHorizontal("auto");
+          triggerHighlight(target);
+        });
       }
       scrollTargetId.value = null;
     }
@@ -1078,6 +1198,8 @@ export const useDashboardData = (options) => {
     expandedNew,
     focusTaskId,
     focusContentTarget,
+    highlightTaskId,
+    highlightNonce,
     mainCategories,
     loadDashboard,
     createTask,

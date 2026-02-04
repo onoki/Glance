@@ -197,14 +197,26 @@ const editorRef = useEditor({
       return true;
     },
     handleKeyDown(view, event) {
-      const editor = editorRef?.value ?? editorRef;
-      if (props.onKeyDown) {
-        const handled = props.onKeyDown(event, editor);
-        if (handled) {
+  const editor = editorRef?.value ?? editorRef;
+  if (props.onKeyDown) {
+    const handled = props.onKeyDown(event, editor);
+    if (handled) {
+      return true;
+    }
+  }
+      if (event.key === "Backspace" && !isTitle.value) {
+        if (mergeParagraphInListItemOnBackspace(editor)) {
+          event.preventDefault();
           return true;
         }
-      }
-      if (event.key === "Backspace" && !isTitle.value) {
+        if (convertParagraphToListItemOnBackspace(editor)) {
+          event.preventDefault();
+          return true;
+        }
+        if (removeEmptyParagraphAtSelection(editor)) {
+          event.preventDefault();
+          return true;
+        }
         if (handleEmptyListItemBackspace(editor) || blockNonEmptyListItemBackspace(editor)) {
           event.preventDefault();
           return true;
@@ -387,6 +399,166 @@ const applyPrefixChangeAt = (editor, insertPos, prefixLength, nextPrefix, select
     const mappedSelection = selection.map(tr.doc, tr.mapping);
     tr.setSelection(mappedSelection);
   }
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const removeEmptyParagraphAtSelection = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  if ($from.parent?.type?.name !== "paragraph") {
+    return false;
+  }
+  if (state.doc.childCount <= 1) {
+    return false;
+  }
+  if ($from.parent.textContent.trim().length > 0) {
+    return false;
+  }
+  let hasInlineNonText = false;
+  $from.parent.descendants((node) => {
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasInlineNonText = true;
+      return false;
+    }
+    return true;
+  });
+  if (hasInlineNonText) {
+    return false;
+  }
+  const from = $from.before($from.depth);
+  const to = $from.after($from.depth);
+  const tr = state.tr.delete(from, to);
+  const resolved = tr.doc.resolve(Math.min(from, tr.doc.content.size));
+  tr.setSelection(TextSelection.near(resolved, -1));
+  view.dispatch(tr);
+  editor.commands.focus();
+  return true;
+};
+
+const mergeParagraphInListItemOnBackspace = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  if ($from.parent?.type?.name !== "paragraph") {
+    return false;
+  }
+  if ($from.parentOffset !== 0) {
+    return false;
+  }
+  const listItemDepth = getListItemDepth(editor);
+  if (!listItemDepth) {
+    return false;
+  }
+  const paragraphIndex = $from.index(listItemDepth);
+  if (paragraphIndex <= 0) {
+    return false;
+  }
+  const joined = editor.commands?.joinBackward?.() ?? false;
+  if (joined) {
+    editor.commands.focus();
+    return true;
+  }
+  return false;
+};
+
+const convertParagraphToListItemOnBackspace = (editor) => {
+  if (!editor) {
+    return false;
+  }
+  const { state, view } = editor;
+  const { selection } = state;
+  if (!selection.empty) {
+    return false;
+  }
+  const { $from } = selection;
+  if ($from.parent?.type?.name !== "paragraph") {
+    return false;
+  }
+  if ($from.parentOffset !== 0) {
+    return false;
+  }
+  if (getListItemDepth(editor)) {
+    return false;
+  }
+  const depth = $from.depth;
+  if (depth < 1) {
+    return false;
+  }
+  const parent = $from.node(depth - 1);
+  const index = $from.index(depth - 1);
+  if (!parent || index <= 0) {
+    return false;
+  }
+  const prev = parent.child(index - 1);
+  if (!prev || (prev.type.name !== "bulletList" && prev.type.name !== "taskList")) {
+    return false;
+  }
+  const paragraph = $from.parent;
+  if (!paragraph) {
+    return false;
+  }
+  const paragraphText = paragraph.textContent?.trim() ?? "";
+  let hasInlineNonText = false;
+  paragraph.descendants((node) => {
+    if (node.isInline && node.type.name !== "text" && node.type.name !== "hardBreak") {
+      hasInlineNonText = true;
+      return false;
+    }
+    return true;
+  });
+  if (!paragraphText && !hasInlineNonText) {
+    return false;
+  }
+  const listTypeName = prev.type.name;
+  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
+  const listItemType = state.schema.nodes[listItemTypeName];
+  if (!listItemType) {
+    return false;
+  }
+  const attrs = listItemTypeName === "taskItem" ? { checked: false } : null;
+  const paragraphCopy = paragraph.copy(paragraph.content);
+  const newItem = listItemType.create(attrs, paragraphCopy);
+  const items = [];
+  for (let i = 0; i < prev.childCount; i += 1) {
+    items.push(prev.child(i));
+  }
+  let targetIndex = items.length;
+  if (items.length > 0 && isListItemEmpty(items[items.length - 1])) {
+    items[items.length - 1] = newItem;
+    targetIndex = items.length - 1;
+  } else {
+    items.push(newItem);
+    targetIndex = items.length - 1;
+  }
+  const newList = prev.type.create(prev.attrs, items);
+  const paragraphPos = $from.before(depth);
+  const prevPos = paragraphPos - prev.nodeSize;
+  const replaceTo = paragraphPos + paragraph.nodeSize;
+  const tr = state.tr.replaceWith(prevPos, replaceTo, newList);
+  const listPos = prevPos + 1;
+  let selectionPos = listPos + 1;
+  let offset = listPos;
+  for (let i = 0; i < targetIndex; i += 1) {
+    offset += newList.child(i).nodeSize;
+  }
+  selectionPos = offset + 2;
+  const bounded = Math.min(selectionPos, tr.doc.content.size);
+  tr.setSelection(TextSelection.create(tr.doc, bounded));
   view.dispatch(tr);
   editor.commands.focus();
   return true;
