@@ -2,6 +2,11 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.StaticFiles;
+using Glance.Server.Integrations.AzureDevOps;
+using Glance.Server.Integrations.Microsoft;
+using Glance.Server.Integrations.Outlook;
+using Glance.Server.StatusUpdates;
+using Glance.Server.Portability;
 
 namespace Glance.Server;
 
@@ -37,6 +42,7 @@ public static class ServerHost
         {
             options.MultipartBodyLengthLimit = 1024L * 1024 * 1024;
         });
+        builder.Services.Configure<StatusIntegrationOptions>(builder.Configuration.GetSection(StatusIntegrationOptions.SectionName));
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.Limits.MaxRequestBodySize = 1024L * 1024 * 1024;
@@ -54,13 +60,28 @@ public static class ServerHost
         builder.Services.AddSingleton(paths);
         builder.Services.AddSingleton<DatabaseInitializer>();
         builder.Services.AddSingleton<TaskRepository>();
+        builder.Services.AddSingleton<PeopleRepository>();
+        builder.Services.AddSingleton<IMicrosoftTokenProvider, MicrosoftTokenProvider>();
+        builder.Services.AddHttpClient<IAzureDevOpsStatusReader, AzureDevOpsStatusReader>(client => client.Timeout = TimeSpan.FromSeconds(60));
+        builder.Services.AddHttpClient<IOutlookStatusReader, OutlookStatusReader>(client => client.Timeout = TimeSpan.FromSeconds(60));
+        builder.Services.AddSingleton<StatusSummaryService>();
+        builder.Services.AddSingleton<StatusOfficeExporter>();
+        builder.Services.AddSingleton<PortableExportService>();
         builder.Services.AddSingleton<ChangeLogRepository>();
         builder.Services.AddSingleton<MaintenanceStateStore>();
         builder.Services.AddSingleton<AttachmentMaintenance>();
+        builder.Services.AddSingleton<DatabaseHealthService>();
+        builder.Services.AddSingleton<DataSafetySettingsStore>();
+        builder.Services.AddSingleton<DataSafetyService>();
+        builder.Services.AddSingleton<RestoreCoordinator>();
+        builder.Services.AddSingleton<DatabaseStartupCoordinator>();
+        var startupState = new DataSafetyStartupState();
+        builder.Services.AddSingleton(startupState);
         builder.Services.AddSingleton<MaintenanceService>();
         builder.Services.AddSingleton<AppMetaRepository>();
         builder.Services.AddSingleton<UpdateService>();
         builder.Services.AddHostedService<StartupReporter>();
+        builder.Services.AddHostedService<BackupSchedulerService>();
 
         var app = builder.Build();
 
@@ -70,16 +91,40 @@ public static class ServerHost
         logger.LogInformation("Starting Glance server at {Url}", $"http://127.0.0.1:{port}");
         logger.LogInformation("Database path: {DatabasePath}", paths.DatabasePath);
 
-        var initializer = app.Services.GetRequiredService<DatabaseInitializer>();
-        initializer.Initialize();
+        var startupCoordinator = app.Services.GetRequiredService<DatabaseStartupCoordinator>();
+        var startupInfo = await startupCoordinator.PrepareAsync(cancellationToken);
+        startupState.Set(startupInfo);
 
         var tasks = app.Services.GetRequiredService<TaskRepository>();
         var maintenance = app.Services.GetRequiredService<MaintenanceService>();
-        await maintenance.RunIntegrityCheckAsync(cancellationToken);
-        await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, cancellationToken);
-        _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(TimeProvider.Now, CancellationToken.None));
+        if (startupInfo.Healthy)
+        {
+            await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, cancellationToken);
+            _ = Task.Run(() => maintenance.RunStartupMaintenanceAsync(TimeProvider.Now, CancellationToken.None));
+        }
+        else
+        {
+            logger.LogError("Glance started in recovery mode: {RecoveryMessage}", startupInfo.Message);
+        }
 
         app.UseCors();
+
+        app.Use(async (context, next) =>
+        {
+            if (startupState.Info.RecoveryMode
+                && context.Request.Path.StartsWithSegments("/api")
+                && !IsRecoveryEndpoint(context.Request.Path))
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "RecoveryMode",
+                    message = startupState.Info.Message ?? "Glance is in recovery mode. Restore a verified backup before editing notes."
+                });
+                return;
+            }
+            await next();
+        });
 
         MapEndpoints(app);
 
@@ -125,6 +170,9 @@ public static class ServerHost
     {
         AttachmentEndpoints.Map(app);
         TaskEndpoints.Map(app);
+        TaskSendEndpoints.Map(app);
+        PeopleEndpoints.Map(app);
+        StatusUpdateEndpoints.Map(app);
         ChangesEndpoints.Map(app);
         SearchEndpoints.Map(app);
         MaintenanceEndpoints.Map(app);
@@ -132,6 +180,19 @@ public static class ServerHost
         HistoryMaintenanceEndpoints.Map(app);
         VersionEndpoints.Map(app);
         UpdateEndpoints.Map(app);
+        DataSafetyEndpoints.Map(app);
+        PortableExportEndpoints.Map(app);
+    }
+
+    private static bool IsRecoveryEndpoint(PathString path)
+    {
+        return path.StartsWithSegments("/api/data-safety")
+            || path.StartsWithSegments("/api/backups")
+            || path.StartsWithSegments("/api/backup")
+            || path.StartsWithSegments("/api/warnings")
+            || path.StartsWithSegments("/api/maintenance/status")
+            || path.StartsWithSegments("/api/version")
+            || path.StartsWithSegments("/api/update");
     }
 
     private static string ResolveAppRoot()

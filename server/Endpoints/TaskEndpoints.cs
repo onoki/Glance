@@ -8,8 +8,9 @@ internal static class TaskEndpoints
     {
         app.MapGet("/api/dashboard", async (TaskRepository tasks, CancellationToken token) =>
         {
-            var newTasks = await tasks.GetTasksByPageAsync(TaskPages.DashboardNew, token);
-            var mainTasks = await tasks.GetDashboardMainTasksAsync(EndpointHelpers.GetStartOfToday(), token);
+            var startOfToday = EndpointHelpers.GetStartOfToday();
+            var newTasks = await tasks.GetTasksByPageAsync(TaskPages.DashboardNew, startOfToday, token);
+            var mainTasks = await tasks.GetDashboardMainTasksAsync(startOfToday, token);
             return Results.Ok(new DashboardResponse(newTasks, mainTasks));
         });
 
@@ -78,7 +79,20 @@ internal static class TaskEndpoints
                 return recurrenceValidation;
             }
 
-            var response = await tasks.UpdateTaskAsync(taskId, request, token);
+            TaskUpdateResponse? response;
+            try
+            {
+                response = await tasks.UpdateTaskAsync(taskId, request, token);
+            }
+            catch (TaskWriteConflictException ex)
+            {
+                return Results.Conflict(new
+                {
+                    error = "Conflict",
+                    message = ex.Message,
+                    currentUpdatedAt = ex.CurrentUpdatedAt
+                });
+            }
             if (response is null)
             {
                 return Results.NotFound(new { error = "NotFound", message = "Task not found" });
@@ -104,6 +118,14 @@ internal static class TaskEndpoints
             return deleted
                 ? Results.Ok(new { ok = true })
                 : Results.NotFound(new { error = "NotFound", message = "Task not found" });
+        });
+
+        app.MapPost("/api/tasks/{taskId}/restore", async (string taskId, TaskRepository tasks, CancellationToken token) =>
+        {
+            var restored = await tasks.RestoreTaskAsync(taskId, token);
+            return restored is null
+                ? Results.NotFound(new { error = "NotFound", message = "Deleted task not found" })
+                : Results.Ok(restored);
         });
 
         app.MapPost("/api/recurrence/run", async (HttpContext context, TaskRepository tasks, CancellationToken token) =>

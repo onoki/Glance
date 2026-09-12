@@ -1,5 +1,5 @@
 <template>
-  <section class="history-view">
+  <section ref="historyRoot" class="history-view">
     <div class="history-toolbar">
       <button class="ghost" @click="onMoveCompletedToHistory">Move completed to history</button>
     </div>
@@ -38,6 +38,8 @@
               :allow-delete="true"
               :focus-title-id="null"
               :focus-content-target="null"
+              :highlight-id="navigationTarget?.taskId || null"
+              :highlight-nonce="navigationTarget?.nonce || 0"
               :on-save="noop"
               :on-complete="onComplete"
               :on-dirty="noop"
@@ -47,6 +49,11 @@
               :on-focus-prev-task-from-title="noop"
               :on-focus-next-task-from-content="noop"
               :on-delete="onDelete"
+              :allow-status-markers="true"
+              :show-status-marker-button="true"
+              :on-status-markers="onStatusMarkers"
+              :on-load-send-events="onLoadSendEvents"
+              :on-dismiss-send-marker="onDismissSendMarker"
             />
           </div>
         </section>
@@ -56,9 +63,10 @@
 </template>
 
 <script setup>
+import { nextTick, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
 
-defineProps({
+const props = defineProps({
   historyBars: {
     type: Array,
     required: true
@@ -94,6 +102,24 @@ defineProps({
   noopAsync: {
     type: Function,
     required: true
-  }
+  },
+  onStatusMarkers: { type: Function, required: true },
+  onLoadSendEvents: { type: Function, required: true },
+  onDismissSendMarker: { type: Function, required: true },
+  navigationTarget: { type: Object, default: null }
 });
+
+const historyRoot = ref(null);
+
+const scrollToNavigationTarget = async (target) => {
+  if (!target?.taskId) return;
+  await nextTick();
+  requestAnimationFrame(() => {
+    const element = Array.from(historyRoot.value?.querySelectorAll?.("[data-task-id]") || [])
+      .find((candidate) => candidate.dataset.taskId === target.taskId);
+    element?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+  });
+};
+
+watch(() => props.navigationTarget, scrollToNavigationTarget, { immediate: true });
 </script>

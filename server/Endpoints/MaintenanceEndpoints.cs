@@ -46,15 +46,24 @@ internal static class MaintenanceEndpoints
             return Results.Ok(new WarningsResponse(warnings));
         });
 
-        app.MapGet("/api/maintenance/status", async (MaintenanceService maintenance, AppMetaRepository appMeta, CancellationToken token) =>
+        app.MapGet("/api/maintenance/status", async (
+            MaintenanceService maintenance,
+            AppMetaRepository appMeta,
+            DataSafetyStartupState startupState,
+            CancellationToken token) =>
         {
             var status = await maintenance.GetStatusAsync();
-            var recurrenceGeneratedUntil = await appMeta.GetValueAsync("recurrence_generated_until", token);
+            var recurrenceGeneratedUntil = startupState.Info.Healthy
+                ? await appMeta.GetValueAsync("recurrence_generated_until", token)
+                : null;
             return Results.Ok(new
             {
                 status.LastBackupAt,
                 status.LastBackupError,
                 status.LastReindexAt,
+                status.MirrorBackupError,
+                status.BackupVerificationError,
+                status.RecoveryMode,
                 RecurrenceGeneratedUntil = recurrenceGeneratedUntil
             });
         });

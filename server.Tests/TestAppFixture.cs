@@ -11,6 +11,7 @@ internal sealed class TestAppFixture : IAsyncDisposable
     public TaskRepository Tasks { get; }
     public ChangeLogRepository Changes { get; }
     public AppMetaRepository Meta { get; }
+    public PeopleRepository People { get; }
 
     private TestAppFixture(string root, AppPaths paths)
     {
@@ -19,6 +20,7 @@ internal sealed class TestAppFixture : IAsyncDisposable
         Tasks = new TaskRepository(paths);
         Changes = new ChangeLogRepository(paths);
         Meta = new AppMetaRepository(paths);
+        People = new PeopleRepository(paths);
     }
 
     public static TestAppFixture Create()
@@ -101,6 +103,10 @@ internal sealed class TestAppFixture : IAsyncDisposable
         var schemaTarget = Path.Combine(targetRoot, "schema");
         Directory.CreateDirectory(schemaTarget);
         File.Copy(Path.Combine(schemaSource, "schema.sql"), Path.Combine(schemaTarget, "schema.sql"), true);
+        var statusSchema = Path.Combine(schemaSource, "status-summary.schema.json");
+        if (File.Exists(statusSchema)) File.Copy(statusSchema, Path.Combine(schemaTarget, "status-summary.schema.json"), true);
+        var exportSchema = Path.Combine(schemaSource, "glance-export-v1.schema.json");
+        if (File.Exists(exportSchema)) File.Copy(exportSchema, Path.Combine(schemaTarget, "glance-export-v1.schema.json"), true);
 
         var migrationsSource = Path.Combine(schemaSource, "migrations");
         var migrationsTarget = Path.Combine(schemaTarget, "migrations");

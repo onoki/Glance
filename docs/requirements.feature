@@ -8,6 +8,8 @@ Feature: Main application layout
       | History   |
       | Search    |
       | Settings  |
+      | People |
+      | Status Updates |
     And I see an editable rich text task list for new tasks in the middle
     And next to the title of the new tasks view I see a button to move all new tasks to "Uncategorized"
     And next to the title of the new tasks view I see a button to expand and restore the new tasks view to full screen
@@ -164,20 +166,53 @@ Feature: Search
     And the tasks are shown as read-only
     And the matching text is highlighted in the search results
 
+  Scenario: Opening a search result in its source view
+    Given a search result belongs to Dashboard, People, or History
+    When I choose Open source
+    Then Glance opens the owning view
+    And scrolls to and briefly highlights the matching task
+    And I can return to the same search result with Back to search
 
-Feature: Multi-instance consistency
+  Scenario: Opening a note for an archived person
+    Given an open search result belongs to an archived person
+    When I choose Open source
+    Then Glance opens the separate Archived people view
+    And highlights the person
+    And explains that I must restore the person before opening the note
 
-  Scenario: Reflecting task edits across instances
-    Given the application is open in two instances
+
+Feature: Multiple-window consistency
+
+  Scenario: Opening another notes view
+    Given Glance is running in the desktop app
+    When I choose New window
+    Then another native window opens in the same Glance process
+    And both windows share the same local database
+
+  Scenario: Reflecting task edits across windows
+    Given the application is open in two windows
     And the same task is visible in both instances
     When the task is edited in one instance
     Then the updated content is shown in the other instance
 
-  Scenario: Reflecting task completion across instances
-    Given the application is open in two instances
+  Scenario: Reflecting task completion across windows
+    Given the application is open in two windows
     And a task exists
     When the task is completed in one instance
-    Then the task completion state is updated in the other instance
+    Then the task completion state is updated in the other window
+
+  Scenario: Rejecting a stale simultaneous edit
+    Given the same task is edited in two windows
+    And one window saves first
+    When the other window tries to save its older base version
+    Then the server returns a conflict without overwriting the first save
+    And the second window keeps its local text visible for an explicit decision
+
+  Scenario: Closing immediately after typing
+    Given I have just edited a note
+    When I close its Glance window immediately
+    Then Glance waits for all pending note saves
+    And if a save fails the window remains open with the unsaved text
 
 
 Feature: Subcontent list editing
@@ -451,6 +486,15 @@ Feature: Keyboard shortcuts
     Then the selected text is bolded
     When I press Ctrl+I or Cmd+I
     Then the selected text is italicized
+    When I press Ctrl+K or Cmd+K
+    Then I can create, edit, or remove an http, mail, mapped-drive, UNC, or file hyperlink
+
+  Scenario: Recognizing and opening hyperlinks
+    Given I type or paste a web URL in a rich text editor
+    Then it is stored as a hyperlink automatically
+    And clicking a link in a read-only view opens it with the registered application
+    And Ctrl+clicking a link while editing opens it without preventing normal caret placement
+    And executable, script, shortcut, data, and javascript targets are rejected
 
   Scenario: Highlight shortcuts
     Given a rich text editor has focus
@@ -466,7 +510,7 @@ Feature: Keyboard shortcuts
     Given a rich text editor has focus
     When I press Ctrl+Z or Cmd+Z
     Then the last edit is undone even if it was in another task or subcontent
-    When I press Ctrl+R or Cmd+R
+    When I press Ctrl+R, Ctrl+Y, Cmd+R, or Cmd+Y
     Then the last edit is redone
 
 Feature: Window size
@@ -526,3 +570,110 @@ Feature: Search matching
     Given tasks exist with words in titles or subcontent
     When I search for a partial word
     Then matches include occurrences within the word
+
+
+Feature: Project status updates
+
+  Scenario: Marking status input
+    Given a Dashboard or History task line has focus
+    When I press Ctrl+6 or Cmd+6
+    Then that title or subcontent line shows a durable status input marker
+    And the whole task is included when status input is collected
+
+  Scenario: Recollecting status input on the same day
+    Given a status input package already exists for today
+    When I collect status input again
+    Then the daily package is replaced
+    And its input revision is incremented
+
+  Scenario: Importing completed status output
+    Given I upload a completed StatusSummary.json
+    Then Glance validates its schema, report identity, revision, and unchanged input
+    And Excel is available as one worksheet
+    And PowerPoint is available as one slide
+
+
+Feature: Person-specific notes
+
+  Scenario: Managing people
+    Given I am on the People tab
+    Then I can add, rename, archive, and restore people
+    And I can create and assign user-defined tags
+    And I can drag people tabs to reorder them
+
+  Scenario: Completing a person note
+    Given a note exists in a person's list
+    When I mark the note complete
+    Then it remains struck through and can be unchecked until the next local day
+    And after that it remains available in History
+
+  Scenario: Editing a person note list
+    Given I selected a person with no active notes
+    Then an empty editable note is ready without pressing an add button
+    And Enter, arrow navigation, merging, splitting, and drag ordering match Dashboard task behavior
+
+  Scenario: Copying tasks between Dashboard and People
+    Given a task exists in Dashboard or a person's list
+    When I send it to a person, tag group, or Dashboard
+    Then an independent copy is created
+    And the source remains open with a dismissible sent marker
+
+  Scenario: Completing a person's note
+    Given a note exists in a person's list
+    When I complete it
+    Then it appears in History with the person's name
+    And it counts in History activity
+
+
+Feature: Data portability
+
+  Scenario: Exporting all durable notes
+    Given Glance contains Dashboard, People, History, and status-update data
+    When I export all notes from Settings
+    Then I receive a versioned ZIP with lossless JSON and readable offline HTML
+    And note images and status JSON are included
+    And a manifest provides a SHA-256 hash and byte length for every payload file
+    And generated Excel and PowerPoint status files are not included
+
+  Scenario: Preventing incomplete future exports
+    Given a durable database table or column is added
+    And it has not been classified in the portable export contract
+    When an export is requested
+    Then Glance refuses the export with an actionable error
+
+
+Feature: Verified backup and recovery
+
+  Scenario: Creating an automatic restore point
+    Given notes changed since the last verified backup
+    And at least one hour has elapsed
+    When scheduled maintenance runs
+    Then Glance creates and verifies a compressed local snapshot
+    And does not create another snapshot for an unchanged hour
+
+  Scenario: Suggesting restore alternatives
+    Given verified snapshots exist at several actual times
+    When I open Data safety settings
+    Then those snapshots are offered with time, counts, reason, and verification state
+    And I do not need to guess a timestamp
+
+  Scenario: Restoring a selected snapshot
+    Given I choose an available verified snapshot
+    When I confirm the whole-state restore
+    Then every open window flushes its pending note saves
+    And Glance makes an emergency verified backup
+    And restarts before replacing the database, attachments, and status JSON
+    And the pre-restore state remains in a rescue folder
+
+  Scenario: Startup verification fails
+    Given the existing SQLite database fails structural or foreign-key verification
+    When Glance starts
+    Then migrations do not run
+    And the live database is not vacuumed, rebuilt, moved, or replaced
+    And Glance enters recovery mode so I can select a verified restore point
+
+  Scenario: A second backup location is unavailable
+    Given a second backup location is configured but offline
+    When a backup is due
+    Then the verified local backup still succeeds
+    And Glance shows a warning that the second copy failed

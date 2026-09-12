@@ -1,0 +1,606 @@
+<template>
+  <section ref="peopleRoot" class="people-view dashboard">
+    <header class="people-navigation">
+      <button type="button" class="add-task" @click="addPerson">+ Person</button>
+      <div class="people-tabs" role="tablist" aria-label="People">
+        <div
+          v-for="person in activePeople"
+          :key="person.id"
+          class="person-tab-shell"
+          :class="{
+            dragging: personDragId === person.id,
+            'drop-target': personDropId === person.id,
+            'drop-after': personDropId === person.id && personDropPosition === 'after'
+          }"
+          :draggable="true"
+          title="Drag to reorder"
+          @dragstart="startPersonDrag(person, $event)"
+          @dragover.prevent="setPersonDrop(person, $event)"
+          @drop.prevent="dropPerson(person)"
+          @dragend="endPersonDrag"
+        >
+          <button
+            type="button"
+            class="tab person-tab"
+            :class="{ active: viewMode === 'person' && selectedId === person.id }"
+            role="tab"
+            :aria-selected="viewMode === 'person' && selectedId === person.id"
+            @click="selectPerson(person.id)"
+          >
+            {{ person.displayName }}
+          </button>
+          <span class="person-tab-grip" aria-hidden="true">::</span>
+        </div>
+        <button
+          type="button"
+          class="tab archived-tab"
+          :class="{ active: viewMode === 'archived' }"
+          role="tab"
+          :aria-selected="viewMode === 'archived'"
+          @click="showArchive"
+        >
+          Archived ({{ archivedPeople.length }})
+        </button>
+      </div>
+    </header>
+
+    <section v-if="viewMode === 'archived'" class="archive-panel" aria-label="Archived people">
+      <header class="archive-header">
+        <h2>Archived people</h2>
+        <p>These people are separate from completed notes in History.</p>
+        <p v-if="archiveNavigationNotice" class="archive-navigation-notice">{{ archiveNavigationNotice }}</p>
+      </header>
+      <div v-if="archivedPeople.length" class="archive-list">
+        <article
+          v-for="person in archivedPeople"
+          :key="person.id"
+          class="archived-person-card"
+          :class="{ 'navigation-highlight': archivedNavigationPersonId === person.id }"
+          :data-person-id="person.id"
+        >
+          <div>
+            <strong>{{ person.displayName }}</strong>
+            <span v-if="tagNamesFor(person).length" class="archived-tags">{{ tagNamesFor(person).join(", ") }}</span>
+          </div>
+          <button type="button" class="ghost" @click="restorePerson(person)">Restore</button>
+        </article>
+      </div>
+      <p v-else class="empty-message">No archived people.</p>
+    </section>
+
+    <div v-else-if="selectedPerson" class="person-panel">
+      <header class="person-controls">
+        <details class="person-tags-menu">
+          <summary class="ghost tag-summary">
+            Tags<span v-if="selectedTagNames.length">: {{ selectedTagNames.join(", ") }}</span>
+          </summary>
+          <div class="tag-menu-panel">
+            <strong>Person tags</strong>
+            <div v-for="tag in directory.tags" :key="tag.id" class="tag-menu-row">
+              <label>
+                <input
+                  type="checkbox"
+                  :checked="selectedPerson.tagIds.includes(tag.id)"
+                  @change="togglePersonTag(tag.id, $event.target.checked)"
+                />
+                <span>{{ tag.name }}</span>
+              </label>
+              <button type="button" class="tiny-action" title="Rename tag" @click="renameTag(tag)">Rename</button>
+              <button type="button" class="tiny-action" title="Delete tag" @click="removeTag(tag)">Delete</button>
+            </div>
+            <p v-if="!directory.tags.length" class="empty-message">No tags yet.</p>
+            <button type="button" class="ghost tag-add" @click="addTag">+ New tag</button>
+          </div>
+        </details>
+        <button type="button" class="ghost" @click="renamePerson">Rename</button>
+        <button type="button" class="ghost" @click="archivePerson">Archive</button>
+      </header>
+
+      <div class="person-task-list task-list">
+        <TransitionGroup name="task-move" tag="div" class="task-list-group">
+          <TaskItem
+            v-for="(task, index) in tasks"
+            :key="task.id"
+            :task="task"
+            :show-owner-person="false"
+            :draggable="true"
+            :is-last-in-category="index === tasks.length - 1"
+            :is-drop-target="dragOver.id === task.id"
+            :drop-position="dragOver.position"
+            drag-category-id="people"
+            :focus-title-id="focusTaskId"
+            :focus-content-target="focusContentTarget"
+            :highlight-id="navigationHighlightId"
+            :highlight-nonce="navigationHighlightNonce"
+            :on-save="saveTask"
+            :on-complete="toggleComplete"
+            :on-dirty="handleDirtyChange"
+            :on-create-below="createTaskBelow"
+            :on-split-title-to-new-task="splitTitleToNewTask"
+            :on-tab-to-previous="moveTaskToPrevious"
+            :on-merge-to-previous="mergeTaskToPrevious"
+            :on-split-to-new-task="splitSubcontentToNewTask"
+            :on-focus-prev-task-from-title="focusPreviousTask"
+            :on-focus-next-task-from-content="focusNextTask"
+            :on-delete="removeTask"
+            :on-drag-start="startDrag"
+            :on-drag-end="endDrag"
+            :on-drop="dropOnTask"
+            :on-drag-over="setDragOver"
+            :on-drag-leave="clearDragOver"
+            :on-send-to-dashboard="sendDashboard"
+            :on-load-send-events="loadSendEvents"
+            :on-dismiss-send-marker="dismissSend"
+          />
+        </TransitionGroup>
+        <p v-if="!tasks.length" class="empty-message">Preparing an empty note…</p>
+      </div>
+    </div>
+
+    <section v-else class="people-empty">
+      <p>Add a person to start a private list of notes and questions.</p>
+    </section>
+  </section>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import TaskItem from "../TaskItem.vue";
+import {
+  createPerson,
+  createPersonTag,
+  deletePersonTag,
+  fetchPeople,
+  setPersonTags,
+  updatePerson,
+  updatePersonTag
+} from "../../api/people.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToDashboard } from "../../api/taskSend.js";
+import { usePeopleTasks } from "../../composables/usePeopleTasks.js";
+
+const props = defineProps({
+  navigationTarget: { type: Object, default: null }
+});
+
+const emit = defineEmits(["directory-change", "history-change"]);
+const directory = ref({ people: [], tags: [] });
+const peopleRoot = ref(null);
+const selectedId = ref(null);
+const viewMode = ref("person");
+const archiveNavigationNotice = ref("");
+const archivedNavigationPersonId = ref(null);
+const navigationHighlightId = ref(null);
+const navigationHighlightNonce = ref(0);
+const personDragId = ref(null);
+const personDropId = ref(null);
+const personDropPosition = ref("before");
+let pollTimer = null;
+let polling = false;
+let viewReady = false;
+let pendingNavigationTarget = null;
+let navigationSequence = 0;
+
+const activePeople = computed(() => directory.value.people
+  .filter((person) => !person.archivedAt)
+  .sort((left, right) => left.position - right.position));
+const archivedPeople = computed(() => directory.value.people
+  .filter((person) => !!person.archivedAt)
+  .sort((left, right) => left.displayName.localeCompare(right.displayName)));
+const selectedPerson = computed(() => activePeople.value.find((person) => person.id === selectedId.value) || null);
+const selectedTagNames = computed(() => {
+  const selected = new Set(selectedPerson.value?.tagIds || []);
+  return directory.value.tags.filter((tag) => selected.has(tag.id)).map((tag) => tag.name);
+});
+
+const {
+  tasks,
+  focusTaskId,
+  focusContentTarget,
+  dragOver,
+  loadTasks,
+  undo,
+  redo,
+  saveTask,
+  removeTask,
+  toggleComplete,
+  createTaskBelow,
+  moveTaskToPrevious,
+  mergeTaskToPrevious,
+  focusPreviousTask,
+  focusNextTask,
+  splitSubcontentToNewTask,
+  splitTitleToNewTask,
+  handleDirtyChange,
+  startDrag,
+  endDrag,
+  setDragOver,
+  clearDragOver,
+  dropOnTask
+} = usePeopleTasks({
+  selectedPersonId: selectedId,
+  onHistoryChange: () => emit("history-change")
+});
+
+watch(focusTaskId, (id) => {
+  if (!id) return;
+  setTimeout(() => {
+    if (focusTaskId.value === id) focusTaskId.value = null;
+  }, 0);
+});
+
+watch(focusContentTarget, (target) => {
+  if (!target) return;
+  setTimeout(() => {
+    if (focusContentTarget.value === target) focusContentTarget.value = null;
+  }, 0);
+});
+
+const loadDirectory = async () => {
+  directory.value = await fetchPeople(true);
+  if (!activePeople.value.some((person) => person.id === selectedId.value)) {
+    selectedId.value = activePeople.value[0]?.id || null;
+  }
+  emit("directory-change", directory.value);
+};
+
+const selectPerson = async (id) => {
+  archiveNavigationNotice.value = "";
+  archivedNavigationPersonId.value = null;
+  viewMode.value = "person";
+  if (selectedId.value === id) return;
+  selectedId.value = id;
+  await loadTasks();
+};
+
+const showArchive = () => {
+  archiveNavigationNotice.value = "";
+  archivedNavigationPersonId.value = null;
+  viewMode.value = "archived";
+};
+
+const scrollToElement = (selector, id) => {
+  requestAnimationFrame(() => {
+    const element = Array.from(peopleRoot.value?.querySelectorAll?.(selector) || [])
+      .find((candidate) => candidate.dataset.taskId === id || candidate.dataset.personId === id);
+    element?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+  });
+};
+
+const applyNavigationTarget = async (target) => {
+  if (!target?.taskId || !target?.personId) return;
+  const sequence = ++navigationSequence;
+  await loadDirectory();
+  if (sequence !== navigationSequence) return;
+  const person = directory.value.people.find((candidate) => candidate.id === target.personId);
+  if (!person) {
+    window.alert("The person for this search result no longer exists.");
+    return;
+  }
+
+  if (person.archivedAt) {
+    viewMode.value = "archived";
+    archivedNavigationPersonId.value = person.id;
+    navigationHighlightId.value = null;
+    archiveNavigationNotice.value = `The matching note belongs to archived person ${person.displayName}. Restore the person to open the note.`;
+    await nextTick();
+    scrollToElement("[data-person-id]", person.id);
+    return;
+  }
+
+  archiveNavigationNotice.value = "";
+  archivedNavigationPersonId.value = null;
+  viewMode.value = "person";
+  selectedId.value = person.id;
+  await loadTasks();
+  if (sequence !== navigationSequence) return;
+  navigationHighlightId.value = target.taskId;
+  navigationHighlightNonce.value += 1;
+  await nextTick();
+  scrollToElement("[data-task-id]", target.taskId);
+};
+
+const addPerson = async () => {
+  const name = window.prompt("Person name");
+  if (!name?.trim()) return;
+  const person = await createPerson(name.trim());
+  await loadDirectory();
+  selectedId.value = person.id;
+  viewMode.value = "person";
+  await loadTasks();
+};
+
+const renamePerson = async () => {
+  const name = window.prompt("New name", selectedPerson.value.displayName);
+  if (!name?.trim()) return;
+  await updatePerson(selectedPerson.value.id, { displayName: name.trim() });
+  await loadDirectory();
+};
+
+const archivePerson = async () => {
+  const person = selectedPerson.value;
+  if (!person || !window.confirm(`Archive ${person.displayName}? Notes and history will be preserved.`)) return;
+  await updatePerson(person.id, { archived: true });
+  await loadDirectory();
+  await loadTasks();
+};
+
+const restorePerson = async (person) => {
+  await updatePerson(person.id, { archived: false });
+  await loadDirectory();
+  if (props.navigationTarget?.personId === person.id) {
+    await applyNavigationTarget(props.navigationTarget);
+  }
+};
+
+const addTag = async () => {
+  const name = window.prompt("Tag name (for example, Team members)");
+  if (!name?.trim()) return;
+  await createPersonTag(name.trim());
+  await loadDirectory();
+};
+
+const renameTag = async (tag) => {
+  const name = window.prompt("New tag name", tag.name);
+  if (!name?.trim()) return;
+  await updatePersonTag(tag.id, { name: name.trim() });
+  await loadDirectory();
+};
+
+const removeTag = async (tag) => {
+  if (!window.confirm(`Delete tag “${tag.name}”? People and notes will remain.`)) return;
+  await deletePersonTag(tag.id);
+  await loadDirectory();
+};
+
+const togglePersonTag = async (tagId, checked) => {
+  const ids = new Set(selectedPerson.value.tagIds);
+  if (checked) ids.add(tagId);
+  else ids.delete(tagId);
+  await setPersonTags(selectedPerson.value.id, [...ids]);
+  await loadDirectory();
+};
+
+const startPersonDrag = (person, event) => {
+  personDragId.value = person.id;
+  personDropId.value = person.id;
+  personDropPosition.value = "before";
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", person.id);
+};
+
+const endPersonDrag = () => {
+  personDragId.value = null;
+  personDropId.value = null;
+  personDropPosition.value = "before";
+};
+
+const setPersonDrop = (person, event) => {
+  const rect = event.currentTarget?.getBoundingClientRect();
+  personDropId.value = person.id;
+  personDropPosition.value = rect && event.clientX >= rect.left + rect.width / 2 ? "after" : "before";
+};
+
+const dropPerson = async (target) => {
+  const draggedId = personDragId.value;
+  if (!draggedId || draggedId === target.id) {
+    endPersonDrag();
+    return;
+  }
+  const reordered = activePeople.value.filter((person) => person.id !== draggedId);
+  const targetIndex = reordered.findIndex((person) => person.id === target.id);
+  const dragged = activePeople.value.find((person) => person.id === draggedId);
+  const insertAt = targetIndex + (personDropPosition.value === "after" ? 1 : 0);
+  reordered.splice(insertAt, 0, dragged);
+  const positioned = reordered.map((person, index) => ({ ...person, position: (index + 1) * 1000 }));
+  const archived = directory.value.people.filter((person) => !!person.archivedAt);
+  directory.value = { ...directory.value, people: [...positioned, ...archived] };
+  endPersonDrag();
+  await Promise.all(positioned.map((person) => updatePerson(person.id, { position: person.position })));
+  await loadDirectory();
+};
+
+const tagNamesFor = (person) => {
+  const ids = new Set(person.tagIds || []);
+  return directory.value.tags.filter((tag) => ids.has(tag.id)).map((tag) => tag.name);
+};
+
+const sendDashboard = async (task) => {
+  await sendTaskToDashboard(task.id);
+  task.sendMarkerVisible = true;
+};
+const loadSendEvents = (task) => fetchTaskSendEvents(task.id);
+const dismissSend = async (task) => {
+  await dismissTaskSendMarker(task.id);
+  task.sendMarkerVisible = false;
+};
+
+const poll = async () => {
+  if (polling || document.visibilityState === "hidden") return;
+  polling = true;
+  try {
+    await loadDirectory();
+    if (viewMode.value === "person") await loadTasks();
+  } catch {
+    // A later poll or a local action will retry.
+  } finally {
+    polling = false;
+  }
+};
+
+onMounted(async () => {
+  await loadDirectory();
+  await loadTasks();
+  viewReady = true;
+  if (pendingNavigationTarget) {
+    const target = pendingNavigationTarget;
+    pendingNavigationTarget = null;
+    await applyNavigationTarget(target);
+  }
+  pollTimer = window.setInterval(poll, 3000);
+});
+
+watch(
+  () => props.navigationTarget,
+  (target) => {
+    if (!target?.taskId) return;
+    if (!viewReady) {
+      pendingNavigationTarget = target;
+      return;
+    }
+    void applyNavigationTarget(target);
+  },
+  { immediate: true }
+);
+
+onBeforeUnmount(() => {
+  if (pollTimer) window.clearInterval(pollTimer);
+});
+
+const undoFromShortcut = async () => {
+  try { return await undo(); }
+  catch (error) {
+    window.alert(error instanceof Error ? error.message : "Could not undo the People note deletion.");
+    return false;
+  }
+};
+
+const redoFromShortcut = async () => {
+  try { return await redo(); }
+  catch (error) {
+    window.alert(error instanceof Error ? error.message : "Could not redo the People note deletion.");
+    return false;
+  }
+};
+
+defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
+</script>
+
+<style scoped>
+.people-view {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.archive-navigation-notice {
+  color: var(--text-main);
+  margin: 2px 0 0;
+}
+
+.archived-person-card.navigation-highlight {
+  animation: archived-person-flash 0.8s ease-out;
+  outline: 1px solid rgba(120, 92, 40, 0.35);
+}
+
+@keyframes archived-person-flash {
+  from { background: rgba(225, 199, 128, 0.55); }
+  to { background: transparent; }
+}
+
+.people-navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--border-panel);
+  background: var(--bg-header);
+}
+
+.people-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.person-tab-shell {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  cursor: grab;
+}
+
+.person-tab-shell.dragging { opacity: 0.45; }
+.person-tab-shell.drop-target { border-left-color: var(--focus-outline); }
+.person-tab-shell.drop-target.drop-after { border-left-color: transparent; border-right-color: var(--focus-outline); }
+.person-tab-grip { color: var(--text-muted); font-size: var(--font-size-meta); padding-right: 3px; user-select: none; }
+.archived-tab { margin-left: auto; flex: 0 0 auto; }
+
+.person-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding: 2px 4px 0;
+}
+
+.person-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 3px;
+  min-height: 23px;
+  position: relative;
+  z-index: 3;
+}
+
+.person-tags-menu { position: relative; }
+.person-tags-menu > summary { list-style: none; }
+.person-tags-menu > summary::-webkit-details-marker { display: none; }
+.tag-summary { max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--font-size-meta); padding: 1px 4px; }
+
+.tag-menu-panel {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 1px);
+  right: 0;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-panel);
+  background: var(--bg-panel);
+  color: var(--text-main);
+}
+
+.tag-menu-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto;
+  gap: 4px;
+  align-items: center;
+  font-size: var(--font-size-meta);
+}
+
+.tag-menu-row label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tiny-action { border: 0; background: transparent; color: var(--text-muted); padding: 1px 2px; font-size: var(--font-size-meta); cursor: pointer; }
+.tag-add { align-self: flex-start; }
+
+.person-task-list {
+  flex: 1;
+  min-height: 0;
+  width: min(900px, 100%);
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.archive-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.archive-header h2 { margin: 0 0 3px; font-size: 0.95rem; font-weight: 400; }
+.archive-header p { margin: 0 0 8px; color: var(--text-muted); }
+.archive-list { display: flex; flex-direction: column; gap: 3px; max-width: 640px; }
+.archived-person-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px; border: 1px solid var(--border-panel); background: var(--bg-panel); }
+.archived-tags { display: block; color: var(--text-muted); font-size: var(--font-size-meta); margin-top: 2px; }
+.empty-message, .people-empty { color: var(--text-muted); font-size: var(--font-size-meta); }
+.people-empty { padding: 8px; }
+</style>

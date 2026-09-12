@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glance.local/schema/glance-export-v1.schema.json",
+  "title": "Glance portable export data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "formatVersion", "generatedAtUtc", "appVersion", "schemaVersion", "tables", "excludedDerivedData"],
+  "properties": {
+    "format": { "const": "GlanceExport" },
+    "formatVersion": { "const": 1 },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "appVersion": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "tables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_migrations", "tasks", "people", "person_tags", "person_tag_members", "task_send_events", "status_update_runs", "app_meta"],
+      "properties": {
+        "schema_migrations": { "type": "array", "items": { "$ref": "#/$defs/schemaMigration" } },
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+        "people": { "type": "array", "items": { "$ref": "#/$defs/person" } },
+        "person_tags": { "type": "array", "items": { "$ref": "#/$defs/personTag" } },
+        "person_tag_members": { "type": "array", "items": { "$ref": "#/$defs/personTagMember" } },
+        "task_send_events": { "type": "array", "items": { "$ref": "#/$defs/taskSendEvent" } },
+        "status_update_runs": { "type": "array", "items": { "$ref": "#/$defs/statusRun" } },
+        "app_meta": { "type": "array", "items": { "$ref": "#/$defs/appMeta" } }
+      }
+    },
+    "excludedDerivedData": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "nullableString": { "type": ["string", "null"] },
+    "nullableInteger": { "type": ["integer", "null"] },
+    "schemaMigration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "applied_at"],
+      "properties": { "version": { "type": "integer" }, "applied_at": { "type": "integer" } }
+    },
+    "task": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "page", "title", "title_json", "content_json", "position", "created_at", "updated_at", "completed_at", "scheduled_date", "recurrence_json", "owner_person_id", "status_input_at", "origin_label", "send_marker_dismissed_at"],
+      "properties": {
+        "id": { "type": "string" }, "page": { "type": "string" }, "title": { "type": "string" },
+        "title_json": { "type": "string" }, "content_json": { "type": "string" }, "position": { "type": "number" },
+        "created_at": { "type": "integer" }, "updated_at": { "type": "integer" },
+        "completed_at": { "$ref": "#/$defs/nullableInteger" }, "scheduled_date": { "$ref": "#/$defs/nullableString" },
+        "recurrence_json": { "$ref": "#/$defs/nullableString" }, "owner_person_id": { "$ref": "#/$defs/nullableString" },
+        "status_input_at": { "$ref": "#/$defs/nullableInteger" }, "origin_label": { "$ref": "#/$defs/nullableString" },
+        "send_marker_dismissed_at": { "$ref": "#/$defs/nullableInteger" }, "deleted_at": { "$ref": "#/$defs/nullableInteger" }
+      }
+    },
+    "person": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "display_name", "position", "created_at", "updated_at", "archived_at"],
+      "properties": {
+        "id": { "type": "string" }, "display_name": { "type": "string" }, "position": { "type": "number" },
+        "created_at": { "type": "integer" }, "updated_at": { "type": "integer" }, "archived_at": { "$ref": "#/$defs/nullableInteger" }
+      }
+    },
+    "personTag": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "position", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "position": { "type": "number" },
+        "created_at": { "type": "integer" }, "updated_at": { "type": "integer" }
+      }
+    },
+    "personTagMember": {
+      "type": "object", "additionalProperties": false,
+      "required": ["person_id", "tag_id"],
+      "properties": { "person_id": { "type": "string" }, "tag_id": { "type": "string" } }
+    },
+    "taskSendEvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "source_task_id", "destination_kind", "destination_id", "destination_label", "direction", "sent_at"],
+      "properties": {
+        "id": { "type": "string" }, "source_task_id": { "type": "string" }, "destination_kind": { "type": "string" },
+        "destination_id": { "$ref": "#/$defs/nullableString" }, "destination_label": { "type": "string" },
+        "direction": { "type": "string" }, "sent_at": { "type": "integer" }
+      }
+    },
+    "statusRun": {
+      "type": "object", "additionalProperties": false,
+      "required": ["report_date", "report_id", "input_revision", "document_status", "created_at", "updated_at", "completed_at", "input_sha256", "relative_json_path"],
+      "properties": {
+        "report_date": { "type": "string" }, "report_id": { "type": "string" }, "input_revision": { "type": "integer" },
+        "document_status": { "type": "string" }, "created_at": { "type": "integer" }, "updated_at": { "type": "integer" },
+        "completed_at": { "$ref": "#/$defs/nullableInteger" }, "input_sha256": { "type": "string" }, "relative_json_path": { "type": "string" }
+      }
+    },
+    "appMeta": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": { "key": { "type": "string" }, "value": { "type": "string" } }
+    }
+  }
+}

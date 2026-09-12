@@ -2,21 +2,32 @@ using Microsoft.Extensions.Hosting;
 
 namespace Glance.Server;
 
-public sealed class StartupReporter : IHostedService
+internal sealed class StartupReporter : IHostedService
 {
     private readonly ILogger<StartupReporter> _logger;
     private readonly AppMetaRepository _meta;
     private readonly IHostApplicationLifetime _lifetime;
+    private readonly DataSafetyStartupState _startupState;
 
-    public StartupReporter(ILogger<StartupReporter> logger, AppMetaRepository meta, IHostApplicationLifetime lifetime)
+    public StartupReporter(
+        ILogger<StartupReporter> logger,
+        AppMetaRepository meta,
+        IHostApplicationLifetime lifetime,
+        DataSafetyStartupState startupState)
     {
         _logger = logger;
         _meta = meta;
         _lifetime = lifetime;
+        _startupState = startupState;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_startupState.Info.Healthy)
+        {
+            _logger.LogWarning("Startup metadata writes are disabled while Glance is in recovery mode.");
+            return Task.CompletedTask;
+        }
         _ = Task.Run(async () =>
         {
             try

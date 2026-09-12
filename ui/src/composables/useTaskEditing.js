@@ -73,6 +73,12 @@ export const useTaskEditing = (options) => {
     return selection.$from.pos === selection.$from.start();
   };
 
+  const currentTaskSnapshot = () => ({
+    ...props.task,
+    title: titleRef.value,
+    content: contentRef.value
+  });
+
   const getListContext = (editor) => {
     if (!editor) {
       return null;
@@ -181,7 +187,9 @@ export const useTaskEditing = (options) => {
       if (!props.allowToggle) {
         return true;
       }
-      props.onComplete(props.task);
+      void saveNow().then((saved) => {
+        if (saved !== false) props.onComplete(currentTaskSnapshot());
+      });
       return true;
     }
     if (event.key === "Backspace") {
@@ -196,7 +204,9 @@ export const useTaskEditing = (options) => {
           clearTimeout(pendingCreateTimer);
           pendingCreateTimer = null;
         }
-        props.onMergeToPrevious(props.task);
+        void saveNow().then((saved) => {
+          if (saved !== false) props.onMergeToPrevious(currentTaskSnapshot());
+        });
         return true;
       }
     }
@@ -205,11 +215,13 @@ export const useTaskEditing = (options) => {
         clearTimeout(pendingCreateTimer);
         pendingCreateTimer = null;
       }
-      saveNow();
-      props.onTabToPrevious(props.task).then((moved) => {
-        if (!moved) {
-          contentEditorRef.value?.insertParagraphIfEmpty();
-        }
+      void saveNow().then((saved) => {
+        if (saved === false) return;
+        props.onTabToPrevious(currentTaskSnapshot()).then((moved) => {
+          if (!moved) {
+            contentEditorRef.value?.insertParagraphIfEmpty();
+          }
+        });
       });
       return true;
     }

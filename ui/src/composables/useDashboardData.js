@@ -5,10 +5,10 @@ import {
   deleteTask as deleteTaskApi,
   fetchChanges,
   fetchDashboard,
+  restoreTask as restoreTaskApi,
   runRecurrence,
   updateTask as updateTaskApi
 } from "../api/tasks.js";
-import { runDailyMaintenance } from "../api/maintenance.js";
 import { deriveCategories } from "../utils/categoryUtils.js";
 import { formatDateKey, getDayKey, getWeekStart } from "../utils/dateUtils.js";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
@@ -23,6 +23,7 @@ import {
 } from "../utils/taskUtils.js";
 import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
 import { isDocEmptyJson } from "../utils/taskDocUtils.js";
+import { runDailyMaintenance as runDailyMaintenanceApi } from "../api/maintenance.js";
 
 export const useDashboardData = (options) => {
   const activeTab = options?.activeTab;
@@ -84,9 +85,9 @@ export const useDashboardData = (options) => {
   };
 
   const markLogicalDeleted = (logicalId, actualId) => {
-    logicalToActual.set(logicalId, null);
     if (actualId) {
-      actualToLogical.delete(actualId);
+      logicalToActual.set(logicalId, actualId);
+      actualToLogical.set(actualId, logicalId);
     }
   };
 
@@ -317,6 +318,15 @@ export const useDashboardData = (options) => {
     }
   };
 
+  const navigateToTask = async (taskId) => {
+    if (!taskId) {
+      return false;
+    }
+    scrollTargetId.value = taskId;
+    await loadDashboard();
+    return !!getStoredTaskById(taskId);
+  };
+
   const insertTaskLocal = (task) => {
     const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
     const next = [...list, task].sort((a, b) => a.position - b.position);
@@ -484,6 +494,7 @@ export const useDashboardData = (options) => {
     });
     updateTaskLocal(id, { title: normalizedTitle, content: normalizedContent, updatedAt: response.updatedAt });
     await loadDashboard();
+    return response;
   };
 
   const deleteTask = async (task, options = {}) => {
@@ -910,19 +921,38 @@ export const useDashboardData = (options) => {
           if (exists) {
             continue;
           }
-          const payload = {
-            page: target.page,
-            title: normalizeTitle(target.title),
-            content: normalizeContent(target.content),
-            position: target.position ?? Date.now(),
-            scheduledDate: target.scheduledDate ?? null,
-            recurrence: target.recurrence ?? null
-          };
+          let restored = null;
           try {
-            const response = await createTaskApi(payload);
-            updateMappingForCreate(diff.logicalId, response.taskId);
+            if (actualId) {
+              restored = await restoreTaskApi(actualId);
+              await updateTaskApi(actualId, {
+                baseUpdatedAt: restored.updatedAt,
+                title: normalizeTitle(target.title),
+                content: normalizeContent(target.content),
+                page: target.page,
+                position: target.position,
+                scheduledDate: target.scheduledDate ?? null,
+                recurrence: target.recurrence ?? null
+              });
+            }
           } catch {
-            // ignore create failures during undo
+            // The row may have passed the purge window. Recreate only as a last-resort recovery path.
+          }
+          if (!restored) {
+            const payload = {
+              page: target.page,
+              title: normalizeTitle(target.title),
+              content: normalizeContent(target.content),
+              position: target.position ?? Date.now(),
+              scheduledDate: target.scheduledDate ?? null,
+              recurrence: target.recurrence ?? null
+            };
+            try {
+              const response = await createTaskApi(payload);
+              updateMappingForCreate(diff.logicalId, response.taskId);
+            } catch {
+              // ignore create failures during undo
+            }
           }
         }
 
@@ -996,7 +1026,7 @@ export const useDashboardData = (options) => {
 
   const runDailyMaintenance = async () => {
     try {
-      await runDailyMaintenance();
+      await runDailyMaintenanceApi();
       await loadMaintenanceStatus?.();
     } catch {
       // ignore failures
@@ -1202,6 +1232,7 @@ export const useDashboardData = (options) => {
     highlightNonce,
     mainCategories,
     loadDashboard,
+    navigateToTask,
     createTask,
     createTaskBelow,
     undo,

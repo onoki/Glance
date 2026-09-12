@@ -7,12 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5173",
-    "test": "node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/taskDocUtils.test.js && node tests/useDashboardData.test.js && node tests/titleSplitUtils.test.js",
+    "test": "node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/searchNavigation.test.js && node tests/externalLinks.test.js && node tests/taskDocUtils.test.js && node tests/useDashboardData.test.js && node tests/usePeopleTasks.test.js && node tests/titleSplitUtils.test.js && node tests/statusMetadata.test.js && node tests/saveCoordinator.test.js && node tests/desktopLifecycle.test.js && node tests/taskCategoryMove.test.js",
     "lint": "eslint \"src/**/*.{js,vue}\" \"tests/**/*.js\""
   },
   "dependencies": {
     "@tiptap/extension-highlight": "^2.6.5",
     "@tiptap/extension-image": "^2.6.5",
+    "@tiptap/extension-link": "^2.6.5",
     "@tiptap/extension-task-item": "^2.6.5",
     "@tiptap/extension-task-list": "^2.6.5",
     "@tiptap/starter-kit": "^2.6.5",

@@ -4,11 +4,14 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <VersionStamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm"))</VersionStamp>
+    <VersionStamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH\:mm"))</VersionStamp>
     <GeneratedVersionFile>$(BaseIntermediateOutputPath)Generated\BuildInfo.g.cs</GeneratedVersionFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.87.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
 

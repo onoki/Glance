@@ -11,6 +11,7 @@ import { EditorContent, useEditor } from "@tiptap/vue-3";
 import { TextSelection } from "prosemirror-state";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
+import Link from "@tiptap/extension-link";
 import { uploadAttachment } from "../api/attachments.js";
 import RichTextToolbar from "./RichTextToolbar.vue";
 import {
@@ -30,6 +31,12 @@ import {
   splitAtSelection
 } from "../utils/editorListUtils.js";
 import ResizableImage from "../utils/resizableImage.js";
+import { StatusMetadata, toggleStatusAtSelection } from "../utils/statusMetadata.js";
+import {
+  isAllowedExternalTarget,
+  normalizeExternalTarget,
+  openExternalTarget
+} from "../utils/externalLinks.js";
 
 const props = defineProps({
   modelValue: {
@@ -67,6 +74,10 @@ const props = defineProps({
   showToolbar: {
     type: Boolean,
     default: false
+  },
+  allowStatusMarkers: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -92,10 +103,23 @@ const editorRef = useEditor({
     Highlight.configure({
       multicolor: true
     }),
+    Link.configure({
+      autolink: true,
+      linkOnPaste: true,
+      openOnClick: false,
+      defaultProtocol: "https",
+      protocols: ["mailto", "file"],
+      validate: isAllowedExternalTarget,
+      HTMLAttributes: {
+        target: null,
+        rel: "noopener noreferrer"
+      }
+    }),
     ResizableImage.configure({
       inline: true,
       allowBase64: false
-    })
+    }),
+    StatusMetadata
   ],
   editorProps: {
     attributes: {
@@ -103,6 +127,21 @@ const editorRef = useEditor({
       autocorrect: "off",
       autocapitalize: "off",
       autocomplete: "off"
+    },
+    handleClick(_view, _position, event) {
+      const anchor = event?.target?.closest?.("a[href]");
+      if (!anchor || event.button !== 0) {
+        return false;
+      }
+      if (props.editable && !event.ctrlKey && !event.metaKey) {
+        return false;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void openExternalTarget(anchor.getAttribute("href")).catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Windows could not open the link.");
+      });
+      return true;
     },
     handleDOMEvents: {
       focus() {
@@ -252,6 +291,11 @@ const editorRef = useEditor({
         editor?.chain().focus().toggleItalic().run();
         return true;
       }
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        editLinkAtSelection(editor);
+        return true;
+      }
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
         if (event.key === "1" && !isTitle.value) {
           if (toggleCheckboxAtSelection(editor)) {
@@ -279,6 +323,10 @@ const editorRef = useEditor({
         if (event.key === "5") {
           event.preventDefault();
           return toggleLineHighlight(editor, "red");
+        }
+        if (event.key === "6" && props.allowStatusMarkers) {
+          event.preventDefault();
+          return toggleStatusAtSelection(editor, isTitle.value);
         }
       }
       if (event.key === 'Tab') {
@@ -317,6 +365,42 @@ const editorRef = useEditor({
 
 const editor = editorRef;
 const editorInstance = computed(() => editorRef?.value);
+
+const editLinkAtSelection = (editor) => {
+  if (!editor || !props.editable) {
+    return false;
+  }
+  const activeHref = editor.getAttributes("link")?.href || "";
+  const input = window.prompt(
+    "Link address (https://, email, mapped drive, or \\\\server\\share path). Leave blank to remove the link.",
+    activeHref
+  );
+  if (input === null) {
+    return true;
+  }
+  const trimmed = input.trim();
+  if (!trimmed) {
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    return true;
+  }
+  const href = normalizeExternalTarget(trimmed);
+  if (!href) {
+    window.alert("Use an http(s), mail, mapped-drive, UNC, or file link to a non-executable file.");
+    return true;
+  }
+
+  const hasSelection = !editor.state.selection.empty;
+  if (!hasSelection && !editor.isActive("link")) {
+    editor.chain().focus().insertContent({
+      type: "text",
+      text: trimmed,
+      marks: [{ type: "link", attrs: { href } }]
+    }).run();
+    return true;
+  }
+  editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+  return true;
+};
 
 const CHECKBOX_EMPTY = "☐";
 const CHECKBOX_CHECKED = "☑";
@@ -376,7 +460,7 @@ const getListItemParagraph = (editor, listItemDepth) => {
 };
 
 const applyPrefixChange = (editor, prefixLength, nextPrefix) => {
-  const { state, view } = editor;
+  const { state } = editor;
   const { selection } = state;
   const listItemDepth = getListItemDepth(editor);
   if (!listItemDepth) {
@@ -808,11 +892,19 @@ onBeforeUnmount(() => {
 defineExpose({
   focus,
   focusListItem,
-  insertParagraphIfEmpty
+  insertParagraphIfEmpty,
+  toggleStatusMarker: () => toggleStatusAtSelection(editorInstance.value, isTitle.value)
 });
 </script>
 
 <style scoped>
+.rich-editor :deep([data-status-input-at-utc]::before) {
+  content: "📝 ";
+  color: #a86018;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+
 .rich-editor :deep(.image-resize-wrapper) {
   display: inline-block;
   position: relative;
@@ -845,6 +937,21 @@ defineExpose({
 .rich-editor :deep(.image-resize-wrapper.is-selected img) {
   outline: 2px solid #1f1b16;
   outline-offset: 2px;
+}
+
+.rich-editor :deep(a) {
+  color: #2b5f94;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rich-editor :deep(.ProseMirror[contenteditable="true"] a) {
+  cursor: text;
+}
+
+.rich-editor :deep(.ProseMirror[contenteditable="true"] a:hover) {
+  cursor: pointer;
 }
 </style>
 

@@ -153,7 +153,8 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT id, page, title, title_json, content_json, recurrence_json
             FROM tasks
-            WHERE recurrence_json IS NOT NULL;
+            WHERE recurrence_json IS NOT NULL
+              AND deleted_at IS NULL;
             """;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

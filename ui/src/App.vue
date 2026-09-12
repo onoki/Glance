@@ -10,9 +10,13 @@
           :key="tab"
           class="tab"
           :class="{ active: activeTab === tab }"
-          @click="activeTab = tab"
+          :disabled="startupSafety.recoveryMode && tab !== 'Settings'"
+          @click="selectTab(tab)"
         >
           {{ tab }}
+        </button>
+        <button class="tab new-window-tab" type="button" title="Open another view of these notes" @click="openNewWindow">
+          New window
         </button>
       </nav>
     </header>
@@ -23,6 +27,10 @@
           <span>{{ warning.message }}</span>
           <button class="warning-dismiss" @click="dismissWarning(warning.id)">Dismiss</button>
         </div>
+      </div>
+      <div v-if="searchReturnContext && activeTab !== 'Search'" class="search-return-bar">
+        <span>Opened from Search</span>
+        <button type="button" class="ghost" @click="returnToSearch">← Back to search</button>
       </div>
       <DashboardView
         v-if="activeTab === 'Dashboard'"
@@ -55,7 +63,21 @@
         :on-delete="deleteTask"
         :noop="noop"
         :noop-async="noopAsync"
+        :on-status-markers="updateStatusMarkers"
+        :on-load-send-events="loadTaskSendEvents"
+        :on-dismiss-send-marker="dismissSendMarker"
+        :navigation-target="historyNavigationTarget"
       />
+
+      <PeopleView
+        v-else-if="activeTab === 'People'"
+        ref="peopleViewRef"
+        :navigation-target="peopleNavigationTarget"
+        @directory-change="peopleDirectory = $event"
+        @history-change="loadHistory"
+      />
+
+      <StatusUpdatesView v-else-if="activeTab === 'Status Updates'" />
 
       <SearchView
         v-else-if="activeTab === 'Search'"
@@ -67,6 +89,8 @@
         :search-input-ref="searchInputRef"
         :noop="noop"
         :noop-async="noopAsync"
+        :on-open-source="openSearchSource"
+        :navigation-target="searchNavigationTarget"
       />
 
       <SettingsView
@@ -84,7 +108,10 @@
         :on-backup-now="backupNow"
         :on-reindex-search="reindexSearch"
         :on-reset-recurrence="resetRecurrenceGeneration"
-        :on-apply-update="applyUpdate"
+        :on-apply-update="applyUpdateSafely"
+        :on-prepare-data-action="prepareAllWindows"
+        :on-pick-backup-folder="pickBackupFolder"
+        :on-restart-for-restore="restartForPendingRestore"
       />
 
       <section v-else class="placeholder">
@@ -96,12 +123,16 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
 import DashboardView from "./components/views/DashboardView.vue";
 import HistoryView from "./components/views/HistoryView.vue";
 import SearchView from "./components/views/SearchView.vue";
 import SettingsView from "./components/views/SettingsView.vue";
+import PeopleView from "./components/views/PeopleView.vue";
+import StatusUpdatesView from "./components/views/StatusUpdatesView.vue";
+import { fetchPeople } from "./api/people.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople, setStatusMarkers } from "./api/taskSend.js";
 import { groupTasksByWeekday, isThisWeekCategory } from "./utils/categoryUtils.js";
 import { emptyContentDoc, emptyTitleDoc } from "./utils/taskUtils.js";
 import { DASHBOARD_NEW_PAGE } from "./utils/pageConstants.js";
@@ -111,11 +142,29 @@ import { useSearch } from "./composables/useSearch.js";
 import { useDashboardData } from "./composables/useDashboardData.js";
 import { useDashboardDrag } from "./composables/useDashboardDrag.js";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts.js";
+import { resolveSearchDestination } from "./utils/searchNavigation.js";
+import { fetchStartupSafety } from "./api/dataSafety.js";
+import {
+  installDesktopLifecycle,
+  openNewGlanceWindow,
+  pickBackupFolder,
+  prepareAllWindows,
+  restartForPendingRestore
+} from "./services/desktopLifecycle.js";
 
-const tabs = ["Dashboard", "History", "Search", "Settings"];
+const tabs = ["Dashboard", "People", "Status Updates", "History", "Search", "Settings"];
 const activeTab = ref("Dashboard");
+const peopleDirectory = ref({ people: [], tags: [] });
+const searchReturnContext = ref(null);
+const searchNavigationTarget = ref(null);
+const historyNavigationTarget = ref(null);
+const peopleNavigationTarget = ref(null);
+const startupSafety = ref({ healthy: true, recoveryMode: false, message: "" });
+let navigationNonce = 0;
+let removeDesktopLifecycle = null;
 
 const dashboardColumnsRef = ref(null);
+const peopleViewRef = ref(null);
 
 const {
   hasSearched,
@@ -160,9 +209,20 @@ const noop = () => {};
 const noopAsync = async () => false;
 
 onMounted(async () => {
-  await loadDashboard();
-  if (activeTab.value === "History") {
-    await loadHistory();
+  removeDesktopLifecycle = installDesktopLifecycle();
+  try {
+    startupSafety.value = await fetchStartupSafety();
+  } catch {
+    startupSafety.value = { healthy: true, recoveryMode: false, message: "" };
+  }
+  if (startupSafety.value.recoveryMode) {
+    activeTab.value = "Settings";
+  } else {
+    await loadDashboard();
+    await loadPeopleDirectory();
+    if (activeTab.value === "History") {
+      await loadHistory();
+    }
   }
   await loadWarnings();
   await loadMaintenanceStatus();
@@ -170,9 +230,11 @@ onMounted(async () => {
   maintenanceTimer = setTimeout(() => {
     loadMaintenanceStatus();
   }, 2500);
-  initDayKey();
-  pollTimer = setInterval(pollChanges, 750);
-  dayTimer = setInterval(handleDayTick, 60000);
+  if (!startupSafety.value.recoveryMode) {
+    initDayKey();
+    pollTimer = setInterval(pollChanges, 750);
+    dayTimer = setInterval(handleDayTick, 60000);
+  }
 
   window.addEventListener("keydown", handleGlobalShortcut, true);
   window.addEventListener("wheel", handleDashboardWheel, wheelOptions);
@@ -182,6 +244,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  removeDesktopLifecycle?.();
+  removeDesktopLifecycle = null;
   if (pollTimer) {
     clearInterval(pollTimer);
   }
@@ -206,7 +270,6 @@ watch(activeTab, (tab) => {
 
 const {
   newTasks,
-  mainTasks,
   expandedNew,
   focusTaskId,
   focusContentTarget,
@@ -214,6 +277,7 @@ const {
   highlightNonce,
   mainCategories,
   loadDashboard,
+  navigateToTask: navigateToDashboardTask,
   createTaskBelow,
   undo,
   redo,
@@ -245,6 +309,76 @@ const {
   loadMaintenanceStatus,
   loadWarnings
 });
+
+const clearSourceNavigation = () => {
+  searchReturnContext.value = null;
+  searchNavigationTarget.value = null;
+  historyNavigationTarget.value = null;
+  peopleNavigationTarget.value = null;
+};
+
+const selectTab = (tab) => {
+  if (startupSafety.value.recoveryMode && tab !== "Settings") {
+    return;
+  }
+  clearSourceNavigation();
+  activeTab.value = tab;
+};
+
+const openNewWindow = () => {
+  if (!openNewGlanceWindow()) {
+    window.alert("Glance could not open another window.");
+  }
+};
+
+const applyUpdateSafely = async (file) => {
+  await prepareAllWindows("update");
+  return applyUpdate(file);
+};
+
+const openSearchSource = async (result) => {
+  const destination = resolveSearchDestination(result?.task);
+  if (!destination) {
+    window.alert("This search result no longer has a view that Glance can open.");
+    return;
+  }
+
+  const nonce = ++navigationNonce;
+  searchReturnContext.value = { taskId: destination.taskId };
+  searchNavigationTarget.value = null;
+  historyNavigationTarget.value = null;
+  peopleNavigationTarget.value = null;
+  activeTab.value = destination.tab;
+  await nextTick();
+
+  try {
+    if (destination.tab === "Dashboard") {
+      const found = await navigateToDashboardTask(destination.taskId);
+      if (!found) window.alert("The task is no longer visible on the Dashboard.");
+      return;
+    }
+    if (destination.tab === "History") {
+      await loadHistory();
+      historyNavigationTarget.value = { taskId: destination.taskId, nonce };
+      return;
+    }
+    peopleNavigationTarget.value = { ...destination, nonce };
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : "Glance could not open the search result.");
+  }
+};
+
+const returnToSearch = async () => {
+  const taskId = searchReturnContext.value?.taskId;
+  historyNavigationTarget.value = null;
+  peopleNavigationTarget.value = null;
+  activeTab.value = "Search";
+  await nextTick();
+  searchNavigationTarget.value = taskId
+    ? { taskId, nonce: ++navigationNonce }
+    : null;
+  searchReturnContext.value = null;
+};
 
 watch(focusTaskId, (id) => {
   if (!id) {
@@ -293,8 +427,9 @@ const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
   activeTab,
   searchInputRef,
   dashboardColumnsRef,
-  onUndo: undo,
-  onRedo: redo
+  onOpenSearch: () => selectTab("Search"),
+  onUndo: () => activeTab.value === "People" ? peopleViewRef.value?.undo?.() : undo(),
+  onRedo: () => activeTab.value === "People" ? peopleViewRef.value?.redo?.() : redo()
 });
 
 let pollTimer = null;
@@ -340,8 +475,41 @@ const getTaskItemBindings = (task, list, options) => ({
   onSplitToNewTask: splitSubcontentToNewTask,
   onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
   onFocusNextTaskFromContent: focusNextTaskFromContent,
-  onDelete: deleteTask
+  onDelete: deleteTask,
+  allowStatusMarkers: true,
+  onStatusMarkers: updateStatusMarkers,
+  sendPeople: peopleDirectory.value.people.filter((person) => !person.archivedAt),
+  sendTags: peopleDirectory.value.tags,
+  onSendToPeople: sendToPeople,
+  onLoadSendEvents: loadTaskSendEvents,
+  onDismissSendMarker: dismissSendMarker
 });
+
+const loadPeopleDirectory = async () => {
+  try { peopleDirectory.value = await fetchPeople(false); }
+  catch { peopleDirectory.value = { people: [], tags: [] }; }
+};
+
+const updateStatusMarkers = async (task, title, content) => {
+  const response = await setStatusMarkers(task.id, { baseUpdatedAt: task.updatedAt, title, content });
+  task.title = title;
+  task.content = content;
+  task.updatedAt = response.updatedAt;
+  task.statusInputAt = response.statusInputAt;
+  return response;
+};
+
+const sendToPeople = async (task, personIds, tagIds) => {
+  const response = await sendTaskToPeople(task.id, personIds, tagIds);
+  task.sendMarkerVisible = true;
+  return response;
+};
+const loadTaskSendEvents = (task) => fetchTaskSendEvents(task.id);
+const dismissSendMarker = async (task) => {
+  const response = await dismissTaskSendMarker(task.id);
+  task.sendMarkerVisible = false;
+  return response;
+};
 
 const toggleExpandNew = () => {
   expandedNew.value = !expandedNew.value;

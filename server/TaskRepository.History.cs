@@ -16,9 +16,13 @@ public sealed partial class TaskRepository
                 SELECT id
                 FROM tasks
                 WHERE completed_at IS NOT NULL
-                  AND completed_at >= $startOfToday;
+                  AND deleted_at IS NULL
+                  AND completed_at >= $startOfToday
+                  AND page IN ($newPage, $mainPage);
                 """;
             select.Parameters.AddWithValue("$startOfToday", startOfToday);
+            select.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
+            select.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
             await using var reader = await select.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -43,11 +47,15 @@ public sealed partial class TaskRepository
                 SET completed_at = $completedAt,
                     updated_at = $updatedAt
                 WHERE completed_at IS NOT NULL
-                  AND completed_at >= $startOfToday;
+                  AND deleted_at IS NULL
+                  AND completed_at >= $startOfToday
+                  AND page IN ($newPage, $mainPage);
                 """;
             update.Parameters.AddWithValue("$completedAt", movedTo);
             update.Parameters.AddWithValue("$updatedAt", now);
             update.Parameters.AddWithValue("$startOfToday", startOfToday);
+            update.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
+            update.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -70,7 +78,9 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT date(completed_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS count
             FROM tasks
-            WHERE completed_at IS NOT NULL AND completed_at >= $start
+            WHERE completed_at IS NOT NULL
+              AND deleted_at IS NULL
+              AND completed_at >= $start
             GROUP BY day
             ORDER BY day ASC;
             """;

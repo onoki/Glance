@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { searchTasks } from "../api/search.js";
+import { searchTasks as apiSearchTasks } from "../api/search.js";
 import { tokenizeQuery } from "../utils/searchUtils.js";
 import { highlightTask, normalizeTask } from "../utils/taskUtils.js";
 
@@ -19,7 +19,7 @@ export const useSearch = () => {
     }
     isSearching.value = true;
     try {
-      const data = await searchTasks(query);
+      const data = await apiSearchTasks(query);
       const terms = tokenizeQuery(data.query || query);
       searchResults.value = data.results.map((result) => {
         const task = highlightTask(normalizeTask(result.task), terms);

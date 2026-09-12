@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glance.local/schema/status-summary-1.0.json",
+  "title": "Glance Status Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reportId", "reportDate", "inputRevision", "documentStatus", "createdAtUtc", "project", "period", "integrity", "input", "output"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "reportId": { "type": "string", "format": "uuid" },
+    "reportDate": { "type": "string", "format": "date" },
+    "inputRevision": { "type": "integer", "minimum": 1 },
+    "documentStatus": { "enum": ["input", "completed"] },
+    "createdAtUtc": { "type": "string", "format": "date-time" },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromUtc", "toUtc", "contextFromUtc"],
+      "properties": {
+        "fromUtc": { "type": "string", "format": "date-time" },
+        "toUtc": { "type": "string", "format": "date-time" },
+        "contextFromUtc": { "type": "string", "format": "date-time" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputSha256"],
+      "properties": {
+        "inputSha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["previousReport", "glance", "azureDevOps", "outlook"],
+      "properties": {
+        "previousReport": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["reportDate", "projectStatus", "risks", "openQuestions"],
+          "properties": {
+            "reportDate": { "type": "string", "format": "date" },
+            "projectStatus": { "type": "string" },
+            "risks": { "$ref": "#/$defs/risks" },
+            "openQuestions": { "$ref": "#/$defs/questions" }
+          }
+        },
+        "glance": { "$ref": "#/$defs/glanceInput" },
+        "azureDevOps": { "$ref": "#/$defs/azureInput" },
+        "outlook": { "$ref": "#/$defs/outlookInput" }
+      }
+    },
+    "output": { "$ref": "#/$defs/output" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "documentStatus": { "const": "completed" } } },
+      "then": {
+        "properties": {
+          "output": {
+            "properties": {
+              "projectStatus": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "collectionStatus": { "enum": ["ok", "notConfigured", "error"] },
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "id"],
+      "properties": {
+        "source": { "enum": ["glance", "azureDevOps", "outlook"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "isNew", "sourceRefs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "isNew": { "type": "boolean" },
+        "sourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" }, "uniqueItems": true }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "isNew", "sourceRefs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "question": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "isNew": { "type": "boolean" },
+        "sourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" }, "uniqueItems": true }
+      }
+    },
+    "risks": { "type": "array", "items": { "$ref": "#/$defs/risk" } },
+    "questions": { "type": "array", "items": { "$ref": "#/$defs/question" } },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completedAtUtc", "projectStatus", "risks", "openQuestions"],
+      "properties": {
+        "completedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "projectStatus": { "type": "string", "maxLength": 10000 },
+        "risks": { "$ref": "#/$defs/risks" },
+        "openQuestions": { "$ref": "#/$defs/questions" }
+      }
+    },
+    "glanceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collectionStatus", "collectedAtUtc", "error", "items"],
+      "properties": {
+        "collectionStatus": { "$ref": "#/$defs/collectionStatus" },
+        "collectedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "error": { "type": ["string", "null"] },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "page", "person", "title", "fullContent", "firstRaisedAtUtc", "updatedAtUtc", "completedAtUtc", "markedSections"],
+            "properties": {
+              "id": { "type": "string" },
+              "page": { "type": "string" },
+              "person": { "type": ["string", "null"] },
+              "title": { "type": "string" },
+              "fullContent": { "type": "string" },
+              "firstRaisedAtUtc": { "type": "string", "format": "date-time" },
+              "updatedAtUtc": { "type": "string", "format": "date-time" },
+              "completedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+              "markedSections": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["sectionId", "text", "raisedAtUtc", "isNewSincePreviousReport"],
+                  "properties": {
+                    "sectionId": { "type": "string" },
+                    "text": { "type": "string" },
+                    "raisedAtUtc": { "type": "string", "format": "date-time" },
+                    "isNewSincePreviousReport": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "azureInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collectionStatus", "collectedAtUtc", "error", "organization", "project", "queryId", "workItems"],
+      "properties": {
+        "collectionStatus": { "$ref": "#/$defs/collectionStatus" },
+        "collectedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "error": { "type": ["string", "null"] },
+        "organization": { "type": ["string", "null"] },
+        "project": { "type": ["string", "null"] },
+        "queryId": { "type": ["string", "null"] },
+        "workItems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "url", "type", "title", "state", "assignedTo", "createdAtUtc", "changedAtUtc", "isNewSincePreviousReport", "tags", "additionalFields"],
+            "properties": {
+              "id": { "type": "integer" },
+              "url": { "type": "string" },
+              "type": { "type": "string" },
+              "title": { "type": "string" },
+              "state": { "type": "string" },
+              "assignedTo": { "type": ["string", "null"] },
+              "createdAtUtc": { "type": ["string", "null"], "format": "date-time" },
+              "changedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+              "isNewSincePreviousReport": { "type": "boolean" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "additionalFields": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } }
+            }
+          }
+        }
+      }
+    },
+    "outlookInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collectionStatus", "collectedAtUtc", "error", "folder", "messages"],
+      "properties": {
+        "collectionStatus": { "$ref": "#/$defs/collectionStatus" },
+        "collectedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+        "error": { "type": ["string", "null"] },
+        "folder": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "displayName"],
+          "properties": {
+            "id": { "type": "string" },
+            "displayName": { "type": "string" }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "conversationId", "subject", "from", "receivedAtUtc", "bodyText", "webLink", "isNewSincePreviousReport", "wasTruncated"],
+            "properties": {
+              "id": { "type": "string" },
+              "conversationId": { "type": ["string", "null"] },
+              "subject": { "type": "string" },
+              "from": { "type": ["string", "null"] },
+              "receivedAtUtc": { "type": "string", "format": "date-time" },
+              "bodyText": { "type": "string" },
+              "webLink": { "type": ["string", "null"] },
+              "isNewSincePreviousReport": { "type": "boolean" },
+              "wasTruncated": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

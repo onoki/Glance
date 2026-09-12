@@ -75,6 +75,8 @@ The editor must enforce:
   - may contain nested lists
   - may contain bold, italic, and highlight (green/yellow/red)
   - may contain links and images
+- Link marks may target http(s), mail addresses, absolute mapped-drive paths, UNC paths, and file URIs.
+- Web URLs are detected automatically and Ctrl+K creates or edits a link. File links are opened only through the desktop bridge after a second native validation; arbitrary URL schemes and executable/script targets are rejected.
 - Subcontent list items may include inline checkbox or star markers (☐/☑/⭐) as plain text
 - Checkbox markers do not affect task completion
 - Only tasks are reorderable and completable at the task level
@@ -84,6 +86,11 @@ The editor must enforce:
 - Enter at end of title indicates intent to create a new task
 - Immediate Tab converts the new line into subcontent of the current task
 - Tab inside subcontent indents/outdents
+
+## Task action UI invariants (mandatory)
+
+- In every task action row, the destructive delete action is the rightmost action.
+- Space for contextual actions must be reserved so that showing them for the active or hovered task does not reflow task metadata, wrap dates, or make surrounding content jump.
 
 ---
 
@@ -99,6 +106,11 @@ The editor must enforce:
 - task_search (FTS5)
 - changes
 - app_meta (app metadata such as window size)
+- people, person_tags, person_tag_members
+- task_send_events (small copy audit records; no target task link)
+- status_update_runs (one retained revision per calendar day)
+
+People tasks use the same completion window as Dashboard tasks: items completed since local midnight stay visible and can be unchecked; older completions are shown through History. Archived people remain separate from task completion and preserve their notes.
 
 ### Attachments
 - Stored as files under a blobs directory
@@ -112,6 +124,7 @@ The editor must enforce:
 - Search returns tasks
 - Results are read-only
 - Matching text is highlighted in the UI
+- Each result can open its source task in Dashboard, People, or History and return to the retained search. An open note owned by an archived person routes to the Archived people view until the person is restored.
 
 ---
 
@@ -130,15 +143,15 @@ Completed tasks from earlier days are hidden from the dashboard.
 
 ---
 
-## Multi-instance behavior
+## Multiple-view and save behavior
 
-- Multiple application instances may run concurrently
-- All instances share the same SQLite database
-- Consistency model:
-  - last-write-wins
-  - no locking between instances
-- Instances detect changes by polling the `changes` table
-- UI updates reflect external changes within ~1 second
+- A single Glance desktop process owns one ASP.NET server and one SQLite database, and can open multiple native Photino windows.
+- Each window has independent navigation state and polls the shared `changes` table; clean notes reflect external changes within about one second.
+- Task text and status-marker writes use atomic optimistic concurrency (`updated_at = baseUpdatedAt`). A stale editor receives HTTP 409 and its local text remains visible; Glance never silently overwrites the newer stored note.
+- Every editable task registers with a shared per-window save coordinator. Saves are serialized per task and use edit generations, so text typed during an earlier request remains dirty and is saved next.
+- Native close is a handshake: the desktop cancels the first close request, asks every affected webview to flush, and closes only after all acknowledge success. A failed save keeps the window open.
+- Backup, portable export, update, and restore actions request a flush from every open Glance window before taking their snapshot or changing application state.
+- `beforeunload` is only a warning fallback in an ordinary development browser; browsers cannot reliably await asynchronous saves during teardown.
 
 ---
 
@@ -167,6 +180,24 @@ glance/
 - `blobs/attachments/` contains file-based attachments.
 
 Copying the `glance/` directory is a valid backup.
+
+### Data portability invariant
+
+- `GET /api/export/portable` produces a versioned, neutral exit bundle with lossless JSON, offline HTML, status JSON, media, and a hashed manifest.
+- Every durable table and column must be included in the bundle, or explicitly classified as derived/ephemeral.
+- A migration or durable feature is incomplete until its export classification, versioned schema, human-readable rendering where relevant, and coverage tests are updated.
+- Export runs against a consistent SQLite snapshot and refuses unknown durable fields instead of silently omitting them.
+- Rich-text link marks and file-link targets are durable note data and must survive export.
+
+See `docs/data-portability.md` and `schema/glance-export-v1.schema.json`.
+
+### Status packages
+
+- Status source documents live under `data/status-updates/YYYY-MM-DD/StatusSummary.json.gz`.
+- A same-day recollection replaces the daily document and increments its revision.
+- Excel and PowerPoint exports are generated from validated output and are not retained.
+- Workplace readers are isolated under `server/Integrations` and disabled until configured.
+- MSAL token cache files live under `data/auth` and are excluded from backups.
 
 ---
 

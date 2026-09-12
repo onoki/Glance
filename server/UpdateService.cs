@@ -13,17 +13,19 @@ internal sealed class UpdateService
     private const string ManifestFileName = "glance.update.json";
     private const string ManifestFormat = "glance-update-1";
     private const string HashAlgorithmName = "sha256";
-    private static readonly string[] ForbiddenTopLevelFolders = ["data", "blobs"];
+    private static readonly string[] ForbiddenTopLevelFolders = ["data", "blobs", "backups", "recovery", "exports"];
     private static readonly string VersionFormat = "yyyy-MM-dd HH:mm";
 
     private readonly AppPaths _paths;
     private readonly ILogger<UpdateService> _logger;
+    private readonly DataSafetyService _dataSafety;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public UpdateService(AppPaths paths, ILogger<UpdateService> logger)
+    public UpdateService(AppPaths paths, ILogger<UpdateService> logger, DataSafetyService dataSafety)
     {
         _paths = paths;
         _logger = logger;
+        _dataSafety = dataSafety;
     }
 
     public async Task<string> ApplyUpdateAsync(IFormFile package, CancellationToken token)
@@ -94,6 +96,14 @@ internal sealed class UpdateService
             {
                 File.Delete(manifestPath);
             }
+
+            var safetyBackup = await _dataSafety.CreateBackupAsync("pre-update", TimeProvider.Now, token);
+            if (!safetyBackup.Success)
+            {
+                throw new UpdatePackageException(
+                    $"The update was not applied because its verified pre-update backup failed: {safetyBackup.Error}");
+            }
+            AppendDesktopLog($"Update: verified pre-update backup {safetyBackup.BackupId} created.");
 
             var scriptPath = Path.Combine(updatesRoot, $"apply-{updateId}.ps1");
             WriteUpdateScript(scriptPath);
@@ -267,7 +277,7 @@ internal sealed class UpdateService
 
             if (IsForbiddenTopLevel(relative))
             {
-                throw new UpdatePackageException("Update package must not include data or blobs.");
+                throw new UpdatePackageException("Update package contains a protected data, backup, recovery, or export folder.");
             }
 
             var safeRelative = relative.Replace('/', Path.DirectorySeparatorChar);
@@ -378,7 +388,7 @@ try {
 
 try {
   $items = @(Get-ChildItem -LiteralPath $source | Where-Object {
-    $_.Name -notin @("data", "blobs")
+    $_.Name -notin @("data", "blobs", "backups", "recovery", "exports")
   })
   Write-UpdateLog "Copying $($items.Count) top-level items."
   foreach ($item in $items) {

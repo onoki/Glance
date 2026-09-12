@@ -16,13 +16,16 @@ public sealed partial class TaskRepository
         double position,
         long now,
         string? scheduledDate,
-        string? recurrenceJson)
+        string? recurrenceJson,
+        string? ownerPersonId,
+        long? statusInputAt,
+        string? originLabel)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at, scheduled_date, recurrence_json)
-            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt, $scheduledDate, $recurrenceJson);
+            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at, scheduled_date, recurrence_json, owner_person_id, status_input_at, origin_label)
+            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt, $scheduledDate, $recurrenceJson, $ownerPersonId, $statusInputAt, $originLabel);
             """;
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$page", page);
@@ -34,6 +37,9 @@ public sealed partial class TaskRepository
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$scheduledDate", (object?)scheduledDate ?? DBNull.Value);
         command.Parameters.AddWithValue("$recurrenceJson", (object?)recurrenceJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$ownerPersonId", (object?)ownerPersonId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$statusInputAt", (object?)statusInputAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$originLabel", (object?)originLabel ?? DBNull.Value);
         await command.ExecuteNonQueryAsync();
     }
 
@@ -68,7 +74,7 @@ public sealed partial class TaskRepository
         return rows > 0;
     }
 
-    private static async Task UpdateTaskAsync(
+    private static async Task<int> UpdateTaskAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         string id,
@@ -79,7 +85,9 @@ public sealed partial class TaskRepository
         double position,
         long now,
         string? scheduledDate,
-        string? recurrenceJson)
+        string? recurrenceJson,
+        long? statusInputAt,
+        long baseUpdatedAt)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -92,8 +100,11 @@ public sealed partial class TaskRepository
                 position = $position,
                 scheduled_date = $scheduledDate,
                 recurrence_json = $recurrenceJson,
+                status_input_at = $statusInputAt,
                 updated_at = $updatedAt
-            WHERE id = $id;
+            WHERE id = $id
+              AND deleted_at IS NULL
+              AND updated_at = $baseUpdatedAt;
             """;
         command.Parameters.AddWithValue("$page", page);
         command.Parameters.AddWithValue("$title", titleText);
@@ -102,9 +113,11 @@ public sealed partial class TaskRepository
         command.Parameters.AddWithValue("$position", position);
         command.Parameters.AddWithValue("$scheduledDate", (object?)scheduledDate ?? DBNull.Value);
         command.Parameters.AddWithValue("$recurrenceJson", (object?)recurrenceJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$statusInputAt", (object?)statusInputAt ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$id", id);
-        await command.ExecuteNonQueryAsync();
+        command.Parameters.AddWithValue("$baseUpdatedAt", baseUpdatedAt);
+        return await command.ExecuteNonQueryAsync();
     }
 
     private static async Task InsertChangeAsync(
@@ -130,9 +143,10 @@ public sealed partial class TaskRepository
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, title_json, content_json, position, updated_at, scheduled_date, recurrence_json
+            SELECT id, page, title, title_json, content_json, position, updated_at, scheduled_date, recurrence_json, owner_person_id
             FROM tasks
-            WHERE id = $id;
+            WHERE id = $id
+              AND deleted_at IS NULL;
             """;
         command.Parameters.AddWithValue("$id", taskId);
 
@@ -151,14 +165,15 @@ public sealed partial class TaskRepository
             reader.GetDouble(5),
             reader.GetInt64(6),
             reader.IsDBNull(7) ? null : reader.GetString(7),
-            reader.IsDBNull(8) ? null : reader.GetString(8)
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.IsDBNull(9) ? null : reader.GetString(9)
         );
     }
 
     private static async Task<bool> TaskExistsAsync(SqliteConnection connection, string taskId, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 1 FROM tasks WHERE id = $id;";
+        command.CommandText = "SELECT 1 FROM tasks WHERE id = $id AND deleted_at IS NULL;";
         command.Parameters.AddWithValue("$id", taskId);
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return result != null;
@@ -190,7 +205,12 @@ public sealed partial class TaskRepository
             reader.GetInt64(7),
             reader.IsDBNull(8) ? null : reader.GetInt64(8),
             scheduledDate,
-            recurrence
+            recurrence,
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(12) ? null : reader.GetString(12),
+            reader.IsDBNull(13) ? null : reader.GetInt64(13),
+            reader.IsDBNull(14) ? null : reader.GetString(14),
+            reader.GetInt64(15) != 0
         );
     }
 
@@ -203,7 +223,8 @@ public sealed partial class TaskRepository
         double Position,
         long UpdatedAt,
         string? ScheduledDate,
-        string? RecurrenceJson
+        string? RecurrenceJson,
+        string? OwnerPersonId
     );
 
     private static JsonElement ParseTitleJson(string? titleJson, string fallbackText)

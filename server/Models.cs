@@ -12,7 +12,12 @@ public sealed record TaskItem(
     long UpdatedAt,
     long? CompletedAt,
     string? ScheduledDate,
-    JsonElement? Recurrence
+    JsonElement? Recurrence,
+    string? OwnerPersonId,
+    string? OwnerPersonName,
+    long? StatusInputAt,
+    string? OriginLabel,
+    bool SendMarkerVisible
 );
 
 public sealed record TaskCreateRequest(
@@ -21,7 +26,9 @@ public sealed record TaskCreateRequest(
     JsonElement Content,
     double Position,
     JsonElement? ScheduledDate,
-    JsonElement? Recurrence
+    JsonElement? Recurrence,
+    string? OwnerPersonId = null,
+    string? OriginLabel = null
 );
 
 public sealed record TaskCreateResponse(
@@ -44,12 +51,40 @@ public sealed record TaskUpdateResponse(
     bool ExternalUpdate
 );
 
+public sealed class TaskWriteConflictException : Exception
+{
+    public TaskWriteConflictException(string taskId, long currentUpdatedAt)
+        : base("This note changed in another Glance window. Your local text was not overwritten.")
+    {
+        TaskId = taskId;
+        CurrentUpdatedAt = currentUpdatedAt;
+    }
+
+    public string TaskId { get; }
+    public long CurrentUpdatedAt { get; }
+}
+
 public sealed record TaskCompleteRequest(
     bool Completed
 );
 
 public sealed record TaskCompleteResponse(
     long? CompletedAt
+);
+
+public sealed record TaskRestoreResponse(
+    long UpdatedAt
+);
+
+public sealed record TaskStatusMarkersRequest(
+    long BaseUpdatedAt,
+    JsonElement Title,
+    JsonElement Content
+);
+
+public sealed record TaskStatusMarkersResponse(
+    long UpdatedAt,
+    long? StatusInputAt
 );
 
 public sealed record DashboardResponse(
@@ -91,7 +126,10 @@ public sealed record WarningsResponse(
 public sealed record MaintenanceStatus(
     string? LastBackupAt,
     string? LastBackupError,
-    string? LastReindexAt
+    string? LastReindexAt,
+    string? MirrorBackupError,
+    string? BackupVerificationError,
+    bool RecoveryMode
 );
 
 public sealed record HistoryDayStat(

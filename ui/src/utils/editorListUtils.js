@@ -298,11 +298,11 @@ export const appendListItem = (editor) => {
   const listTypeName = listNode && isListTypeName(listNode.type.name)
     ? listNode.type.name
     : getDefaultListTypeName(schema);
+  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
   const listType = schema.nodes[listTypeName];
   if (!listType) {
     return false;
   }
-  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
   const newItem = buildListItem(schema, listItemTypeName);
   if (!newItem) {
     return false;
@@ -376,7 +376,6 @@ export const splitAtSelection = (editor) => {
     return null;
   }
   const listTypeName = listNode.type.name;
-  const listItemTypeName = getListItemTypeNameForListType(listTypeName);
   const listIndex = $from.index(listDepth);
   const doc = editor.getJSON();
   const listContent = doc.content?.[0]?.content ?? [];
@@ -388,17 +387,6 @@ export const splitAtSelection = (editor) => {
   const current = listContent[listIndex];
   const after = removeEmptyItems(listContent.slice(listIndex + 1));
   const titleDoc = listItemToTitleDoc(current);
-  const emptyItem = () => {
-    const item = {
-      type: listItemTypeName,
-      content: [{ type: "paragraph" }]
-    };
-    if (listItemTypeName === "taskItem") {
-      item.attrs = { checked: false };
-    }
-    return item;
-  };
-
   const emptyDoc = {
     type: "doc",
     content: [{ type: "paragraph" }]

@@ -61,3 +61,6 @@ blobs/
 # Frontend dependencies and build output
 ui/node_modules/
 ui/dist/
+
+# Portable production package
+/portable/

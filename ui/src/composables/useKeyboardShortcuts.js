@@ -4,6 +4,7 @@ export const useKeyboardShortcuts = (options) => {
   const dashboardColumnsRef = options?.dashboardColumnsRef;
   const onUndo = options?.onUndo;
   const onRedo = options?.onRedo;
+  const onOpenSearch = options?.onOpenSearch;
 
   const handleGlobalShortcut = (event) => {
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
@@ -14,7 +15,7 @@ export const useKeyboardShortcuts = (options) => {
         onUndo?.();
         return;
       }
-      if (key === "r" || (key === "z" && event.shiftKey)) {
+      if (key === "r" || key === "y" || (key === "z" && event.shiftKey)) {
         event.preventDefault();
         event.stopPropagation();
         onRedo?.();
@@ -31,7 +32,8 @@ export const useKeyboardShortcuts = (options) => {
         return;
       }
       event.preventDefault();
-      activeTab.value = "Search";
+      if (onOpenSearch) onOpenSearch();
+      else activeTab.value = "Search";
       queueMicrotask(() => {
         searchInputRef.value?.focus();
       });

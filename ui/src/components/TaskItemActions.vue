@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-const props = defineProps({
+defineProps({
   showCategoryActions: {
     type: Boolean,
     default: false

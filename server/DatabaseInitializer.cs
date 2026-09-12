@@ -36,12 +36,15 @@ public sealed class DatabaseInitializer
         EnsureSchemaMigrationsTable(connection);
         EnsureAppMetaTable(connection);
 
-        var appliedVersions = GetAppliedVersions(connection);
+        var currentVersion = GetCurrentVersion(connection);
         var migrationFiles = GetMigrationFiles();
 
         foreach (var (version, path) in migrationFiles)
         {
-            if (appliedVersions.Contains(version))
+            // Schema versions are monotonic. A fresh baseline records the latest
+            // version, so replaying every older migration would attempt duplicate
+            // ALTER TABLE statements.
+            if (version <= currentVersion)
             {
                 continue;
             }
@@ -90,19 +93,16 @@ public sealed class DatabaseInitializer
         command.ExecuteNonQuery();
     }
 
-    private static HashSet<int> GetAppliedVersions(SqliteConnection connection)
+    internal int GetSupportedSchemaVersion()
     {
-        var versions = new HashSet<int>();
+        return GetMigrationFiles().Select(entry => entry.Version).DefaultIfEmpty(0).Max();
+    }
+
+    private static int GetCurrentVersion(SqliteConnection connection)
+    {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT version FROM schema_migrations;";
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            versions.Add(reader.GetInt32(0));
-        }
-
-        return versions;
+        command.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     private List<(int Version, string Path)> GetMigrationFiles()
