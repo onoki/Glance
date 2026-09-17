@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\server\Glance.Server.csproj" />
+    <Compile Include="..\desktop\WindowPlacement.cs" Link="WindowPlacement.cs" />
   </ItemGroup>
 
 </Project>

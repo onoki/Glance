@@ -54,7 +54,7 @@ A **task** is the atomic unit of organization.
 Each task consists of:
 - a formatted title (may be empty)
 - structured rich-text subcontent (optional)
-- optional checkbox or star markers in subcontent text (☐/☑/⭐)
+- optional checkbox, star, or question markers in subcontent text (☐/☑/⭐/❓)
 - completion state
 - optional scheduling and recurrence metadata
 
@@ -77,7 +77,8 @@ The editor must enforce:
   - may contain links and images
 - Link marks may target http(s), mail addresses, absolute mapped-drive paths, UNC paths, and file URIs.
 - Web URLs are detected automatically and Ctrl+K creates or edits a link. File links are opened only through the desktop bridge after a second native validation; arbitrary URL schemes and executable/script targets are rejected.
-- Subcontent list items may include inline checkbox or star markers (☐/☑/⭐) as plain text
+- Subcontent list items may include inline checkbox, star, or question markers (☐/☑/⭐/❓) as plain text
+- Long web URLs may be shortened visually while unfocused; rich-text source, clipboard text, and hyperlink destinations remain unchanged. Typing at a link boundary inserts unlinked text.
 - Checkbox markers do not affect task completion
 - Only tasks are reorderable and completable at the task level
 - Tasks can be deleted when both title and subcontent are empty
@@ -86,11 +87,16 @@ The editor must enforce:
 - Enter at end of title indicates intent to create a new task
 - Immediate Tab converts the new line into subcontent of the current task
 - Tab inside subcontent indents/outdents
+- Enter in the middle of a title still splits it into a separate task, carrying existing subcontent (unchanged by the September 2026 usability revision).
+- Dashboard and People share editor keyboard behavior, including focus requests applied when editors first mount.
+- Ctrl+3 toggles a question marker; highlights use Ctrl+4/5/6; project status input uses Ctrl+7 (Dashboard and History only).
 
 ## Task action UI invariants (mandatory)
 
 - In every task action row, the destructive delete action is the rightmost action.
-- Space for contextual actions must be reserved so that showing them for the active or hovered task does not reflow task metadata, wrap dates, or make surrounding content jump.
+- Contextual actions and dates appear together at the right above the active or hovered task. Only individual buttons and labels have opaque backgrounds; unused overlay space is transparent and passes clicks through. They reserve no task-row height and may cover previous lines, but must never move or reflow tasks. Their position is constrained to the visible horizontal portion of the list and viewport.
+- All Dashboard categories, including New tasks, support mouse resizing. Rich text wraps unbroken strings; category contents stay scrolled to the left while the dashboard itself can scroll horizontally.
+- People navigation wraps and displays stable colored tag dots with tooltips and a shared legend, without per-person text badges or tag filters.
 
 ---
 
@@ -106,6 +112,7 @@ The editor must enforce:
 - task_search (FTS5)
 - changes
 - app_meta (app metadata such as window size)
+  - `window_placement` stores last successfully closed normal bounds and monitor identity as JSON; `window_size` remains compatible with older versions. Startup restores normal bounds even after a maximized/minimized close, clamps to the current monitor work area, and uses the primary monitor if the saved device is absent. These values are covered by the existing app_meta portable export contract.
 - people, person_tags, person_tag_members
 - task_send_events (small copy audit records; no target task link)
 - status_update_runs (one retained revision per calendar day)
@@ -217,3 +224,10 @@ See `docs/data-portability.md` and `schema/glance-export-v1.schema.json`.
 
 Implementations must not modify these documents unless explicitly instructed.
 
+
+## Usability refinements
+
+- Outermost Shift+Tab carries the ProseMirror selection through the split payload into the promoted title in both views. Schema-equivalent server content does not replace the editor document, preventing selection resets from JSON property order or default attributes.
+- Native Windows bounds are reapplied after window creation using signed desktop coordinates and the current monitor work area. `data/desktop.log` records saved, requested, and actual bounds to diagnose initialization or monitor/DPI differences. The last successfully closed window still wins.
+- People tag legend dots and labels share a centered inline-flex row. Add Person uses the common app font at regular weight.
+- The current button inventory and proposed shared variants are in [button-styles.md](button-styles.md); broad restyling awaits design agreement.

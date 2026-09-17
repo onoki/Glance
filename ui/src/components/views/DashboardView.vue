@@ -1,5 +1,5 @@
 <template>
-  <section class="dashboard">
+  <section class="dashboard" @scroll.capture="keepTaskListsLeft">
     <div
       ref="columnsRef"
       class="dashboard-columns"
@@ -11,6 +11,7 @@
     >
       <div
         class="dashboard-column new-column"
+        :style="expandedNew ? null : getColumnStyle('new')"
         :class="{ expanded: expandedNew, empty: newTasks.length === 0 && !expandedNew }"
         data-category-id="new"
       >
@@ -49,6 +50,7 @@
             </TransitionGroup>
           </div>
         </section>
+        <div v-if="!expandedNew" class="column-resizer" @pointerdown="startResize('new', $event)"></div>
       </div>
 
       <template v-for="category in mainCategories" :key="category.id">
@@ -116,6 +118,7 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
+import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
 
 const props = defineProps({
   newTasks: {

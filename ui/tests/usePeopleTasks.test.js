@@ -113,6 +113,12 @@ assert.match(
   "Tab merge uses the current dirty editor snapshot"
 );
 assert.equal(store.some((task) => task.id === current.id), false);
+await peopleTasks.undo();
+assert.match(JSON.stringify(store.find(task => task.id === current.id).title), /Typed immediately before Tab/, "undoing a merge restores its source text");
+assert.doesNotMatch(JSON.stringify(store.find(task => task.id === previous.id).content), /Typed immediately before Tab/);
+await peopleTasks.redo();
+assert.equal(store.some(task => task.id === current.id), false);
+assert.match(JSON.stringify(store.find(task => task.id === previous.id).content), /Typed immediately before Tab/);
 
 const undoTargetId = await peopleTasks.createTaskBelow(previous);
 const undoTarget = peopleTasks.tasks.value.find((task) => task.id === undoTargetId);
@@ -128,3 +134,20 @@ await peopleTasks.undo();
 assert.equal(store.some((task) => task.id === undoTargetId), true, "undo restores the same task id");
 await peopleTasks.redo();
 assert.equal(store.some((task) => task.id === undoTargetId), false, "redo deletes the restored task again");
+
+const editTargetId = await peopleTasks.createTaskBelow();
+const editTarget = peopleTasks.tasks.value.find(task => task.id === editTargetId);
+await peopleTasks.saveTask({ id: editTargetId, title: textDoc("Before"), content: emptyDoc(), baseUpdatedAt: editTarget.updatedAt });
+peopleTasks.handleDirtyChange(editTargetId, true, { ...editTarget, title: textDoc("After") });
+await peopleTasks.loadTasks(); // Polling must not lose the persisted baseline for undo.
+await peopleTasks.saveTask({ id: editTargetId, title: textDoc("After"), content: emptyDoc(), baseUpdatedAt: editTarget.updatedAt });
+await peopleTasks.undo();
+assert.match(JSON.stringify(store.find(task => task.id === editTargetId).title), /Before/);
+await peopleTasks.redo();
+assert.match(JSON.stringify(store.find(task => task.id === editTargetId).title), /After/);
+store.find(task => task.id === editTargetId).title = textDoc("Changed in another window");
+await assert.rejects(() => peopleTasks.undo(), /changed elsewhere/, "undo must not overwrite an external edit");
+
+await peopleTasks.splitSubcontentToNewTask(editTarget, { title: textDoc('Promoted subtask'), content: emptyDoc(), titleSelection: { from: 8, to: 8 } });
+assert.deepEqual(peopleTasks.focusTaskId.value.selection, { from: 8, to: 8 });
+assert.ok(peopleTasks.tasks.value.some(task => task.id === peopleTasks.focusTaskId.value.taskId));

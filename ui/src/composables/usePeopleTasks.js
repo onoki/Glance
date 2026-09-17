@@ -32,7 +32,9 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   const focusTaskId = ref(null);
   const focusContentTarget = ref(null);
   const dragOver = ref({ id: null, position: "before" });
+  const undoSignal = ref(0);
   const dirtySnapshots = new Map();
+  const persistedTasks = new Map();
   const undoStack = [];
   const redoStack = [];
   const undoLimit = 100;
@@ -93,7 +95,9 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       completedAt: null
     }));
     sortTasks();
-    focusTaskId.value = response.taskId;
+    persistedTasks.set(response.taskId, cloneTask(tasks.value.find((task) => task.id === response.taskId)));
+    focusTaskId.value = overrides?.titleSelection
+      ? { taskId: response.taskId, selection: overrides.titleSelection } : response.taskId;
     return response.taskId;
   };
 
@@ -120,12 +124,15 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     }
     const response = await fetchPersonTasks(personId);
     if (sequence !== loadSequence || selectedPersonId.value !== personId) return;
+    for (const task of response.tasks || []) persistedTasks.set(task.id, cloneTask(task));
     tasks.value = mergeDirtyTasks((response.tasks || []).map(normalizeTask));
     sortTasks();
     await ensureBlankTask(personId);
   };
 
   const saveTask = async (payload) => {
+    const stored = persistedTasks.get(payload.id) || tasks.value.find((item) => item.id === payload.id);
+    const before = stored ? cloneTask(stored) : null;
     const title = normalizeTitle(payload.title);
     const content = normalizeContent(payload.content);
     const response = await updateTask(payload.id, {
@@ -136,6 +143,12 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     });
     const task = tasks.value.find((item) => item.id === payload.id);
     if (task) Object.assign(task, { title, content, updatedAt: response.updatedAt });
+    if (task) persistedTasks.set(task.id, cloneTask(task));
+    if (before && !payload.suppressUndo && (JSON.stringify(before.title) !== JSON.stringify(title) || JSON.stringify(before.content) !== JSON.stringify(content))) {
+      undoStack.push({ type: "edit", task: before, after: cloneTask({ ...before, title, content, updatedAt: response.updatedAt }) });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    }
     dirtySnapshots.delete(payload.id);
     return response;
   };
@@ -158,6 +171,23 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     if (!entry) return false;
     try {
       selectedPersonId.value = entry.task.ownerPersonId;
+      if (entry.type === "merge") {
+        // Restore the source first: a later failed save must never discard text.
+        const restored = await restoreTask(entry.source.id);
+        await updateTask(entry.source.id, {
+          baseUpdatedAt: restored.updatedAt,
+          title: entry.source.title, content: entry.source.content, page: PEOPLE_PAGE,
+          position: entry.source.position
+        });
+        await applyEditHistory(entry.task, entry.after);
+        redoStack.push(entry);
+        return true;
+      }
+      if (entry.type === "edit") {
+        await applyEditHistory(entry.task, entry.after);
+        redoStack.push(entry);
+        return true;
+      }
       const restored = await restoreTask(entry.task.id);
       await updateTask(entry.task.id, {
         baseUpdatedAt: restored.updatedAt,
@@ -184,6 +214,24 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     if (!entry) return false;
     try {
       selectedPersonId.value = entry.task.ownerPersonId;
+      if (entry.type === "merge") {
+        const response = await fetchPersonTasks(entry.source.ownerPersonId);
+        const source = response.tasks.find(task => task.id === entry.source.id);
+        if (!source || JSON.stringify(normalizeTitle(source.title)) !== JSON.stringify(entry.source.title) ||
+            JSON.stringify(normalizeContent(source.content)) !== JSON.stringify(entry.source.content)) {
+          throw new Error("The source note changed elsewhere. Redo was stopped to preserve its text.");
+        }
+        await applyEditHistory(entry.after, entry.task);
+        await deleteTask(entry.source.id);
+        await loadTasks();
+        undoStack.push(entry);
+        return true;
+      }
+      if (entry.type === "edit") {
+        await applyEditHistory(entry.after, entry.task);
+        undoStack.push(entry);
+        return true;
+      }
       await deleteTask(entry.task.id);
       dirtySnapshots.delete(entry.task.id);
       undoStack.push(entry);
@@ -194,6 +242,24 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       redoStack.push(entry);
       throw error;
     }
+  };
+
+  const applyEditHistory = async (snapshot, expected) => {
+    const response = await fetchPersonTasks(snapshot.ownerPersonId);
+    const current = response.tasks.find((task) => task.id === snapshot.id);
+    if (!current) throw new Error("This note is no longer available to undo or redo.");
+    if (JSON.stringify(normalizeTitle(current.title)) !== JSON.stringify(expected.title) ||
+        JSON.stringify(normalizeContent(current.content)) !== JSON.stringify(expected.content)) {
+      throw new Error("This note changed elsewhere. Undo or redo was stopped to preserve the newer text.");
+    }
+    await updateTask(snapshot.id, {
+      baseUpdatedAt: current.updatedAt,
+      title: normalizeTitle(snapshot.title), content: normalizeContent(snapshot.content), page: PEOPLE_PAGE
+    });
+    dirtySnapshots.delete(snapshot.id);
+    await loadTasks();
+    undoSignal.value += 1;
+    focusTaskId.value = snapshot.id;
   };
 
   const toggleComplete = async (task) => {
@@ -221,8 +287,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   const moveTaskToPrevious = async (task) => {
     const index = tasks.value.findIndex((item) => item.id === task.id);
     if (index <= 0) return false;
-    const previous = resolveTask(tasks.value[index - 1]);
-    const current = resolveTask(task);
+    const previous = cloneTask(resolveTask(tasks.value[index - 1]));
+    const current = cloneTask(resolveTask(task));
     const previousContent = normalizeContent(previous.content);
     const currentContent = normalizeContent(current.content);
     const previousItems = previousContent.content?.[0]?.content || [];
@@ -240,9 +306,13 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       id: previous.id,
       title: previous.title,
       content,
-      baseUpdatedAt: previous.updatedAt
+      baseUpdatedAt: previous.updatedAt,
+      suppressUndo: true
     });
     await deleteTask(current.id);
+    undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
+    if (undoStack.length > undoLimit) undoStack.shift();
+    redoStack.length = 0;
     dirtySnapshots.delete(current.id);
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
     focusContentTarget.value = {
@@ -257,8 +327,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   const mergeTaskToPrevious = async (task) => {
     const index = tasks.value.findIndex((item) => item.id === task.id);
     if (index <= 0) return false;
-    const previous = resolveTask(tasks.value[index - 1]);
-    const current = resolveTask(task);
+    const previous = cloneTask(resolveTask(tasks.value[index - 1]));
+    const current = cloneTask(resolveTask(task));
     const previousItems = normalizeContent(previous.content).content?.[0]?.content || [];
     const currentItems = normalizeContent(current.content).content?.[0]?.content || [];
     const mergedItems = [...previousItems, ...currentItems].filter((item) => !isDocEmptyJson(item));
@@ -269,9 +339,13 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       id: previous.id,
       title: mergeTitleDocs(previous.title, current.title),
       content,
-      baseUpdatedAt: previous.updatedAt
+      baseUpdatedAt: previous.updatedAt,
+      suppressUndo: true
     });
     await deleteTask(current.id);
+    undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
+    if (undoStack.length > undoLimit) undoStack.shift();
+    redoStack.length = 0;
     dirtySnapshots.delete(current.id);
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
     focusTaskId.value = previous.id;
@@ -303,6 +377,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
 
   const splitSubcontentToNewTask = (task, payload) => createTaskBelow(task, null, {
     title: payload?.title ?? emptyTitleDoc(),
+    titleSelection: payload?.titleSelection,
     content: payload?.content ?? emptyContentDoc()
   });
 
@@ -370,6 +445,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   return {
     tasks,
     focusTaskId,
+    undoSignal,
     focusContentTarget,
     dragOver,
     loadTasks,

@@ -16,12 +16,13 @@ internal static class Program
     private const int MinWidth = 100;
     private const int MinHeight = 100;
     private const string WindowSizeKey = "window_size";
+    private const string WindowPlacementKey = "window_placement";
+    private static AppMetaRepository? _appMeta;
     private static readonly object WindowGate = new();
     private static readonly Dictionary<Guid, WindowState> Windows = new();
     private static PhotinoWindow? _mainWindow;
     private static string? _startUrl;
     private static string? _iconPath;
-    private static Size _initialWindowSize = new(DefaultWidth, DefaultHeight);
     private static bool _restartAfterClose;
     private static CloseOperation? _closeOperation;
     private static FlushOperation? _flushOperation;
@@ -61,11 +62,12 @@ internal static class Program
         Log($"Start URL: {startUrl}");
 
         var appMeta = server.Services.GetRequiredService<AppMetaRepository>();
+        _appMeta = appMeta;
         var savedSize = LoadWindowSize(appMeta);
-        var initialSize = ClampSize(savedSize ?? new Size(DefaultWidth, DefaultHeight));
-        _initialWindowSize = initialSize;
-        var lastNormalSize = initialSize;
-        var isMaximized = false;
+        var savedPlacement = LoadWindowPlacement(appMeta) ?? (savedSize is { } legacy
+            ? new SavedWindowPlacement(0, 0, legacy.Width, legacy.Height, null) : null);
+        var initialPlacement = WindowPlacement.Resolve(savedPlacement, WindowPlacement.GetMonitors());
+        var initialSize = new Size(initialPlacement.Width, initialPlacement.Height);
 
         var window = new PhotinoWindow()
             .SetTitle("Glance")
@@ -73,7 +75,8 @@ internal static class Program
             .SetSize(initialSize.Width, initialSize.Height)
             .SetMinSize(MinWidth, MinHeight)
             .SetResizable(true)
-            .Center();
+            .SetUseOsDefaultLocation(false)
+            .SetLocation(new Point(initialPlacement.X, initialPlacement.Y));
 
         _mainWindow = window;
         lock (WindowGate)
@@ -82,48 +85,9 @@ internal static class Program
         }
 
         window.RegisterWebMessageReceivedHandler(HandleWebMessage);
+        window.WindowCreated += (_, _) => RestoreWindowPlacement(window, savedPlacement);
 
-        var pendingSize = window.Size;
-        var sizeSaveTimer = new System.Threading.Timer(_ =>
-        {
-            SaveWindowSize(appMeta, pendingSize);
-        }, null, Timeout.Infinite, Timeout.Infinite);
-
-        window.WindowSizeChanged += (_, _) =>
-        {
-            var currentSize = window.Size;
-            var maximized = window.Maximized;
-            if (!maximized)
-            {
-                isMaximized = false;
-                lastNormalSize = currentSize;
-                pendingSize = currentSize;
-                sizeSaveTimer.Change(500, Timeout.Infinite);
-            }
-            else
-            {
-                isMaximized = true;
-            }
-        };
-        window.WindowMaximized += (_, _) =>
-        {
-            isMaximized = true;
-        };
-        window.WindowRestored += (_, _) =>
-        {
-            isMaximized = false;
-            var currentSize = window.Size;
-            lastNormalSize = currentSize;
-            pendingSize = currentSize;
-            sizeSaveTimer.Change(500, Timeout.Infinite);
-        };
-        window.WindowClosing += (_, _) =>
-        {
-            var currentSize = window.Size;
-            var maximized = isMaximized || window.Maximized;
-            SaveWindowSize(appMeta, maximized ? lastNormalSize : currentSize);
-            return RequestWindowClose(window);
-        };
+        window.WindowClosing += (_, _) => RequestWindowClose(window);
 
         if (!string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath))
         {
@@ -132,7 +96,6 @@ internal static class Program
 
         window.Load(startUrl);
         window.WaitForClose();
-        sizeSaveTimer.Dispose();
         Log("Window closed, stopping server.");
 
         server.StopAsync().GetAwaiter().GetResult();
@@ -163,11 +126,49 @@ internal static class Program
         return int.TryParse(env, out var port) ? port : 5588;
     }
 
-    private static Size ClampSize(Size size)
+    private static SavedWindowPlacement? LoadWindowPlacement(AppMetaRepository meta)
     {
-        var width = Math.Max(MinWidth, size.Width);
-        var height = Math.Max(MinHeight, size.Height);
-        return new Size(width, height);
+        try
+        {
+            var json = meta.GetValueAsync(WindowPlacementKey, CancellationToken.None).GetAwaiter().GetResult();
+            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SavedWindowPlacement>(json);
+        }
+        catch (Exception ex) { Log($"Failed to load window placement: {ex}"); return null; }
+    }
+
+    private static void SaveWindowPlacement(PhotinoWindow window)
+    {
+        try
+        {
+            var placement = OperatingSystem.IsWindows() ? WindowPlacement.Capture(window.WindowHandle) : null;
+            if (placement == null || _appMeta == null)
+            {
+                Log($"Window placement capture unavailable for {window.Id}; existing placement retained.");
+                return;
+            }
+            _appMeta.SetValueAsync(WindowPlacementKey, JsonSerializer.Serialize(placement), CancellationToken.None).GetAwaiter().GetResult();
+            SaveWindowSize(_appMeta, new Size(placement.Width, placement.Height));
+            Log($"Saved window placement for {window.Id}: {JsonSerializer.Serialize(placement)}");
+        }
+        catch (Exception ex) { Log($"Failed to save window placement: {ex}"); }
+    }
+
+    private static void RestoreWindowPlacement(PhotinoWindow window, SavedWindowPlacement? saved)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            // Photino 2.x processes startup coordinates before the native window
+            // exists. Reapply after creation, using the final DPI context and
+            // signed desktop coordinates (left/above-primary monitors included).
+            var monitors = WindowPlacement.GetMonitors();
+            var requested = WindowPlacement.Resolve(saved, monitors);
+            var before = WindowPlacement.Capture(window.WindowHandle);
+            WindowPlacement.Apply(window.WindowHandle, requested);
+            var actual = WindowPlacement.Capture(window.WindowHandle);
+            Log($"Window placement restore: saved={JsonSerializer.Serialize(saved)}, monitors={JsonSerializer.Serialize(monitors)}, before={JsonSerializer.Serialize(before)}, requested={JsonSerializer.Serialize(requested)}, actual={JsonSerializer.Serialize(actual)}");
+        }
+        catch (Exception ex) { Log($"Failed to restore native window placement: {ex}"); }
     }
 
     private static Size? LoadWindowSize(AppMetaRepository meta)
@@ -368,13 +369,18 @@ internal static class Program
 
         try
         {
+            var parentPlacement = OperatingSystem.IsWindows() ? WindowPlacement.Capture(parent.WindowHandle) : null;
+            var placement = WindowPlacement.Resolve(parentPlacement, WindowPlacement.GetMonitors());
             var child = new PhotinoWindow(parent)
                 .SetTitle("Glance")
                 .SetUseOsDefaultSize(false)
-                .SetSize(_initialWindowSize.Width, _initialWindowSize.Height)
+                .SetSize(placement.Width, placement.Height)
+                .SetUseOsDefaultLocation(false)
+                .SetLocation(new Point(placement.X, placement.Y))
                 .SetMinSize(MinWidth, MinHeight)
                 .SetResizable(true);
             child.RegisterWebMessageReceivedHandler(HandleWebMessage);
+            child.WindowCreated += (_, _) => RestoreWindowPlacement(child, parentPlacement);
             child.WindowClosing += (_, _) => RequestWindowClose(child);
             if (!string.IsNullOrWhiteSpace(_iconPath) && File.Exists(_iconPath))
             {
@@ -404,6 +410,7 @@ internal static class Program
             }
             if (state.AllowClose)
             {
+                SaveWindowPlacement(window);
                 Windows.Remove(window.Id);
                 return false;
             }

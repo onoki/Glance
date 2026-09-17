@@ -1,9 +1,6 @@
 <template>
   <div class="app-shell">
     <header class="top-nav">
-      <div class="brand">
-        <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
-      </div>
       <nav class="tabs">
         <button
           v-for="tab in tabs"
@@ -15,10 +12,13 @@
         >
           {{ tab }}
         </button>
-        <button class="tab new-window-tab" type="button" title="Open another view of these notes" @click="openNewWindow">
-          New window
-        </button>
       </nav>
+      <div class="brand">
+        <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
+        <button class="tab new-window-tab" type="button" aria-label="New window" title="Open another view of these notes" @click="openNewWindow">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 3V1h10v10h-2M1 5h10v10H1zM3 8h6" /></svg>
+        </button>
+      </div>
     </header>
 
     <main class="content">

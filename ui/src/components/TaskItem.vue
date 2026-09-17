@@ -1,6 +1,9 @@
 <template>
   <div
+    ref="taskRoot"
     class="task-item"
+    @mouseenter="positionTaskOverlay"
+    @focusin="positionTaskOverlay"
     :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash }"
     :draggable="false"
     :data-task-id="task.id"
@@ -26,7 +29,7 @@
       />
       <span></span>
     </label>
-    <div class="task-meta">
+    <div ref="taskMeta" class="task-meta" :style="overlayStyle">
       <div class="task-meta-labels">
         <span v-if="showScheduledDate" class="task-date">{{ task.scheduledDate }}</span>
         <span v-if="showOwnerPerson && task.ownerPersonName" class="task-context">{{ task.ownerPersonName }}</span>
@@ -265,7 +268,8 @@ const props = defineProps({
     default: null
   },
   focusTitleId: {
-    type: String,
+    // A task id, or a task id plus an exact selection after restructuring.
+    type: [String, Object],
     default: null
   },
   focusContentTarget: {
@@ -366,6 +370,25 @@ const dirty = ref(false);
 const saving = ref(false);
 const saveError = ref(null);
 const titleEditorRef = ref(null);
+const taskRoot = ref(null);
+const taskMeta = ref(null);
+const overlayStyle = ref({});
+let overlayObserver;
+
+function positionTaskOverlay() {
+  const root = taskRoot.value;
+  if (!root || !taskMeta.value || !root.matches(':hover, :focus-within')) return;
+  const rect = root.getBoundingClientRect();
+  const container = root.closest('.list-card, .person-task-list, .search-results, .history-view');
+  const bounds = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+  const left = Math.max(0, bounds.left, rect.left);
+  const right = Math.min(innerWidth, bounds.right - (container ? container.offsetWidth - container.clientWidth : 0), rect.right);
+  const top = Math.max(0, rect.top - taskMeta.value.offsetHeight);
+  overlayStyle.value = {
+    left: `${left}px`, top: `${top}px`, width: `${Math.max(0, right - left)}px`,
+    display: right <= left || rect.bottom < bounds.top || rect.top > Math.min(innerHeight, bounds.bottom) ? 'none' : ''
+  };
+}
 const contentEditorRef = ref(null);
 const forceSubcontent = ref(false);
 const contentFocused = ref(false);
@@ -568,12 +591,22 @@ const applySaveState = (state) => {
 // A category move can set up the destination before unmounting the source.
 // Mounted hooks run after that patch, once the old save owner has detached.
 onMounted(() => {
+  window.addEventListener('resize', positionTaskOverlay);
+  document.addEventListener('scroll', positionTaskOverlay, true);
+  overlayObserver = new ResizeObserver(positionTaskOverlay);
+  overlayObserver.observe(taskRoot.value);
   if (!props.readOnly) {
     saveRegistration = saveCoordinator.register(props.task.id, {
       save: ({ options }) => performSave(options),
       onStateChange: applySaveState
     });
   }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', positionTaskOverlay);
+  document.removeEventListener('scroll', positionTaskOverlay, true);
+  overlayObserver?.disconnect();
 });
 
 const saveNow = async (force = false, options = null) => {
@@ -733,6 +766,7 @@ const handleSplitToNewTask = async (payload) => {
     content: payload?.content,
     previousContent,
     remainingContent: payload?.remainingContent,
+    titleSelection: payload?.titleSelection,
     categoryId: props.categoryId
   });
 };
@@ -902,13 +936,15 @@ const toggleWeekday = (day) => {
 
 watch(
   () => props.focusTitleId,
-  async (id) => {
+  async (target) => {
+    const id = typeof target === 'string' ? target : target?.taskId;
     if (!id || id !== props.task.id) {
       return;
     }
     await nextTick();
-    titleEditorRef.value?.focus();
-  }
+    titleEditorRef.value?.focus(target?.selection);
+  },
+  { immediate: true }
 );
 
 watch(
@@ -920,7 +956,8 @@ watch(
     forceSubcontent.value = true;
     await nextTick();
     contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
-  }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -974,10 +1011,10 @@ watch(
 <style scoped>
 .task-item {
   display: grid;
-  grid-template-columns: 12px 1fr;
-  grid-template-rows: auto auto;
+  grid-template-columns: 12px minmax(0, 1fr);
+  grid-template-rows: auto;
   column-gap: 2px;
-  row-gap: 2px;
+  row-gap: 0;
   padding: 4px 0;
   border: none;
   background: transparent;
@@ -1038,7 +1075,7 @@ watch(
   cursor: pointer;
   width: 12px;
   height: 12px;
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 1;
 }
 
@@ -1072,17 +1109,26 @@ watch(
 }
 
 .task-meta {
+  position: fixed;
+  z-index: 20;
+  background: transparent;
+  visibility: hidden;
+  pointer-events: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 3px;
   min-width: 0;
   min-height: 18px;
   font-size: 0.7rem;
   color: var(--text-muted);
-  grid-column: 2;
-  grid-row: 1;
 }
+
+.task-item:hover .task-meta, .task-item:focus-within .task-meta { visibility: visible; }
+.task-item:hover .task-meta { z-index: 21; }
+.task-meta .task-date { background: var(--bg-panel); margin: 0; top: 0; padding: 0 2px; }
+.task-meta-labels > span { background: var(--bg-panel); pointer-events: auto; }
+.task-action-strip button, .task-action-strip .floating-menu { pointer-events: auto; }
 
 .task-meta-labels {
   display: flex;
@@ -1098,7 +1144,8 @@ watch(
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
   min-height: 18px;
 }
 
@@ -1189,11 +1236,12 @@ watch(
 }
 
 .task-body {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
   position: relative;
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 2;
 }
 

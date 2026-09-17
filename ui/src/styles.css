@@ -71,10 +71,16 @@ textarea {
 }
 
 .ProseMirror {
+  overflow-wrap: anywhere;
+  word-break: break-word;
   min-height: 0;
   outline: none;
   font-size: 0.9rem;
 }
+
+.rich-editor, .editor-surface { min-width: 0; max-width: 100%; }
+.ProseMirror:not(:focus) .compact-url { font-size: 0; }
+.ProseMirror:not(:focus) .compact-url::after { content: attr(data-short-label); font-size: var(--font-size-body, 11px); }
 
 .ProseMirror p {
   margin: 0;

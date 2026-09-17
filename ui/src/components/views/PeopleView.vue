@@ -1,5 +1,5 @@
 <template>
-  <section ref="peopleRoot" class="people-view dashboard">
+  <section ref="peopleRoot" class="people-view dashboard" @scroll.capture="keepTaskListsLeft">
     <header class="people-navigation">
       <button type="button" class="add-task" @click="addPerson">+ Person</button>
       <div class="people-tabs" role="tablist" aria-label="People">
@@ -28,6 +28,7 @@
             @click="selectPerson(person.id)"
           >
             {{ person.displayName }}
+            <span v-for="tag in tagsFor(person)" :key="tag.id" class="person-tag-dot" :style="{ backgroundColor: tagColor(tag.id) }" :title="tag.name" :aria-label="tag.name"></span>
           </button>
           <span class="person-tab-grip" aria-hidden="true">::</span>
         </div>
@@ -43,6 +44,9 @@
         </button>
       </div>
     </header>
+    <div v-if="directory.tags.length" class="people-tag-legend" aria-label="Person tag colors">
+      <span v-for="tag in directory.tags" :key="tag.id" class="people-tag-legend-item"><span class="person-tag-dot" :style="{ backgroundColor: tagColor(tag.id) }" aria-hidden="true"></span><span class="people-tag-label">{{ tag.name }}</span></span>
+    </div>
 
     <section v-if="viewMode === 'archived'" class="archive-panel" aria-label="Archived people">
       <header class="archive-header">
@@ -109,6 +113,7 @@
             :drop-position="dragOver.position"
             drag-category-id="people"
             :focus-title-id="focusTaskId"
+            :undo-signal="undoSignal"
             :focus-content-target="focusContentTarget"
             :highlight-id="navigationHighlightId"
             :highlight-nonce="navigationHighlightNonce"
@@ -157,6 +162,9 @@ import {
 } from "../../api/people.js";
 import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToDashboard } from "../../api/taskSend.js";
 import { usePeopleTasks } from "../../composables/usePeopleTasks.js";
+import { tagColor } from "../../utils/tagColor.js";
+import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
+import { flushAllSaves } from "../../services/saveCoordinator.js";
 
 const props = defineProps({
   navigationTarget: { type: Object, default: null }
@@ -195,6 +203,7 @@ const selectedTagNames = computed(() => {
 const {
   tasks,
   focusTaskId,
+  undoSignal,
   focusContentTarget,
   dragOver,
   loadTasks,
@@ -403,6 +412,7 @@ const tagNamesFor = (person) => {
   const ids = new Set(person.tagIds || []);
   return directory.value.tags.filter((tag) => ids.has(tag.id)).map((tag) => tag.name);
 };
+const tagsFor = (person) => directory.value.tags.filter((tag) => (person.tagIds || []).includes(tag.id));
 
 const sendDashboard = async (task) => {
   await sendTaskToDashboard(task.id);
@@ -457,17 +467,23 @@ onBeforeUnmount(() => {
 });
 
 const undoFromShortcut = async () => {
-  try { return await undo(); }
+  try {
+    if (!(await flushAllSaves()).ok) return false;
+    return await undo();
+  }
   catch (error) {
-    window.alert(error instanceof Error ? error.message : "Could not undo the People note deletion.");
+    window.alert(error instanceof Error ? error.message : "Could not undo the People note change.");
     return false;
   }
 };
 
 const redoFromShortcut = async () => {
-  try { return await redo(); }
+  try {
+    if (!(await flushAllSaves()).ok) return false;
+    return await redo();
+  }
   catch (error) {
-    window.alert(error instanceof Error ? error.message : "Could not redo the People note deletion.");
+    window.alert(error instanceof Error ? error.message : "Could not redo the People note change.");
     return false;
   }
 };
@@ -501,7 +517,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
 
 .people-navigation {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   padding: 3px 4px;
   border-bottom: 1px solid var(--border-panel);
@@ -514,8 +530,16 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
   gap: 1px;
   min-width: 0;
   flex: 1;
-  overflow-x: auto;
+  flex-wrap: wrap;
 }
+
+.people-navigation > .add-task { flex: 0 0 auto; font-family: inherit; font-size: var(--font-size-meta); font-weight: 400; }
+.person-tab { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.person-tab-shell { max-width: 100%; min-width: 0; }
+.person-tag-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; border: 1px solid #0003; }
+.people-tag-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 4px; font-size: var(--font-size-meta); }
+.people-tag-legend-item { display: inline-flex; align-items: center; gap: 3px; line-height: 1; }
+.people-tag-label { display: inline-block; line-height: 1; }
 
 .person-tab-shell {
   display: inline-flex;
@@ -552,7 +576,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
 .person-tags-menu { position: relative; }
 .person-tags-menu > summary { list-style: none; }
 .person-tags-menu > summary::-webkit-details-marker { display: none; }
-.tag-summary { max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--font-size-meta); padding: 1px 4px; }
+.tag-summary { max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: inherit; font-size: 0.75rem; padding: 2px 6px; line-height: normal; }
 
 .tag-menu-panel {
   position: absolute;

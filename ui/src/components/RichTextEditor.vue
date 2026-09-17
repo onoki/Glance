@@ -12,6 +12,8 @@ import { TextSelection } from "prosemirror-state";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
+import { CompactLinks, insertOutsideLink } from "../utils/editorLinks.js";
+import { toggleQuestionInParagraphs } from "../utils/questionMarker.js";
 import { uploadAttachment } from "../api/attachments.js";
 import RichTextToolbar from "./RichTextToolbar.vue";
 import {
@@ -103,7 +105,7 @@ const editorRef = useEditor({
     Highlight.configure({
       multicolor: true
     }),
-    Link.configure({
+    Link.extend({ inclusive: false }).configure({
       autolink: true,
       linkOnPaste: true,
       openOnClick: false,
@@ -119,7 +121,8 @@ const editorRef = useEditor({
       inline: true,
       allowBase64: false
     }),
-    StatusMetadata
+    StatusMetadata,
+    CompactLinks
   ],
   editorProps: {
     attributes: {
@@ -207,6 +210,7 @@ const editorRef = useEditor({
       return true;
     },
     handleTextInput(view, from, to, text) {
+      if (insertOutsideLink(view, from, to, text)) return true;
       const editor = editorRef?.value ?? editorRef;
       if (isTitle.value || !editor) {
         return false;
@@ -314,17 +318,21 @@ const editorRef = useEditor({
         }
         if (event.key === "3") {
           event.preventDefault();
-          return toggleLineHighlight(editor, "green");
+          return toggleQuestionAtSelection(editor);
         }
         if (event.key === "4") {
           event.preventDefault();
-          return toggleLineHighlight(editor, "yellow");
+          return toggleLineHighlight(editor, "green");
         }
         if (event.key === "5") {
           event.preventDefault();
+          return toggleLineHighlight(editor, "yellow");
+        }
+        if (event.key === "6") {
+          event.preventDefault();
           return toggleLineHighlight(editor, "red");
         }
-        if (event.key === "6" && props.allowStatusMarkers) {
+        if (event.key === "7" && props.allowStatusMarkers) {
           event.preventDefault();
           return toggleStatusAtSelection(editor, isTitle.value);
         }
@@ -341,6 +349,7 @@ const editorRef = useEditor({
               props.onSplitToNewTask({
                 title: splitPayload.title,
                 content: splitPayload.newTaskContent,
+                titleSelection: splitPayload.titleSelection,
                 remainingContent: splitPayload.remainingContent
               });
               editor.commands.setContent(splitPayload.remainingContent);
@@ -749,6 +758,15 @@ const getParagraphRangesForSelection = (editor) => {
   return Array.from(ranges.values());
 };
 
+const toggleQuestionAtSelection = (editor) => {
+  if (!editor) return false;
+  const ranges = getParagraphRangesForSelection(editor);
+  const tr = toggleQuestionInParagraphs(editor.state, ranges);
+  editor.view.dispatch(tr);
+  editor.commands.focus();
+  return ranges.length > 0;
+};
+
 const isParagraphFullyHighlighted = (paragraph, markType, color) => {
   let hasText = false;
   let fullyHighlighted = true;
@@ -813,7 +831,8 @@ const insertImageFromFile = async (editor, file) => {
   }
 };
 
-const focus = () => {
+const focus = (selection) => {
+  if (selection) editorInstance.value?.commands.setTextSelection(selection);
   editorInstance.value?.chain().focus().run();
 };
 
@@ -877,8 +896,9 @@ watch(
     if (!editor) {
       return;
     }
-    const current = editor.getJSON();
-    if (JSON.stringify(current) === JSON.stringify(value)) {
+    // Schema defaults and JSON property order can differ after a server refresh.
+    // Replacing equivalent content would reset a freshly restored selection.
+    if (editor.state.doc.eq(editor.schema.nodeFromJSON(value))) {
       return;
     }
     editor.commands.setContent(value, false);

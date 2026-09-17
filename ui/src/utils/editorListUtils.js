@@ -387,6 +387,28 @@ export const splitAtSelection = (editor) => {
   const current = listContent[listIndex];
   const after = removeEmptyItems(listContent.slice(listIndex + 1));
   const titleDoc = listItemToTitleDoc(current);
+  // Flattening paragraph boundaries into hard breaks changes document positions.
+  // Count inline node sizes, not text lengths, so images and breaks also retain
+  // their position relative to the caret in the promoted title.
+  const itemNode = $from.node(listItemDepth);
+  const itemStart = $from.start(listItemDepth);
+  const mapTitlePosition = (position) => {
+    let titlePosition = 1;
+    let result = null;
+    itemNode.forEach((node, offset) => {
+      if (node.type.name !== 'paragraph') return;
+      const paragraphStart = itemStart + offset + 1;
+      if (position >= paragraphStart && position <= paragraphStart + node.content.size) {
+        result = titlePosition + position - paragraphStart;
+      }
+      titlePosition += node.content.size + 1; // flattened hard break
+    });
+    return result ?? Math.max(1, titlePosition - 1);
+  };
+  const titleSelection = {
+    from: mapTitlePosition(editor.state.selection.from),
+    to: mapTitlePosition(editor.state.selection.to)
+  };
   const emptyDoc = {
     type: "doc",
     content: [{ type: "paragraph" }]
@@ -413,5 +435,5 @@ export const splitAtSelection = (editor) => {
       ]
     }
     : emptyDoc;
-  return { remainingContent: remaining, newTaskContent, title: titleDoc };
+  return { remainingContent: remaining, newTaskContent, title: titleDoc, titleSelection };
 };

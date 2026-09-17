@@ -794,7 +794,8 @@ export const useDashboardData = (options) => {
       categoryId,
       { suppressUndo: true }
     );
-    focusTaskId.value = newId;
+    focusTaskId.value = payload?.titleSelection
+      ? { taskId: newId, selection: payload.titleSelection } : newId;
 
     const newTask = getStoredTaskById(newId);
     const newLogicalId = newTask ? resolveLogicalId(newTask.id) : resolveLogicalId(newId);

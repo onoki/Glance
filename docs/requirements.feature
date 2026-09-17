@@ -80,7 +80,7 @@ Feature: Floating task ribbon
     Given I am on the dashboard tab
     And a task has focus
     When the task is focused
-    Then a floating ribbon appears below the task
+    Then a floating ribbon appears above the task
     And the ribbon provides an option to categorize the task
     And the ribbon provides an option to set or unset task recurrence
 
@@ -264,6 +264,8 @@ Feature: Task restructuring via Tab
     When I press Shift+Tab
     Then a new task is created below the current task
     And the sibling-level subcontent is moved to the new task
+    And the caret or selection stays at the same relative position in the promoted title
+    And this behavior is identical in Dashboard and People, including after a server refresh
 
 
 Feature: Arrow key navigation
@@ -299,7 +301,9 @@ Feature: Version visibility and update metadata
     Given the application is started
     When I view the settings tab
     Then I see the application version in the About section
-    And I see the application version in a footer area
+    And I see the application version at the top right of the window
+    And navigation tabs are aligned to the top left
+    And an accessible New window icon is beside the version on the right
 
   Scenario: App version persisted on startup
     Given the application is started
@@ -498,11 +502,11 @@ Feature: Keyboard shortcuts
 
   Scenario: Highlight shortcuts
     Given a rich text editor has focus
-    When I press Ctrl+3 or Cmd+3
-    Then green highlight is toggled for the whole line
     When I press Ctrl+4 or Cmd+4
-    Then yellow highlight is toggled for the whole line
+    Then green highlight is toggled for the whole line
     When I press Ctrl+5 or Cmd+5
+    Then yellow highlight is toggled for the whole line
+    When I press Ctrl+6 or Cmd+6
     Then red highlight is toggled for the whole line
     And if multiple subcontent lines are selected the highlight applies to each line
 
@@ -521,6 +525,14 @@ Feature: Window size
     Then the window size is restored
     And the minimum size is 100x100 pixels
     And if the window was maximized on close the last non-maximized size is restored
+    And the last normal window position is restored on the saved monitor
+    And a minimized window also restores its last normal bounds
+    And the restored window fits entirely inside that monitor's current work area
+    And if the saved monitor is absent the window is centered on the primary monitor
+    And normal bounds from the last successfully closed window are used for the next launch
+    And another window opened during the session also fits its current monitor
+    And normal X and Y coordinates survive closing on either horizontally adjacent monitor
+    And native window creation does not replace the restored coordinates with default placement
 
 Feature: UI cache
 
@@ -576,7 +588,7 @@ Feature: Project status updates
 
   Scenario: Marking status input
     Given a Dashboard or History task line has focus
-    When I press Ctrl+6 or Cmd+6
+    When I press Ctrl+7 or Cmd+7
     Then that title or subcontent line shows a durable status input marker
     And the whole task is included when status input is collected
 
@@ -601,6 +613,17 @@ Feature: Person-specific notes
     And I can create and assign user-defined tags
     And I can drag people tabs to reorder them
 
+  Scenario: Browsing many people
+    Given names do not fit on one navigation row
+    Then person buttons wrap onto additional rows
+    And each assigned tag appears as a small stable-colored dot beside a person's name
+    And hovering a dot reveals the tag name
+    And a shared legend explains the dot colors without repeating tag labels for every person
+    And no tag filters are required
+    And Tags, Rename, and Archive use the same button styling
+    And legend dots and their labels are vertically centered together
+    And the add-person button uses the common app font at regular weight
+
   Scenario: Completing a person note
     Given a note exists in a person's list
     When I mark the note complete
@@ -611,6 +634,8 @@ Feature: Person-specific notes
     Given I selected a person with no active notes
     Then an empty editable note is ready without pressing an add button
     And Enter, arrow navigation, merging, splitting, and drag ordering match Dashboard task behavior
+    And newly mounted title and subcontent editors receive requested keyboard focus
+    And text edits in different People notes support session Undo and Redo
 
   Scenario: Copying tasks between Dashboard and People
     Given a task exists in Dashboard or a person's list
@@ -624,6 +649,49 @@ Feature: Person-specific notes
     Then it appears in History with the person's name
     And it counts in History activity
 
+
+Feature: Compact task lists and long links
+
+  Scenario: Resizing and reading categories
+    Given I am on Dashboard
+    Then every category including New tasks can be resized with the mouse
+    And category widths are remembered
+    And expanding and restoring New tasks preserves its custom width
+    And task text stays aligned at the left of each category
+    And long text and URLs wrap even without spaces
+    And horizontal dashboard navigation across categories remains available
+
+  Scenario: Contextual overlays without layout jumps
+    Given a task is visible in Dashboard or People
+    When I hover or focus the task
+    Then its actions and date appear together on the right above the task
+    And opaque backgrounds appear only behind individual buttons and labels
+    And the unused overlay area is transparent and allows clicking the task underneath
+    And the overlay may cover earlier lines without reserving row height
+    And task and line positions do not change when the overlay appears or disappears
+    And actions stay within the visible horizontal portion of the category and window
+    And the delete action remains the rightmost action
+
+  Scenario: Compact URL presentation preserves data
+    Given an automatically linked URL is longer than 60 characters
+    When its editor is not focused
+    Then it may display the protocol and domain followed by an ellipsis
+    And focusing the editor reveals the full text for editing
+    And the full URL remains intact for copying, saving, exporting, and opening
+    And a custom link label is not replaced
+    And no external shortening service is used
+
+  Scenario: Typing beside a hyperlink
+    Given the caret is immediately before or after a hyperlink
+    When I type ordinary text or spaces
+    Then the new text is not part of the link
+    And the original hyperlink destination is unchanged
+
+  Scenario: Question marker shortcut
+    Given an editable task title or subcontent line has focus
+    When I press Ctrl+3 or Cmd+3
+    Then a colored question mark is toggled at the start of the line after checkbox and star markers
+    And the marker survives saving and reopening
 
 Feature: Data portability
 

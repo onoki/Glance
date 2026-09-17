@@ -36,3 +36,5 @@ Backup verification, restore behavior, retention, and recovery mode are document
 
 Useful editor shortcuts include Ctrl+B/Ctrl+I for formatting, Ctrl+K for web or file links, Ctrl+F for Search, and Ctrl+Z/Ctrl+Y for session undo/redo. In an editable note, Ctrl+click opens a hyperlink; links in read-only Search and History views open with a normal click.
 
+Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights, and Ctrl+7 marks Dashboard or History lines for status input. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized. People tabs wrap and use colored dots and a shared legend to show assigned tags.
+
