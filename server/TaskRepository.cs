@@ -140,7 +140,7 @@ public sealed partial class TaskRepository
         return new TaskCompleteResponse(completedAt);
     }
 
-    public async Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken)
+    public async Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken, long? baseUpdatedAt = null)
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
@@ -170,11 +170,18 @@ public sealed partial class TaskRepository
                 SET deleted_at = $deletedAt,
                     updated_at = $deletedAt
                 WHERE id = $id
-                  AND deleted_at IS NULL;
+                  AND deleted_at IS NULL
+                  AND ($baseUpdatedAt IS NULL OR updated_at = $baseUpdatedAt);
                 """;
             deleteTask.Parameters.AddWithValue("$deletedAt", now);
             deleteTask.Parameters.AddWithValue("$id", taskId);
-            await deleteTask.ExecuteNonQueryAsync(cancellationToken);
+            deleteTask.Parameters.AddWithValue("$baseUpdatedAt", (object?)baseUpdatedAt ?? DBNull.Value);
+            if (await deleteTask.ExecuteNonQueryAsync(cancellationToken) == 0 && baseUpdatedAt.HasValue)
+            {
+                deleteTask.CommandText = "SELECT updated_at FROM tasks WHERE id = $id;";
+                var current = Convert.ToInt64(await deleteTask.ExecuteScalarAsync(cancellationToken));
+                throw new TaskWriteConflictException(taskId, current);
+            }
         }
 
         await InsertChangeAsync(connection, transaction, taskId, "delete", now);

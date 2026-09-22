@@ -1,4 +1,25 @@
 import assert from "node:assert/strict";
+import { createTagColorSaver } from "../src/utils/tagColor.js";
+
+// The native picker streams input events; the final color must win on disk.
+const colorWrites = [];
+let finishFirstColor;
+const saveColor = createTagColorSaver(async (id, color) => {
+  colorWrites.push([id, color]);
+  if (colorWrites.length === 1) await new Promise(resolve => { finishFirstColor = resolve; });
+});
+const firstColor = saveColor('team', '#112233');
+const middleColor = saveColor('team', '#445566');
+const lastColor = saveColor('team', '#778899');
+await saveColor('other', '#abcdef');
+finishFirstColor();
+assert.deepEqual(await Promise.all([firstColor, middleColor, lastColor]), ['#778899', '#778899', '#778899']);
+assert.deepEqual(colorWrites, [['team', '#112233'], ['other', '#abcdef'], ['team', '#778899']]);
+let failColor = true;
+const retryColor = createTagColorSaver(async () => { if (failColor) throw new Error('offline'); });
+await assert.rejects(retryColor('team', '#112233'), /offline/);
+failColor = false;
+assert.equal(await retryColor('team', '#445566'), '#445566', 'failed saves must allow a later retry');
 import { ref } from "vue";
 import { usePeopleTasks } from "../src/composables/usePeopleTasks.js";
 
@@ -151,3 +172,14 @@ await assert.rejects(() => peopleTasks.undo(), /changed elsewhere/, "undo must n
 await peopleTasks.splitSubcontentToNewTask(editTarget, { title: textDoc('Promoted subtask'), content: emptyDoc(), titleSelection: { from: 8, to: 8 } });
 assert.deepEqual(peopleTasks.focusTaskId.value.selection, { from: 8, to: 8 });
 assert.ok(peopleTasks.tasks.value.some(task => task.id === peopleTasks.focusTaskId.value.taskId));
+
+// Clipboard history belongs to the window, not a mounted People view.
+const sharedHistory = { undo: [], redo: [] };
+let clipboardUndos = 0;
+const firstMount = usePeopleTasks({ selectedPersonId: ref('person-one'), api, history: sharedHistory });
+firstMount.recordClipboard({ undo: async () => { clipboardUndos++; }, redo: async () => {} });
+const remountedPerson = ref('person-two');
+const secondMount = usePeopleTasks({ selectedPersonId: remountedPerson, api, history: sharedHistory });
+await secondMount.undo();
+assert.equal(clipboardUndos, 1);
+assert.equal(remountedPerson.value, 'person-one');

@@ -6,7 +6,7 @@ export const createTask = (payload) => apiPost("/api/tasks", payload);
 
 export const updateTask = (id, payload) => apiPut(`/api/tasks/${id}`, payload);
 
-export const deleteTask = (id) => apiDelete(`/api/tasks/${id}`);
+export const deleteTask = (id, baseUpdatedAt) => apiDelete(`/api/tasks/${id}${Number.isFinite(baseUpdatedAt) ? `?baseUpdatedAt=${baseUpdatedAt}` : ''}`);
 
 export const restoreTask = (id) => apiPost(`/api/tasks/${id}/restore`, {});
 

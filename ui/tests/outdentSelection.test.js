@@ -45,3 +45,26 @@ assert.deepEqual(split([paragraph([schema.text('First')]), rich], 1, 8).titleSel
 assert.deepEqual(split([rich], 0, 6, 10).titleSelection, { from: 7, to: 11 });
 assert.deepEqual(split([paragraph([])], 0, 0).titleSelection, { from: 1, to: 1 });
 console.log('Outdent preserves caret and selection across rich inline content and paragraphs');
+
+const nestedDoc = schema.node('doc', null, [schema.node('bulletList', null, [
+  item([paragraph([schema.text('Parent')]), schema.node('bulletList', null, [item([paragraph([schema.text('Nested child')])])])]),
+  item([paragraph([schema.text('Next sibling')])])
+])]);
+const nestedState = EditorState.create({ schema, doc: nestedDoc, selection: TextSelection.create(nestedDoc, 5) });
+const nestedSplit = splitAtSelection({ state: nestedState, getJSON: () => nestedDoc.toJSON() });
+assert.match(JSON.stringify(nestedSplit.newTaskContent), /Nested child/);
+assert.match(JSON.stringify(nestedSplit.newTaskContent), /Next sibling/);
+
+const { sinkListItem } = await import('prosemirror-schema-list');
+const multiline = schema.node('doc', null, [schema.node('bulletList', null, [
+  item([paragraph([schema.text('First line')])]),
+  item([paragraph([schema.text('Second'), schema.node('hardBreak'), schema.text('Continuation')])]),
+  item([paragraph([schema.text('Third line')])])
+])]);
+for (const first of [true, false]) {
+  const pos = first ? 4 : multiline.child(0).child(0).nodeSize + 4;
+  let state = EditorState.create({ schema, doc: multiline, selection: TextSelection.create(multiline, pos) });
+  const changed = sinkListItem(schema.nodes.listItem)(state, tr => { state = state.apply(tr); });
+  assert.equal(changed, !first);
+  assert.equal(state.doc.textContent, multiline.textContent, 'indent never removes later lines');
+}

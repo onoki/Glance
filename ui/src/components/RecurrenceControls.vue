@@ -69,7 +69,7 @@ const handleMonthDaysInput = (event) => {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
 }
 
@@ -82,7 +82,7 @@ const handleMonthDaysInput = (event) => {
   border-radius: 0;
   padding: 2px 8px;
   background: var(--bg-panel);
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   font-family: inherit;
 }
 
@@ -98,7 +98,7 @@ const handleMonthDaysInput = (event) => {
   color: var(--text-main);
   padding: 2px 6px;
   border-radius: 0;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   cursor: pointer;
 }
 
@@ -119,7 +119,7 @@ const handleMonthDaysInput = (event) => {
   border-radius: 0;
   padding: 2px 8px;
   background: var(--bg-panel);
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   width: 120px;
 }
 </style>

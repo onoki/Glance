@@ -3,7 +3,6 @@ import {
   fetchMaintenanceStatus,
   fetchVersion,
   fetchWarnings,
-  installUpdate,
   resetRecurrence,
   triggerBackup,
   triggerReindex
@@ -17,8 +16,6 @@ export const useMaintenance = () => {
   const isReindexing = ref(false);
   const backupStatus = ref("");
   const reindexStatus = ref("");
-  const updateStatus = ref("");
-  const isUpdating = ref(false);
   const isResettingRecurrence = ref(false);
   const recurrenceStatus = ref("");
   const maintenanceStatus = ref({
@@ -108,22 +105,6 @@ export const useMaintenance = () => {
     }
   };
 
-  const applyUpdate = async (file) => {
-    if (!file || isUpdating.value) {
-      return;
-    }
-    isUpdating.value = true;
-    updateStatus.value = "";
-    try {
-      const response = await installUpdate(file);
-      updateStatus.value = response.message || "Update staged. Restarting...";
-    } catch (error) {
-      updateStatus.value = error?.message || "Update failed. Check the server logs.";
-    } finally {
-      isUpdating.value = false;
-    }
-  };
-
   const resetRecurrenceGeneration = async () => {
     if (isResettingRecurrence.value) {
       return;
@@ -149,10 +130,8 @@ export const useMaintenance = () => {
     backupNow,
     backupStatus,
     dismissWarning,
-    applyUpdate,
     isBackingUp,
     isReindexing,
-    isUpdating,
     isResettingRecurrence,
     loadMaintenanceStatus,
     loadVersion,
@@ -162,7 +141,6 @@ export const useMaintenance = () => {
     reindexSearch,
     reindexStatus,
     resetRecurrenceGeneration,
-    updateStatus,
     visibleWarnings
   };
 };

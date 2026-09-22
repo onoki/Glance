@@ -112,9 +112,14 @@ internal static class TaskEndpoints
                 : Results.Ok(response);
         });
 
-        app.MapDelete("/api/tasks/{taskId}", async (string taskId, TaskRepository tasks, CancellationToken token) =>
+        app.MapDelete("/api/tasks/{taskId}", async (string taskId, long? baseUpdatedAt, TaskRepository tasks, CancellationToken token) =>
         {
-            var deleted = await tasks.DeleteTaskAsync(taskId, token);
+            bool deleted;
+            try { deleted = await tasks.DeleteTaskAsync(taskId, token, baseUpdatedAt); }
+            catch (TaskWriteConflictException ex)
+            {
+                return Results.Conflict(new { error = "Conflict", message = "This task changed in another window. It was not deleted.", currentUpdatedAt = ex.CurrentUpdatedAt });
+            }
             return deleted
                 ? Results.Ok(new { ok = true })
                 : Results.NotFound(new { error = "NotFound", message = "Task not found" });

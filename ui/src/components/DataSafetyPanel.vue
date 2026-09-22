@@ -13,7 +13,7 @@
     </div>
 
     <section class="settings-subsection">
-      <h3>Snapshots</h3>
+      <h3>Backups</h3>
       <p>
         Glance keeps verified local snapshots. By default it retains 48 hourly, 30 daily,
         and 12 monthly restore points; unchanged hours do not create duplicates.
@@ -48,7 +48,7 @@
       </label>
       <div class="settings-actions">
         <button class="ghost" :disabled="isTestingBackupLocation" @click="testLocation">
-          {{ isTestingBackupLocation ? "Testing..." : "Test location availability and write permissions." }}
+          {{ isTestingBackupLocation ? "Testing..." : "Test backup location" }}
         </button>
         <button class="ghost" :disabled="isSavingDataSafety" @click="saveSettings">
           {{ isSavingDataSafety ? "Saving..." : "Save backup settings" }}
@@ -59,7 +59,7 @@
     <section class="settings-subsection restore-section">
       <h3>Restore an earlier snapshot</h3>
       <p>
-        Choose an actual snapshot below. Restoring replaces notes, people, images, and status JSON
+        Choose a restore point below. Restoring replaces notes, people, images, and status updates
         with that snapshot; Glance first makes an emergency backup of the current state.
       </p>
       <label v-if="backups.length" class="restore-picker">
@@ -212,7 +212,7 @@ const backupCopies = (backup) => [backup.hasLocalCopy ? "local" : null, backup.h
 </script>
 
 <style scoped>
-.data-safety-panel { display: grid; gap: var(--pad-md); }
+.data-safety-panel { display: grid; gap: 8px; }
 .data-safety-panel p, .data-safety-panel h3 { margin: 0; }
 .settings-subsection { display: grid; gap: var(--pad-sm); }
 .settings-subsection + .settings-subsection { padding-top: var(--pad-md); border-top: 1px solid var(--border-panel); }

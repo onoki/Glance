@@ -110,3 +110,18 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(coordinator.getSummary().tasks.length, 0);
 }
 
+
+{
+  const coordinator = new SaveCoordinator();
+  let fail;
+  const handle = coordinator.register("deleted", { save: () => new Promise((_, reject) => { fail = reject; }) });
+  handle.markDirty();
+  const pending = handle.flush();
+  await Promise.resolve();
+  coordinator.forget("deleted");
+  fail(Object.assign(new Error("Task not found"), { status: 404 }));
+  assert.equal(await pending, true);
+  await handle.unregister();
+  assert.equal((await coordinator.flushAll()).ok, true, "a deleted task cannot block closing");
+  assert.equal(coordinator.getSummary().tasks.length, 0);
+}

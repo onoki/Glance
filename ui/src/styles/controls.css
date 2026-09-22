@@ -1,0 +1,67 @@
+/* Shared control system. BigBlue's 12px grid at 150%: 8 CSS px = 12 device px. */
+body { font-size: var(--font-size-body); font-synthesis: none; }
+/* One final rule for both groups: imported legacy styles must not split them. */
+#app .top-nav :is(.tabs, .brand) { gap: 1px; }
+#app .brand-version { margin-right: 7px; }
+#app .task-item .ProseMirror { color: var(--text-main); }
+#app .task-item.completed .ProseMirror { color: var(--text-muted); }
+#app :is(button, summary, input, select, textarea) {
+  font-family: var(--font-ui);
+  font-size: var(--font-size-meta) !important;
+  font-weight: 400 !important;
+  font-style: normal;
+}
+#app :is(button, .tag-summary) {
+  box-sizing: border-box;
+  min-height: 16px;
+  line-height: 12px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-panel);
+  border-radius: 0;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  box-shadow: none;
+  cursor: pointer;
+}
+#app :is(button, .tag-summary):hover { background: var(--bg-tab-active); }
+#app :is(button, summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--focus-outline); outline-offset: 1px;
+}
+#app button:disabled { opacity: .5; cursor: default; }
+#app :is(.add-task, .tab.active, .person-tab.active, .weekday-chip.active) {
+  background: var(--text-main); color: var(--text-invert);
+}
+#app :is(.danger-button, .delete-task, button[title="Delete tag"]) {
+  color: #a02020; border-color: #a02020;
+}
+#app :is(.task-icon-button, .task-tool, .new-window-button) {
+  width: 16px; min-width: 16px; height: 16px; padding: 0;
+}
+#app .empty-new { border-style: dashed; background: transparent; cursor: text; }
+#app .task-meta { min-height: 16px; }
+#app .sent-marker-slot { width: 16px; height: 16px; }
+#app :is(.task-meta, .task-context, .task-date, .task-save-warning, .task-popover-title,
+  .tag-summary, .version, .category-title, .weekday-header, .empty-message) {
+  font-size: var(--font-size-meta); font-weight: 400;
+}
+#app .ProseMirror { font-size: var(--font-size-body); font-synthesis: weight style; }
+#app .tag-menu-row input[type="color"] { width: 32px; height: 16px; padding: 1px; }
+
+#app :is(h1, h2, h3, h4, strong, b, em):not(.ProseMirror *) { font-weight: 400; font-style: normal; }
+
+/* Narrow whole-task selector: 8px plus the existing 2px column gap. */
+#app .task-select-handle {
+  grid-column: 1; grid-row: 1; width: 8px; min-width: 8px;
+  height: 16px; min-height: 16px; padding: 0; margin: 0;
+  border: 0; border-radius: 0;
+  background: repeating-linear-gradient(to bottom, var(--text-muted) 0 2px, transparent 2px 4px) center / 2px 12px no-repeat;
+}
+#app .task-select-handle:hover, #app .task-select-handle[aria-pressed="true"] {
+  background-color: var(--bg-tab-active);
+}
+#app .task-select-handle[draggable="true"] { cursor: grab; }
+#app .task-select-handle[draggable="true"]:active { cursor: grabbing; }
+#app .header-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; flex: 0 0 20px;
+}

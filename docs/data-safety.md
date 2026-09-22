@@ -5,7 +5,7 @@ Glance treats the database, note images, and retained status JSON as one recover
 ## Automatic safeguards
 
 - Before migrations, Glance opens the existing database read-only and checks SQLite structure, foreign keys, supported schema version, rich-note JSON, and referenced files. Migrations do not run if this check fails.
-- A verified pre-migration backup is required before an upgrade can change the database. Updates similarly require a verified pre-update backup.
+- A verified pre-migration backup is required before an upgrade can change the database. For a manual app upgrade, close all windows and copy the application files while preserving the existing data folders; the database is migrated on the next launch.
 - A failed startup check enters recovery mode. Glance leaves the database, WAL, and SHM files untouched and blocks note-changing APIs.
 - Glance never automatically runs `VACUUM` as a repair or swaps in a rebuilt database. In SQLite, `VACUUM` means rebuilding the database into a compact copy; it is useful maintenance in some applications, but an automatic rebuild could hide damage or discard evidence needed for recovery.
 - Every connection enables SQLite foreign-key enforcement.

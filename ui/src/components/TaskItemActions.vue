@@ -83,7 +83,7 @@ const emitDragStart = (event) => {
   color: var(--text-main);
   padding: 2px 6px;
   border-radius: 0;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -94,7 +94,7 @@ const emitDragStart = (event) => {
   color: var(--text-muted);
   border-radius: 0;
   padding: 0 6px;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body);
   line-height: 1.2rem;
   cursor: grab;
   user-select: none;

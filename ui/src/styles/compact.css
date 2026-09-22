@@ -1,22 +1,22 @@
 /* =========================
-   PxPlus IBM VGA - Compact UI
+   BigBlue TerminalPlus - Compact UI
    ========================= */
 
 /* 1) Font loading */
 @font-face {
-  font-family: "PxPlus IBM VGA";
-  src: url("/assets/fonts/PxPlus_IBM_VGA8.ttf") format("truetype");
+  font-family: "BigBlue TerminalPlus";
+  src: url("/assets/fonts/BigBlue_TerminalPlus.ttf") format("truetype");
   font-weight: normal;
   font-style: normal;
 }
   
   /* 2) Global variables */
 :root {
-  --font-ui: "PxPlus IBM VGA", sans-serif;
+  --font-ui: "BigBlue TerminalPlus", sans-serif;
 
-  --font-size-body: 11px;
-  --font-size-meta: 10px;
-  --font-size-title: 11px;
+  --font-size-body: 8px;
+  --font-size-meta: 8px;
+  --font-size-title: 8px;
 
   --line-height-body: 1.25;
 
@@ -33,7 +33,7 @@
 
   --text-main: #1a1d21;
   --text-muted: #5b636b;
-  --text-title: #0f1216;
+  --text-title: var(--text-main);
   --text-invert: #f7f8f9;
   --text-warning: #574735;
 
@@ -172,7 +172,7 @@ body {
 }
 
 .dashboard .category-title {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   letter-spacing: 0.02em;
   margin: 0;
 }
@@ -182,7 +182,7 @@ body {
   top: 0;
   z-index: 1;
   background: var(--bg-app);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   padding: var(--pad-xs) 0;
   text-transform: uppercase;

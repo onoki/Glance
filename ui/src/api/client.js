@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env?.VITE_API_BASE || "";
+export const absoluteApiUrl = (path) => new URL(`${API_BASE}${path}`, window.location.origin).href;
 
 const networkError = (method, path, error) => {
   const origin = API_BASE || window.location.origin;

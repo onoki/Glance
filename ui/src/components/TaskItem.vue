@@ -2,9 +2,10 @@
   <div
     ref="taskRoot"
     class="task-item"
-    @mouseenter="positionTaskOverlay"
     @focusin="positionTaskOverlay"
-    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash }"
+    @click="actionDismissal.interact($event)"
+    @keydown="actionDismissal.interact($event)"
+    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected }"
     :draggable="false"
     :data-task-id="task.id"
     @dragstart="handleDragStart"
@@ -19,6 +20,14 @@
       class="drop-indicator"
       :class="{ after: dropPosition === 'after' }"
     ></div>
+    <button
+      v-if="clipboardAdapter && !readOnly" ref="selectionHandle" type="button"
+      class="task-select-handle" aria-label="Select whole task" :aria-pressed="wholeTaskSelected"
+      title="Select whole task · Drag to reorder · Ctrl+click to add · Shift+click for range · Ctrl+Shift+Space from text"
+      :draggable="draggable && !clipboardBusy"
+      @dragstart.stop="handleDragStart" @dragend.stop="handleDragEnd"
+      :disabled="clipboardBusy" @click.stop="taskClipboard.select(task.id, $event)"
+    ></button>
     <label class="task-check" :title="completionActionLabel">
       <input
         type="checkbox"
@@ -29,7 +38,7 @@
       />
       <span></span>
     </label>
-    <div ref="taskMeta" class="task-meta" :style="overlayStyle">
+    <div v-show="!actionsDismissed" ref="taskMeta" class="task-meta" :style="overlayStyle" :inert="actionsDismissed">
       <div class="task-meta-labels">
         <span v-if="showScheduledDate" class="task-date">{{ task.scheduledDate }}</span>
         <span v-if="showOwnerPerson && task.ownerPersonName" class="task-context">{{ task.ownerPersonName }}</span>
@@ -37,7 +46,7 @@
       </div>
       <div class="task-action-strip" aria-label="Task actions">
         <button
-          v-if="draggable && !readOnly"
+          v-if="draggable && !readOnly && !clipboardAdapter"
           type="button"
           class="drag-handle task-icon-button contextual-task-action"
           aria-label="Reorder task"
@@ -149,13 +158,12 @@
     </div>
     <div class="task-body">
       <div class="title-row">
-        <span class="title-bullet" aria-hidden="true">•</span>
         <RichTextEditor
           ref="titleEditorRef"
           class="title-editor"
           v-model="title"
           mode="title"
-          :editable="!readOnly"
+          :editable="!readOnly && !clipboardBusy"
           :on-dirty="handleTitleDirty"
           :on-split-to-new-task="noopSplit"
           :on-key-down="handleTitleKeydown"
@@ -182,7 +190,7 @@
         ref="contentEditorRef"
         class="content-editor"
         v-model="content"
-        :editable="!readOnly"
+        :editable="!readOnly && !clipboardBusy"
         :on-dirty="handleContentDirty"
         :on-split-to-new-task="handleSplitToNewTask"
         :on-key-down="handleContentKeydown"
@@ -206,7 +214,9 @@
 </template>
 
 <script setup>
+import { taskClipboard } from "../services/taskClipboard.js";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
 import RichTextEditor from "./RichTextEditor.vue";
 import RecurrenceControls from "./RecurrenceControls.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
@@ -215,6 +225,7 @@ import { hasStatusMarker, toggleWholeTaskStatus } from "../utils/statusMetadata.
 import { saveCoordinator } from "../services/saveCoordinator.js";
 
 const props = defineProps({
+  clipboardAdapter: { type: Object, default: null },
   task: {
     type: Object,
     required: true
@@ -371,13 +382,31 @@ const saving = ref(false);
 const saveError = ref(null);
 const titleEditorRef = ref(null);
 const taskRoot = ref(null);
+const selectionHandle = ref(null);
+const wholeTaskSelected = computed(() => taskClipboard.selected.value.has(props.task.id));
+const clipboardBusy = computed(() => taskClipboard.busy.value);
+let unregisterClipboard;
 const taskMeta = ref(null);
+const actionsDismissed = ref(false);
+const actionDismissal = createTaskActionDismissal((dismissed) => {
+  actionsDismissed.value = dismissed;
+  if (dismissed) {
+    closeTaskMenus();
+    // Hide synchronously: a native activation click can precede Vue's next patch.
+    if (taskMeta.value) {
+      taskMeta.value.style.display = 'none';
+      taskMeta.value.inert = true;
+    }
+  } else {
+    nextTick(positionTaskOverlay);
+  }
+});
 const overlayStyle = ref({});
 let overlayObserver;
 
 function positionTaskOverlay() {
   const root = taskRoot.value;
-  if (!root || !taskMeta.value || !root.matches(':hover, :focus-within')) return;
+  if (actionsDismissed.value || !root || !taskMeta.value || !root.matches(':focus-within')) return;
   const rect = root.getBoundingClientRect();
   const container = root.closest('.list-card, .person-task-list, .search-results, .history-view');
   const bounds = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
@@ -591,7 +620,15 @@ const applySaveState = (state) => {
 // A category move can set up the destination before unmounting the source.
 // Mounted hooks run after that patch, once the old save owner has detached.
 onMounted(() => {
+  if (props.clipboardAdapter && !props.readOnly) {
+    unregisterClipboard = taskClipboard.register(props.task.id, {
+      adapter: props.clipboardAdapter, element: () => taskRoot.value,
+      handle: () => selectionHandle.value, snapshot,
+      focusEditor: () => titleEditorRef.value?.focus()
+    });
+  }
   window.addEventListener('resize', positionTaskOverlay);
+  window.addEventListener('blur', actionDismissal.blur);
   document.addEventListener('scroll', positionTaskOverlay, true);
   overlayObserver = new ResizeObserver(positionTaskOverlay);
   overlayObserver.observe(taskRoot.value);
@@ -605,6 +642,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', positionTaskOverlay);
+  window.removeEventListener('blur', actionDismissal.blur);
+  unregisterClipboard?.();
   document.removeEventListener('scroll', positionTaskOverlay, true);
   overlayObserver?.disconnect();
 });
@@ -670,6 +709,9 @@ const handleContentBlur = () => {
 
 const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
   props,
+  onDelete: handleDelete,
+  revealContent: () => { forceSubcontent.value = true; },
+  onContentChanged: markDirty,
   titleRef: title,
   contentRef: content,
   titleEditorRef,
@@ -694,14 +736,18 @@ const toggleComplete = async () => {
   }
 };
 
-const handleDelete = () => {
-  props.onDelete?.(props.task);
-};
+let deleting = false;
+async function handleDelete() {
+  if (deleting) return;
+  deleting = true;
+  try { await props.onDelete?.(snapshot()); }
+  finally { deleting = false; }
+}
 
 const isEditorTarget = (event) =>
   !!event?.target?.closest?.(".ProseMirror, .editor-surface");
 
-const isHandleTarget = (event) => !!event?.target?.closest?.(".drag-handle");
+const isHandleTarget = (event) => !!event?.target?.closest?.(".drag-handle, .task-select-handle");
 
 const handleDragStart = (event) => {
   if (!props.draggable || !props.onDragStart) {
@@ -1010,6 +1056,7 @@ watch(
 
 <style scoped>
 .task-item {
+  --task-title-line-height: calc(var(--font-size-title) * var(--line-height-body));
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);
   grid-template-rows: auto;
@@ -1021,6 +1068,11 @@ watch(
   align-items: start;
   position: relative;
 }
+
+.task-item.has-task-selector { grid-template-columns: 8px 12px minmax(0, 1fr); }
+.has-task-selector .task-check { grid-column: 2; }
+.has-task-selector .task-body { grid-column: 3; }
+.task-item.whole-task-selected { background: var(--bg-tab-active); outline: 1px solid var(--focus-outline); }
 
 .task-item.task-highlight {
   background: transparent;
@@ -1070,7 +1122,7 @@ watch(
   display: grid;
   place-items: center;
   align-self: flex-start;
-  padding-top: 1px;
+  margin-top: max(0px, calc((var(--task-title-line-height) - 12px) / 2));
   position: relative;
   cursor: pointer;
   width: 12px;
@@ -1120,12 +1172,12 @@ watch(
   gap: 3px;
   min-width: 0;
   min-height: 18px;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
 }
 
-.task-item:hover .task-meta, .task-item:focus-within .task-meta { visibility: visible; }
-.task-item:hover .task-meta { z-index: 21; }
+.task-item:focus-within .task-meta { visibility: visible; }
+
 .task-meta .task-date { background: var(--bg-panel); margin: 0; top: 0; padding: 0 2px; }
 .task-meta-labels > span { background: var(--bg-panel); pointer-events: auto; }
 .task-action-strip button, .task-action-strip .floating-menu { pointer-events: auto; }
@@ -1157,7 +1209,7 @@ watch(
   height: 18px;
   display: inline-flex;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   line-height: 1;
 }
 
@@ -1183,7 +1235,6 @@ watch(
   pointer-events: none;
 }
 
-.task-item:hover .contextual-task-action,
 .task-item:focus-within .contextual-task-action {
   visibility: visible;
   pointer-events: auto;
@@ -1194,13 +1245,13 @@ watch(
   background: var(--bg-tab-active);
 }
 
-.sent-mark { color: #386a4a; font-weight: 700; }
+.sent-mark { color: var(--text-main); font-weight: 400; }
 .task-context {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
 }
 .task-popover-wrap { position: relative; }
@@ -1224,10 +1275,10 @@ watch(
   width: 230px;
   max-height: min(360px, calc(100vh - 8px));
   overflow-y: auto;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
 }
 
-.task-popover-title { font-size: 0.7rem; font-weight: 400; color: var(--text-muted); }
+.task-popover-title { font-size: var(--font-size-body); font-weight: 400; color: var(--text-muted); }
 .task-menu-option { display: flex; align-items: center; gap: 4px; min-height: 18px; }
 .task-menu-option input { margin: 0; }
 
@@ -1250,18 +1301,8 @@ watch(
   align-items: flex-start;
   gap: 2px;
   padding-right: 0;
+  padding-top: max(0px, calc((12px - var(--task-title-line-height)) / 2));
   position: relative;
-}
-
-.title-bullet {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  color: var(--text-muted);
-  font-size: 0.95rem;
-  line-height: 1;
-  flex: 0 0 12px;
 }
 
 .title-editor {
@@ -1273,6 +1314,7 @@ watch(
 }
 
 .title-editor :deep(.ProseMirror) {
+  line-height: var(--task-title-line-height);
   font-weight: 400;
   font-size: var(--task-title-size, 1rem);
   color: var(--text-title);
@@ -1304,7 +1346,7 @@ watch(
   border-left: 2px solid var(--text-warning);
   color: var(--text-main);
   background: var(--bg-panel);
-  font-size: 0.72rem;
+  font-size: var(--font-size-body);
   line-height: 1.25;
 }
 
@@ -1369,7 +1411,7 @@ watch(
   background: var(--bg-panel);
   color: var(--text-main);
   border-radius: 0;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   line-height: 1;
   padding: 2px 6px;
   cursor: pointer;

@@ -15,7 +15,10 @@
       </nav>
       <div class="brand">
         <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
-        <button class="tab new-window-tab" type="button" aria-label="New window" title="Open another view of these notes" @click="openNewWindow">
+        <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 3 1-2h4l1 2 2 1 2-1 3 3-1 2 1 2 2 1v4l-2 1-1 2 1 2-3 3-2-1-2 1-1 2h-4l-1-2-2-1-2 1-3-3 1-2-1-2-2-1v-4l2-1 1-2-1-2 3-3 2 1z" transform="translate(1 0) scale(.9)" /><circle cx="12" cy="12" r="3" /></svg>
+        </button>
+        <button class="tab new-window-tab header-icon-button" type="button" aria-label="New window" title="Open another view of these notes" @click="openNewWindow">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 3V1h10v10h-2M1 5h10v10H1zM3 8h6" /></svg>
         </button>
       </div>
@@ -72,6 +75,7 @@
       <PeopleView
         v-else-if="activeTab === 'People'"
         ref="peopleViewRef"
+        :task-history="peopleTaskHistory"
         :navigation-target="peopleNavigationTarget"
         @directory-change="peopleDirectory = $event"
         @history-change="loadHistory"
@@ -101,14 +105,11 @@
         :reindex-status="reindexStatus"
         :maintenance-status="maintenanceStatus"
         :app-version="appVersion"
-        :is-updating="isUpdating"
         :is-resetting-recurrence="isResettingRecurrence"
         :recurrence-status="recurrenceStatus"
-        :update-status="updateStatus"
         :on-backup-now="backupNow"
         :on-reindex-search="reindexSearch"
         :on-reset-recurrence="resetRecurrenceGeneration"
-        :on-apply-update="applyUpdateSafely"
         :on-prepare-data-action="prepareAllWindows"
         :on-pick-backup-folder="pickBackupFolder"
         :on-restart-for-restore="restartForPendingRestore"
@@ -123,6 +124,8 @@
 </template>
 
 <script setup>
+import { taskClipboard } from './services/taskClipboard.js';
+import { createTaskClipboardAdapter } from './services/taskClipboardAdapter.js';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
 import DashboardView from "./components/views/DashboardView.vue";
@@ -152,7 +155,7 @@ import {
   restartForPendingRestore
 } from "./services/desktopLifecycle.js";
 
-const tabs = ["Dashboard", "People", "Status Updates", "History", "Search", "Settings"];
+const tabs = ["Dashboard", "People", "Status Updates", "History", "Search"];
 const activeTab = ref("Dashboard");
 const peopleDirectory = ref({ people: [], tags: [] });
 const searchReturnContext = ref(null);
@@ -185,13 +188,11 @@ const {
 
 const {
   appVersion,
-  applyUpdate,
   backupNow,
   backupStatus,
   dismissWarning,
   isBackingUp,
   isReindexing,
-  isUpdating,
   isResettingRecurrence,
   loadMaintenanceStatus,
   loadVersion,
@@ -201,15 +202,19 @@ const {
   reindexSearch,
   reindexStatus,
   resetRecurrenceGeneration,
-  updateStatus,
   visibleWarnings
 } = useMaintenance();
 
+let removeTaskClipboard;
+const peopleTaskHistory = { undo: [], redo: [] };
 const noop = () => {};
 const noopAsync = async () => false;
 
 onMounted(async () => {
   removeDesktopLifecycle = installDesktopLifecycle();
+  removeTaskClipboard = taskClipboard.install(() => activeTab.value === 'Dashboard'
+    ? { adapter: dashboardClipboard, snapshot: () => ({ page: 'dashboard:new', position: 0 }) }
+    : activeTab.value === 'People' ? peopleViewRef.value?.clipboardTarget?.() : null);
   try {
     startupSafety.value = await fetchStartupSafety();
   } catch {
@@ -244,6 +249,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  removeTaskClipboard?.();
   removeDesktopLifecycle?.();
   removeDesktopLifecycle = null;
   if (pollTimer) {
@@ -270,6 +276,8 @@ watch(activeTab, (tab) => {
 
 const {
   newTasks,
+  mainTasks,
+  recordClipboard,
   expandedNew,
   focusTaskId,
   focusContentTarget,
@@ -318,6 +326,7 @@ const clearSourceNavigation = () => {
 };
 
 const selectTab = (tab) => {
+  if (taskClipboard.busy.value) return;
   if (startupSafety.value.recoveryMode && tab !== "Settings") {
     return;
   }
@@ -331,10 +340,6 @@ const openNewWindow = () => {
   }
 };
 
-const applyUpdateSafely = async (file) => {
-  await prepareAllWindows("update");
-  return applyUpdate(file);
-};
 
 const openSearchSource = async (result) => {
   const destination = resolveSearchDestination(result?.task);
@@ -423,13 +428,20 @@ const {
   applyTaskMove
 });
 
+const dashboardClipboard = createTaskClipboardAdapter({
+  tasks: () => [...newTasks.value, ...mainTasks.value], record: recordClipboard, refresh: loadDashboard
+});
+const dashboardHistory = async (operation) => {
+  try { await operation(); } catch (error) { window.alert(error.message); }
+};
+
 const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
   activeTab,
   searchInputRef,
   dashboardColumnsRef,
   onOpenSearch: () => selectTab("Search"),
-  onUndo: () => activeTab.value === "People" ? peopleViewRef.value?.undo?.() : undo(),
-  onRedo: () => activeTab.value === "People" ? peopleViewRef.value?.redo?.() : redo()
+  onUndo: () => activeTab.value === "People" ? peopleViewRef.value?.undo?.() : dashboardHistory(undo),
+  onRedo: () => activeTab.value === "People" ? peopleViewRef.value?.redo?.() : dashboardHistory(redo)
 });
 
 let pollTimer = null;
@@ -460,6 +472,7 @@ const getTaskItemBindings = (task, list, options) => ({
   onDrop: dropOnTask,
   onDragOver: setDragOver,
   onDragLeave: clearDragOver,
+  clipboardAdapter: dashboardClipboard,
   focusTitleId: focusTaskId.value,
   focusContentTarget: focusContentTarget.value,
   undoSignal: undoSignal.value,
@@ -536,8 +549,7 @@ const moveCompletedToHistory = async () => {
 </script>
 
 <style src="./styles/app.css"></style>
-
-
+<style src="./styles/controls.css"></style>
 
 
 

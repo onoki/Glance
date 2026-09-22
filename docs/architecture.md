@@ -94,7 +94,7 @@ The editor must enforce:
 ## Task action UI invariants (mandatory)
 
 - In every task action row, the destructive delete action is the rightmost action.
-- Contextual actions and dates appear together at the right above the active or hovered task. Only individual buttons and labels have opaque backgrounds; unused overlay space is transparent and passes clicks through. They reserve no task-row height and may cover previous lines, but must never move or reflow tasks. Their position is constrained to the visible horizontal portion of the list and viewport.
+- Contextual actions and dates appear together at the right above the focused task. Only individual buttons and labels have opaque backgrounds; unused overlay space is transparent and passes clicks through. They reserve no task-row height and may cover previous lines, but must never move or reflow tasks. Their position is constrained to the visible horizontal portion of the list and viewport.
 - All Dashboard categories, including New tasks, support mouse resizing. Rich text wraps unbroken strings; category contents stay scrolled to the left while the dashboard itself can scroll horizontally.
 - People navigation wraps and displays stable colored tag dots with tooltips and a shared legend, without per-person text badges or tag filters.
 
@@ -230,4 +230,19 @@ Implementations must not modify these documents unless explicitly instructed.
 - Outermost Shift+Tab carries the ProseMirror selection through the split payload into the promoted title in both views. Schema-equivalent server content does not replace the editor document, preventing selection resets from JSON property order or default attributes.
 - Native Windows bounds are reapplied after window creation using signed desktop coordinates and the current monitor work area. `data/desktop.log` records saved, requested, and actual bounds to diagnose initialization or monitor/DPI differences. The last successfully closed window still wins.
 - People tag legend dots and labels share a centered inline-flex row. Add Person uses the common app font at regular weight.
-- The current button inventory and proposed shared variants are in [button-styles.md](button-styles.md); broad restyling awaits design agreement.
+- The current button inventory and proposed shared variants are in [button-styles.md](button-styles.md); the accepted shared control system is implemented in `ui/src/styles/controls.css`.
+
+- BigBlue TerminalPlus is bundled unmodified with its CC BY-SA attribution and license in `ui/assets/fonts`. See `ui/AGENTS.md` for mandatory size and weight rules; synthetic formatting is allowed only in task rich text by user decision.
+- Successful task deletion calls `saveCoordinator.forget` before removing the row. Retired save operations cannot become orphaned close blockers. Normal unmount still flushes edits.
+- People tag colors use `app_meta` keys `tag_color:<tag-id>` with validated six-digit hex values. They are returned with tags, preserved by the existing metadata export contract, and removed with the tag.
+- The selected person is stored per window in sessionStorage and validated against the active directory when People mounts.
+- Immediate Enter/Tab consumes the pending creation intent and appends an empty subitem. If creation is in flight, Tab targets the returned new task ID, never the original row.
+- Whole-task clipboard behavior is documented in [task-clipboard-proposal.md](task-clipboard-proposal.md).
+
+## Whole-task clipboard implementation
+
+`taskClipboard` registers editable Dashboard/People task rows and owns whole-task selection and browser clipboard events. Task text stays in the editor's ordinary clipboard path unless a whole-task payload is present. The HTML payload is versioned and validated, with size/depth limits and permitted rich-text nodes/marks. `taskClipboardAdapter` captures destination metadata and insertion positions; `taskClipboardHistory` supplies grouped Undo/Redo callbacks to each view's existing history stack.
+
+Cut awaits the system clipboard write and the save coordinator before soft deletion. Delete requests may include `baseUpdatedAt`; revision checks occur inside the deletion transaction, preserving both task and search state on conflict. Uncertain deletion responses retain history intent. Successful deletions retire save registrations. Incomplete group operations retain progress for recovery rather than claiming atomicity.
+
+`GET /api/clipboard-scope` hashes the machine/database path to identify shared attachment storage across local server ports. Attachment-bearing payloads require that same scope, and attachment URLs are rebased on paste. No new durable table or export schema is introduced.

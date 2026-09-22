@@ -1,3 +1,4 @@
+import { saveCoordinator } from "../services/saveCoordinator.js";
 import { computed, nextTick, ref } from "vue";
 import {
   completeTask,
@@ -509,6 +510,7 @@ export const useDashboardData = (options) => {
     const prevTask = index > 0 ? list[index - 1] : null;
     try {
       await deleteTaskApi(task.id);
+    saveCoordinator.forget(task.id);
     } catch {
       return;
     }
@@ -534,6 +536,7 @@ export const useDashboardData = (options) => {
   const toggleComplete = async (task) => {
     if (shouldDeleteEmptyOnComplete(task)) {
       await deleteTask(task);
+    saveCoordinator.forget(task);
       return;
     }
     const completed = !task.completedAt;
@@ -886,6 +889,10 @@ export const useDashboardData = (options) => {
   };
 
   const applyUndoEntry = async (entry, direction) => {
+    if (entry?.clipboard) {
+      if (!(await saveCoordinator.flushAll()).ok) return false;
+      return entry.clipboard[direction]();
+    }
     if (!entry?.diffs?.length) {
       return false;
     }
@@ -906,6 +913,7 @@ export const useDashboardData = (options) => {
           }
           try {
             await deleteTaskApi(actualId);
+    saveCoordinator.forget(actualId);
           } catch {
             // ignore delete failures during undo
           }
@@ -997,7 +1005,10 @@ export const useDashboardData = (options) => {
     }
     const entry = undoStack.value[undoStack.value.length - 1];
     undoStack.value = undoStack.value.slice(0, -1);
-    const applied = await applyUndoEntry(entry, "undo");
+    let applied;
+    try { applied = await applyUndoEntry(entry, "undo"); }
+    catch (error) { undoStack.value = [...undoStack.value, entry]; throw error; }
+    if (!applied) undoStack.value = [...undoStack.value, entry];
     if (applied) {
       redoStack.value = [...redoStack.value, entry];
     }
@@ -1010,7 +1021,10 @@ export const useDashboardData = (options) => {
     }
     const entry = redoStack.value[redoStack.value.length - 1];
     redoStack.value = redoStack.value.slice(0, -1);
-    const applied = await applyUndoEntry(entry, "redo");
+    let applied;
+    try { applied = await applyUndoEntry(entry, "redo"); }
+    catch (error) { redoStack.value = [...redoStack.value, entry]; throw error; }
+    if (!applied) redoStack.value = [...redoStack.value, entry];
     if (applied) {
       undoStack.value = [...undoStack.value, entry];
     }
@@ -1224,6 +1238,7 @@ export const useDashboardData = (options) => {
   };
 
   return {
+    recordClipboard: (clipboard) => pushUndoEntry({ clipboard }),
     newTasks,
     mainTasks,
     expandedNew,

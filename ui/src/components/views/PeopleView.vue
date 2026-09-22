@@ -28,7 +28,7 @@
             @click="selectPerson(person.id)"
           >
             {{ person.displayName }}
-            <span v-for="tag in tagsFor(person)" :key="tag.id" class="person-tag-dot" :style="{ backgroundColor: tagColor(tag.id) }" :title="tag.name" :aria-label="tag.name"></span>
+            <span v-for="tag in tagsFor(person)" :key="tag.id" class="person-tag-dot" :style="{ backgroundColor: tag.color || tagColor(tag.id) }" :title="tag.name" :aria-label="tag.name"></span>
           </button>
           <span class="person-tab-grip" aria-hidden="true">::</span>
         </div>
@@ -45,7 +45,7 @@
       </div>
     </header>
     <div v-if="directory.tags.length" class="people-tag-legend" aria-label="Person tag colors">
-      <span v-for="tag in directory.tags" :key="tag.id" class="people-tag-legend-item"><span class="person-tag-dot" :style="{ backgroundColor: tagColor(tag.id) }" aria-hidden="true"></span><span class="people-tag-label">{{ tag.name }}</span></span>
+      <span v-for="tag in directory.tags" :key="tag.id" class="people-tag-legend-item"><span class="person-tag-dot" :style="{ backgroundColor: tag.color || tagColor(tag.id) }" aria-hidden="true"></span><span class="people-tag-label">{{ tag.name }}</span></span>
     </div>
 
     <section v-if="viewMode === 'archived'" class="archive-panel" aria-label="Archived people">
@@ -89,8 +89,9 @@
                 />
                 <span>{{ tag.name }}</span>
               </label>
+              <input type="color" :value="tag.color || tagColor(tag.id)" :aria-label="`Color for ${tag.name}`" title="Colors are saved automatically; click outside to close" @input="changeTagColor(tag, $event.target.value)" @change="changeTagColor(tag, $event.target.value)" />
               <button type="button" class="tiny-action" title="Rename tag" @click="renameTag(tag)">Rename</button>
-              <button type="button" class="tiny-action" title="Delete tag" @click="removeTag(tag)">Delete</button>
+              <button type="button" class="delete-task task-icon-button" title="Delete tag" :aria-label="`Delete tag ${tag.name}`" @click="removeTag(tag)">×</button>
             </div>
             <p v-if="!directory.tags.length" class="empty-message">No tags yet.</p>
             <button type="button" class="ghost tag-add" @click="addTag">+ New tag</button>
@@ -106,6 +107,7 @@
             v-for="(task, index) in tasks"
             :key="task.id"
             :task="task"
+            :clipboard-adapter="peopleClipboard"
             :show-owner-person="false"
             :draggable="true"
             :is-last-in-category="index === tasks.length - 1"
@@ -149,6 +151,8 @@
 </template>
 
 <script setup>
+import { createTaskClipboardAdapter } from "../../services/taskClipboardAdapter.js";
+import { taskClipboard } from "../../services/taskClipboard.js";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
 import {
@@ -162,18 +166,23 @@ import {
 } from "../../api/people.js";
 import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToDashboard } from "../../api/taskSend.js";
 import { usePeopleTasks } from "../../composables/usePeopleTasks.js";
-import { tagColor } from "../../utils/tagColor.js";
+import { tagColor, createTagColorSaver } from "../../utils/tagColor.js";
 import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
 import { flushAllSaves } from "../../services/saveCoordinator.js";
 
 const props = defineProps({
+  taskHistory: { type: Object, default: () => ({ undo: [], redo: [] }) },
   navigationTarget: { type: Object, default: null }
 });
 
 const emit = defineEmits(["directory-change", "history-change"]);
 const directory = ref({ people: [], tags: [] });
 const peopleRoot = ref(null);
-const selectedId = ref(null);
+const selectedId = ref(sessionStorage.getItem("glance.selectedPerson"));
+watch(selectedId, (id) => {
+  if (id) sessionStorage.setItem("glance.selectedPerson", id);
+  else sessionStorage.removeItem("glance.selectedPerson");
+});
 const viewMode = ref("person");
 const archiveNavigationNotice = ref("");
 const archivedNavigationPersonId = ref(null);
@@ -201,6 +210,7 @@ const selectedTagNames = computed(() => {
 });
 
 const {
+  recordClipboard,
   tasks,
   focusTaskId,
   undoSignal,
@@ -226,9 +236,25 @@ const {
   clearDragOver,
   dropOnTask
 } = usePeopleTasks({
+  history: props.taskHistory,
   selectedPersonId: selectedId,
   onHistoryChange: () => emit("history-change")
 });
+
+const peopleClipboard = createTaskClipboardAdapter({
+  tasks: () => tasks.value, refresh: loadTasks,
+  record: (entry) => {
+    const personId = selectedId.value;
+    recordClipboard({
+      undo: async () => { selectedId.value = personId; return entry.undo(); },
+      redo: async () => { selectedId.value = personId; return entry.redo(); }
+    });
+  }
+});
+const clipboardTarget = () => selectedId.value ? {
+  adapter: peopleClipboard,
+  snapshot: () => ({ page: 'people:main', ownerPersonId: selectedId.value, position: 0 })
+} : null;
 
 watch(focusTaskId, (id) => {
   if (!id) return;
@@ -253,6 +279,7 @@ const loadDirectory = async () => {
 };
 
 const selectPerson = async (id) => {
+  if (taskClipboard.busy.value) return;
   archiveNavigationNotice.value = "";
   archivedNavigationPersonId.value = null;
   viewMode.value = "person";
@@ -346,6 +373,18 @@ const addTag = async () => {
   if (!name?.trim()) return;
   await createPersonTag(name.trim());
   await loadDirectory();
+};
+
+const saveTagColor = createTagColorSaver((id, color) => updatePersonTag(id, { color }));
+const changeTagColor = async (tag, color) => {
+  try {
+    const saved = await saveTagColor(tag.id, color);
+    const current = directory.value.tags.find((item) => item.id === tag.id);
+    if (current) current.color = saved;
+    emit("directory-change", directory.value);
+  } catch {
+    window.alert("Could not save the tag color. Please choose it again.");
+  }
 };
 
 const renameTag = async (tag) => {
@@ -488,7 +527,7 @@ const redoFromShortcut = async () => {
   }
 };
 
-defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
+defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget });
 </script>
 
 <style scoped>
@@ -576,7 +615,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
 .person-tags-menu { position: relative; }
 .person-tags-menu > summary { list-style: none; }
 .person-tags-menu > summary::-webkit-details-marker { display: none; }
-.tag-summary { max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: inherit; font-size: 0.75rem; padding: 2px 6px; line-height: normal; }
+.tag-summary { max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: inherit; font-size: var(--font-size-body); padding: 2px 6px; line-height: normal; }
 
 .tag-menu-panel {
   position: absolute;
@@ -595,7 +634,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
 
 .tag-menu-row {
   display: grid;
-  grid-template-columns: minmax(110px, 1fr) auto auto;
+  grid-template-columns: minmax(110px, 1fr) auto auto auto;
   gap: 4px;
   align-items: center;
   font-size: var(--font-size-meta);
@@ -620,7 +659,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut });
   padding: 8px;
 }
 
-.archive-header h2 { margin: 0 0 3px; font-size: 0.95rem; font-weight: 400; }
+.archive-header h2 { margin: 0 0 3px; font-size: var(--font-size-body); font-weight: 400; }
 .archive-header p { margin: 0 0 8px; color: var(--text-muted); }
 .archive-list { display: flex; flex-direction: column; gap: 3px; max-width: 640px; }
 .archived-person-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px; border: 1px solid var(--border-panel); background: var(--bg-panel); }

@@ -110,6 +110,19 @@ export class SaveCoordinator {
     };
   }
 
+  // Successful deletion retires queued autosaves and detached close blockers.
+  forget(taskId) {
+    const entry = this.entries.get(taskId);
+    if (!entry) return;
+    entry.retired = true;
+    entry.savedGeneration = entry.generation;
+    entry.error = null;
+    this.notify(entry);
+    entry.onStateChange = null;
+    this.entries.delete(taskId);
+    this.notifyAll();
+  }
+
   enqueue(entry, targetGeneration, options) {
     if (targetGeneration <= entry.savedGeneration && entry.pending === 0 && !entry.saving) {
       return Promise.resolve(true);
@@ -119,7 +132,7 @@ export class SaveCoordinator {
     this.notify(entry);
     const operation = entry.queue.then(async () => {
       entry.pending = Math.max(0, entry.pending - 1);
-      if (targetGeneration <= entry.savedGeneration) {
+      if (entry.retired || targetGeneration <= entry.savedGeneration) {
         this.notify(entry);
         return true;
       }
@@ -136,6 +149,7 @@ export class SaveCoordinator {
         entry.error = null;
         return true;
       } catch (error) {
+        if (entry.retired) return true;
         entry.error = friendlyError(error);
         return false;
       } finally {

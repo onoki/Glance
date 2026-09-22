@@ -11,6 +11,7 @@ import { EditorContent, useEditor } from "@tiptap/vue-3";
 import { TextSelection } from "prosemirror-state";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
+import { mergeAttributes } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import { CompactLinks, insertOutsideLink } from "../utils/editorLinks.js";
 import { toggleQuestionInParagraphs } from "../utils/questionMarker.js";
@@ -33,6 +34,7 @@ import {
   splitAtSelection
 } from "../utils/editorListUtils.js";
 import ResizableImage from "../utils/resizableImage.js";
+import { insertDateShortcut } from "../utils/insertDateShortcut.js";
 import { StatusMetadata, toggleStatusAtSelection } from "../utils/statusMetadata.js";
 import {
   isAllowedExternalTarget,
@@ -105,7 +107,9 @@ const editorRef = useEditor({
     Highlight.configure({
       multicolor: true
     }),
-    Link.extend({ inclusive: false }).configure({
+    Link.extend({ inclusive: false, renderHTML({ HTMLAttributes }) {
+      return ["a", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { title: HTMLAttributes.href }), 0];
+    } }).configure({
       autolink: true,
       linkOnPaste: true,
       openOnClick: false,
@@ -240,6 +244,7 @@ const editorRef = useEditor({
       return true;
     },
     handleKeyDown(view, event) {
+      if (insertDateShortcut(view, event, props.editable)) return true;
   const editor = editorRef?.value ?? editorRef;
   if (props.onKeyDown) {
     const handled = props.onKeyDown(event, editor);
@@ -836,6 +841,8 @@ const focus = (selection) => {
   editorInstance.value?.chain().focus().run();
 };
 
+watch(() => props.editable, value => editorInstance.value?.setEditable(value, false));
+
 const focusListItem = (listIndex, place = "start") => {
   const editor = editorInstance.value;
   if (!editor) {
@@ -921,7 +928,7 @@ defineExpose({
 .rich-editor :deep([data-status-input-at-utc]::before) {
   content: "📝 ";
   color: #a86018;
-  font-size: 0.85em;
+  font-size: var(--font-size-body);
   text-decoration: none;
 }
 

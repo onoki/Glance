@@ -1,6 +1,6 @@
 # Button inventory and harmonization proposal
 
-Status: proposal for review, not a replacement for the current visual requirements.
+Status: accepted and implemented via `ui/src/styles/controls.css`. The inventory below records the previous styles for reference.
 Inventory based on the Glance source, September 2026.
 
 ## Current styles
@@ -26,8 +26,8 @@ Use one base component/style with **three visual variants**:
 2. **Emphasized** — a filled variation for a selected tab/toggle or an occasional main action. Keep the same font, border width and dimensions as neutral; do not use bold to convey selection.
 3. **Danger** — the same base geometry with red text/border for destructive or whole-state replacement actions. Keep the existing confirmation behavior.
 
-Use one compact height (suggestion: 20px) and `--font-size-meta` for button text throughout, including Settings. An icon-only button is just a square shape option of the same base style, with an accessible name and tooltip. Menu entries can stretch horizontally without becoming another visual style. The Tags disclosure should use the same base rules as Rename and Archive.
+Use one compact height (suggestion: 16px) and `--font-size-meta` for button text throughout, including Settings. An icon-only button is just a square shape option of the same base style, with an accessible name and tooltip. Menu entries can stretch horizontally without becoming another visual style. The Tags disclosure should use the same base rules as Rename and Archive.
 
 Share hover, keyboard-focus, pressed, disabled and loading rules. Preserve clear selected/pressed semantics; remove the duplicated per-view font and padding overrides. Keep the empty-editor target distinct because it represents an insertion point, not a command. Retire unused button styles after checking their references.
 
-This would keep the compact appearance while eliminating accidental differences in weight, typography, spacing and active colors. No app-wide restyling has been applied as part of this proposal.
+This would keep the compact appearance while eliminating accidental differences in weight, typography, spacing and active colors. The shared styles now use BigBlue TerminalPlus at 8 CSS px (12 device pixels at 150% scaling), regular UI weight, and 16px minimum control height.

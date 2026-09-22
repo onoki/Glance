@@ -1,3 +1,4 @@
+import { saveCoordinator } from "../services/saveCoordinator.js";
 import { ref } from "vue";
 import {
   completeTask as completeTaskApi,
@@ -21,7 +22,7 @@ import {
 
 const PEOPLE_PAGE = "people:main";
 
-export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) => {
+export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, history = { undo: [], redo: [] } }) => {
   const completeTask = api.completeTask || completeTaskApi;
   const createTask = api.createTask || createTaskApi;
   const deleteTask = api.deleteTask || deleteTaskApi;
@@ -35,8 +36,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   const undoSignal = ref(0);
   const dirtySnapshots = new Map();
   const persistedTasks = new Map();
-  const undoStack = [];
-  const redoStack = [];
+  const undoStack = history.undo;
+  const redoStack = history.redo;
   const undoLimit = 100;
   let dragTaskId = null;
   let loadSequence = 0;
@@ -158,6 +159,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     const index = tasks.value.findIndex((item) => item.id === task.id);
     const previous = index > 0 ? tasks.value[index - 1] : null;
     await deleteTask(task.id);
+    saveCoordinator.forget(task.id);
     if (options.recordUndo !== false) pushDeleteUndo(current);
     dirtySnapshots.delete(task.id);
     tasks.value = tasks.value.filter((item) => item.id !== task.id);
@@ -170,6 +172,13 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     const entry = undoStack.pop();
     if (!entry) return false;
     try {
+      if (entry.clipboard) {
+        selectedPersonId.value = entry.personId;
+        await entry.clipboard.undo();
+        await loadTasks();
+        redoStack.push(entry);
+        return true;
+      }
       selectedPersonId.value = entry.task.ownerPersonId;
       if (entry.type === "merge") {
         // Restore the source first: a later failed save must never discard text.
@@ -213,6 +222,13 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
     const entry = redoStack.pop();
     if (!entry) return false;
     try {
+      if (entry.clipboard) {
+        selectedPersonId.value = entry.personId;
+        await entry.clipboard.redo();
+        await loadTasks();
+        undoStack.push(entry);
+        return true;
+      }
       selectedPersonId.value = entry.task.ownerPersonId;
       if (entry.type === "merge") {
         const response = await fetchPersonTasks(entry.source.ownerPersonId);
@@ -223,6 +239,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
         }
         await applyEditHistory(entry.after, entry.task);
         await deleteTask(entry.source.id);
+    saveCoordinator.forget(entry.source.id);
         await loadTasks();
         undoStack.push(entry);
         return true;
@@ -233,6 +250,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
         return true;
       }
       await deleteTask(entry.task.id);
+    saveCoordinator.forget(entry.task.id);
       dirtySnapshots.delete(entry.task.id);
       undoStack.push(entry);
       await loadTasks();
@@ -310,6 +328,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       suppressUndo: true
     });
     await deleteTask(current.id);
+    saveCoordinator.forget(current.id);
     undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
     if (undoStack.length > undoLimit) undoStack.shift();
     redoStack.length = 0;
@@ -343,6 +362,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
       suppressUndo: true
     });
     await deleteTask(current.id);
+    saveCoordinator.forget(current.id);
     undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
     if (undoStack.length > undoLimit) undoStack.shift();
     redoStack.length = 0;
@@ -443,6 +463,11 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {} }) 
   };
 
   return {
+    recordClipboard: (clipboard) => {
+      undoStack.push({ clipboard, personId: selectedPersonId.value });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    },
     tasks,
     focusTaskId,
     undoSignal,

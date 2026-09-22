@@ -79,7 +79,6 @@ public static class ServerHost
         builder.Services.AddSingleton(startupState);
         builder.Services.AddSingleton<MaintenanceService>();
         builder.Services.AddSingleton<AppMetaRepository>();
-        builder.Services.AddSingleton<UpdateService>();
         builder.Services.AddHostedService<StartupReporter>();
         builder.Services.AddHostedService<BackupSchedulerService>();
 
@@ -179,7 +178,6 @@ public static class ServerHost
         HistoryEndpoints.Map(app);
         HistoryMaintenanceEndpoints.Map(app);
         VersionEndpoints.Map(app);
-        UpdateEndpoints.Map(app);
         DataSafetyEndpoints.Map(app);
         PortableExportEndpoints.Map(app);
     }
@@ -191,8 +189,7 @@ public static class ServerHost
             || path.StartsWithSegments("/api/backup")
             || path.StartsWithSegments("/api/warnings")
             || path.StartsWithSegments("/api/maintenance/status")
-            || path.StartsWithSegments("/api/version")
-            || path.StartsWithSegments("/api/update");
+            || path.StartsWithSegments("/api/version");
     }
 
     private static string ResolveAppRoot()

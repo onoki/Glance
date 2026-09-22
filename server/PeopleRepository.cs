@@ -55,11 +55,11 @@ public sealed class PeopleRepository
 
         await using (var tagCommand = connection.CreateCommand())
         {
-            tagCommand.CommandText = "SELECT id, name, position FROM person_tags ORDER BY position, name;";
+            tagCommand.CommandText = "SELECT t.id, t.name, t.position, m.value FROM person_tags t LEFT JOIN app_meta m ON m.key = 'tag_color:' || t.id ORDER BY t.position, t.name;";
             await using var reader = await tagCommand.ExecuteReaderAsync(token);
             while (await reader.ReadAsync(token))
             {
-                tags.Add(new PersonTagItem(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+                tags.Add(new PersonTagItem(reader.GetString(0), reader.GetString(1), reader.GetDouble(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
             }
         }
         return new PeopleResponse(people, tags);
@@ -164,6 +164,8 @@ public sealed class PeopleRepository
 
     public async Task<bool> UpdateTagAsync(string id, PersonTagUpdateRequest request, CancellationToken token)
     {
+        if (request.Color is not null && !System.Text.RegularExpressions.Regex.IsMatch(request.Color, "^#[0-9a-fA-F]{6}$"))
+            throw new ArgumentException("Tag color must be a six-digit hex color");
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(token);
         await using var command = connection.CreateCommand();
@@ -181,7 +183,16 @@ public sealed class PeopleRepository
         command.CommandText = $"UPDATE person_tags SET {string.Join(", ", assignments)} WHERE id = $id;";
         command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         command.Parameters.AddWithValue("$id", id);
-        return await command.ExecuteNonQueryAsync(token) > 0;
+        var updated = await command.ExecuteNonQueryAsync(token) > 0;
+        if (updated && request.Color is not null)
+        {
+            command.CommandText = "INSERT INTO app_meta(key, value) VALUES($key, $color) ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
+            command.Parameters.Clear();
+            command.Parameters.AddWithValue("$key", "tag_color:" + id);
+            command.Parameters.AddWithValue("$color", request.Color.ToLowerInvariant());
+            await command.ExecuteNonQueryAsync(token);
+        }
+        return updated;
     }
 
     public async Task DeleteTagAsync(string id, CancellationToken token)
@@ -189,7 +200,7 @@ public sealed class PeopleRepository
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(token);
         await using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM person_tags WHERE id = $id;";
+        command.CommandText = "DELETE FROM person_tags WHERE id = $id; DELETE FROM app_meta WHERE key = 'tag_color:' || $id;";
         command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync(token);
     }

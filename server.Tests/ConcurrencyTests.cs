@@ -6,6 +6,22 @@ namespace Glance.Server.Tests;
 public sealed class ConcurrencyTests
 {
     [Fact]
+    public async Task StaleClipboardCut_PreservesNewerText()
+    {
+        await using var app = TestAppFixture.Create();
+        var created = await app.Tasks.CreateTaskAsync(new TaskCreateRequest(
+            TaskPages.DashboardNew, TestAppFixture.CreateTitle("Clipboard source"),
+            TestAppFixture.CreateContent("Keep all nested notes"), 1, null, null), default);
+        var edited = await app.Tasks.UpdateTaskAsync(created.TaskId, new TaskUpdateRequest(
+            created.UpdatedAt, TestAppFixture.CreateTitle("Newer text"), null, null, null, null, null), default);
+        await Assert.ThrowsAsync<TaskWriteConflictException>(() => app.Tasks.DeleteTaskAsync(created.TaskId, default, created.UpdatedAt));
+        Assert.Single(await app.Tasks.GetTasksByPageAsync(TaskPages.DashboardNew, long.MaxValue, default));
+        Assert.True(await app.Tasks.DeleteTaskAsync(created.TaskId, default, edited!.UpdatedAt));
+        Assert.Empty(await app.Tasks.GetTasksByPageAsync(TaskPages.DashboardNew, long.MaxValue, default));
+        Assert.NotNull(await app.Tasks.RestoreTaskAsync(created.TaskId, default));
+    }
+
+    [Fact]
     public async Task StaleTaskUpdate_IsRejectedWithoutOverwritingNewerText()
     {
         await using var app = TestAppFixture.Create();

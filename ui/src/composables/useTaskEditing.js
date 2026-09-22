@@ -1,9 +1,9 @@
-import { onBeforeUnmount } from "vue";
+import { nextTick, onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
 import { getListItemDepth, isListNodeName } from "../utils/editorListUtils.js";
 import { splitTitleDocAtOffsets } from "../utils/titleSplitUtils.js";
-import { emptyContentDoc } from "../utils/taskUtils.js";
+import { emptyContentDoc, normalizeContent } from "../utils/taskUtils.js";
 
 export const useTaskEditing = (options) => {
   const {
@@ -17,6 +17,7 @@ export const useTaskEditing = (options) => {
   } = options;
 
   let pendingCreateTimer = null;
+  let creatingBelow = null;
 
   onBeforeUnmount(() => {
     if (pendingCreateTimer) {
@@ -195,7 +196,7 @@ export const useTaskEditing = (options) => {
     if (event.key === "Backspace") {
       if (isTitleEmpty(editor) && isContentEmpty(null)) {
         event.preventDefault();
-        props.onDelete(props.task);
+        (options.onDelete || props.onDelete)(props.task);
         return true;
       }
       if (isSelectionAtStart(editor) && props.onMergeToPrevious) {
@@ -211,9 +212,24 @@ export const useTaskEditing = (options) => {
       }
     }
     if (event.key === "Tab") {
-      if (pendingCreateTimer) {
-        clearTimeout(pendingCreateTimer);
-        pendingCreateTimer = null;
+      event.preventDefault();
+      if (pendingCreateTimer || creatingBelow) {
+        if (pendingCreateTimer) {
+          clearTimeout(pendingCreateTimer);
+          pendingCreateTimer = null;
+          options.revealContent?.();
+          const current = normalizeContent(contentRef.value);
+          const items = current?.content?.[0]?.type === "bulletList" ? current.content[0].content : [];
+          const nonempty = items.filter((item) => !isDocEmptyJson(item));
+          contentRef.value = { type: "doc", content: [{ type: "bulletList", content: [...nonempty, { type: "listItem", content: [{ type: "paragraph" }] }] }] };
+          options.onContentChanged?.();
+          void nextTick().then(() => { contentEditorRef.value?.focusListItem(nonempty.length); void saveNow(true); });
+        } else {
+          void creatingBelow.then((newId) => {
+            if (newId) props.onTabToPrevious({ ...props.task, id: newId, title: { type: "doc", content: [{ type: "paragraph" }] }, content: emptyContentDoc() });
+          });
+        }
+        return true;
       }
       void saveNow().then((saved) => {
         if (saved === false) return;
@@ -290,7 +306,8 @@ export const useTaskEditing = (options) => {
       saveNow();
       pendingCreateTimer = setTimeout(() => {
         pendingCreateTimer = null;
-        props.onCreateBelow(props.task, props.categoryId);
+        creatingBelow = Promise.resolve(props.onCreateBelow(props.task, props.categoryId));
+        creatingBelow.finally(() => { creatingBelow = null; });
       }, 250);
       return true;
     }
@@ -310,7 +327,7 @@ export const useTaskEditing = (options) => {
       }
       if (isContentEmpty(editor) && isTitleEmpty(null)) {
         event.preventDefault();
-        props.onDelete(props.task);
+        (options.onDelete || props.onDelete)(props.task);
         return true;
       }
     }

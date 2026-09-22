@@ -7,9 +7,11 @@ Feature: Main application layout
       | Dashboard |
       | History   |
       | Search    |
-      | Settings  |
       | People |
       | Status Updates |
+    And a Settings gear icon is immediately to the left of the New window icon on the right
+    And the Settings icon has an accessible name, tooltip, and selected state
+    And the gap between Settings and New window matches the shared 1px gap between navigation buttons
     And I see an editable rich text task list for new tasks in the middle
     And next to the title of the new tasks view I see a button to move all new tasks to "Uncategorized"
     And next to the title of the new tasks view I see a button to expand and restore the new tasks view to full screen
@@ -305,6 +307,15 @@ Feature: Version visibility and update metadata
     And navigation tabs are aligned to the top left
     And an accessible New window icon is beside the version on the right
 
+  Scenario: Understanding the settings page
+    When I open Settings
+    Then related options are grouped into Data safety, Maintenance, and About
+    And backup, restore, and export have separate labeled subsections
+    And search and repeatable-task maintenance are grouped together
+    And settings use regular shared typography with 4px gaps within subsections and 8px between groups
+    And settings wrap within narrow windows and scroll vertically when needed
+    And each group's contents, including subheadings, are indented 12px under its heading
+
   Scenario: App version persisted on startup
     Given the application is started
     When the server initializes
@@ -322,26 +333,13 @@ Feature: Update safety invariants
     Then the data folder remains untouched
     And the application starts with the existing data
 
-  Scenario: Installing an update package from settings
-    Given I am on the settings tab
-    And I choose a valid update ZIP package
-    When I click the Install update button
-    Then the package hash is validated
-    And the update version is greater than the current version
-    And the app shuts down to apply the update
-
-  Scenario: Rejecting a downgrade package
-    Given I am on the settings tab
-    And I choose an update ZIP package with an older version
-    When I click the Install update button
-    Then I see an error explaining that downgrades are not allowed
-
-  Scenario: Rejecting a package with a mismatched hash
-    Given I am on the settings tab
-    And I choose an update ZIP package with an invalid hash
-    When I click the Install update button
-    Then I see an error explaining the hash mismatch
-
+  Scenario: Updating a portable installation by copying application files
+    Given all Glance windows are closed
+    When I copy a newly published package over the existing installation
+    And preserve the existing data, blobs, backups, recovery, and exports folders
+    Then Glance opens the existing notes on next launch
+    And applies pending database migrations after its verified pre-migration backup
+    And Settings has no in-app update installer
 
 Feature: Backups and maintenance
 
@@ -483,6 +481,15 @@ Feature: Title-only tasks and deletion
 
 
 Feature: Keyboard shortcuts
+
+  Scenario: Insert the current date at the caret
+    Given I am editing a task title or subcontent in Dashboard or People
+    When I press Shift+Alt+D
+    Then today's local calendar date is inserted as YYYY-MM-DD
+    And any selected text is replaced by the date
+    And the caret is immediately after the inserted date
+    And the insertion is saved and can be undone like ordinary typing
+    And the shortcut does not modify read-only tasks
 
   Scenario: Formatting shortcuts
     Given a rich text editor has focus
@@ -663,7 +670,7 @@ Feature: Compact task lists and long links
 
   Scenario: Contextual overlays without layout jumps
     Given a task is visible in Dashboard or People
-    When I hover or focus the task
+    When I focus an editor or action control within the task
     Then its actions and date appear together on the right above the task
     And opaque backgrounds appear only behind individual buttons and labels
     And the unused overlay area is transparent and allows clicking the task underneath
@@ -745,3 +752,105 @@ Feature: Verified backup and recovery
     When a backup is due
     Then the verified local backup still succeeds
     And Glance shows a warning that the second copy failed
+
+Feature: Pixel typography and shared controls
+
+  Scenario: Task title alignment with completion checkbox
+    Then the completion checkbox and the first title line have the same vertical center
+    And a wrapped title remains aligned by its first line
+    And task titles have no extra bullet and sit beside the checkbox with a 2px gap
+    And subcontent keeps its list bullets and optional checklist markers
+
+  Scenario: BigBlue Terminal at 150 percent display scaling
+    Then app text uses BigBlue TerminalPlus at 8 CSS pixels
+    And controls use a shared neutral, emphasized, or danger style with 16px minimum height
+    And UI text uses regular weight without synthetic bold or italic
+    And only BigBlue TerminalPlus is bundled and listed in Font licenses
+    And ordinary unpressed buttons, task titles, and subcontent use the same dark neutral text color
+    And link, highlight, completion, selection, and danger colors retain their meaning
+    And task rich text retains user-applied synthetic bold and italic
+
+  Scenario: Task actions follow focus
+    Given a task editor has focus
+    When I hover another task
+    Then only the focused task's action bar remains visible
+    And its controls remain accessible when I move focus into them
+
+  Scenario: Returning to Glance cannot activate dismissed task actions
+    Given a task action bar or its menu is open
+    When I switch to another window and click back into Glance
+    Then previously hidden action bars and menus cannot receive that click
+    And restored editor focus alone does not reopen them
+    And clicking task text immediately shows that task's action bar after the click is delivered
+    And previously open menus and other tasks' action bars remain dismissed
+    And an editing keystroke can also show the focused task's actions
+
+  Scenario: Reordering with the whole-task selector
+    When I drag a task's narrow selection handle above or below another task
+    Then the entire task moves to the indicated position
+    And clicking the handle still selects the task for clipboard operations
+    And dragging editor text does not reorder the task
+
+  Scenario: Choosing tag colors
+    When I choose a tag color in the People Tags menu
+    Then its dots and legend use that color across people and windows
+    And the color survives restart, rename, backup and portable export
+    And the active color is saved without a confirmation button when I click away from the picker
+    And rapid color changes retain the last chosen color even when saves are slow
+    And the color picker, Rename, and red delete cross share the same tag row
+
+  Scenario: Remembering the selected person
+    Given I selected an active person
+    When I leave People and return in the same window
+    Then that person is selected again
+    And an unavailable or archived selection falls back to the first active person
+
+  Scenario: Rapid Enter then Tab
+    Given the caret is at the end of a task title
+    When I immediately press Enter then Tab before new-task creation finishes
+    Then a new empty subtask is focused beneath that task
+    And the original title and all existing subcontent remain intact
+
+  Scenario: Deleting a dirty empty task
+    When I erase a task and press Backspace again
+    Then deletion retires that task's pending save registration
+    And no later save of the deleted task blocks closing the app
+    And Undo remains available
+
+  Scenario: Inspecting link destinations
+    When I hover a link in task text
+    Then its tooltip reveals the full destination even if its label is shortened or aliased
+
+Feature: Whole-task selection and clipboard
+
+  Scenario: Narrow task selection
+    Given I am in Dashboard or People
+    When I click the 8px task-selection handle beside the checkbox
+    Then the whole title and all nested subcontent are selected
+    And the handle and gap add only 10px of row width
+    And selection does not change row height or task completion
+    And Ctrl-click toggles tasks and Shift-click selects a visual range
+    And Ctrl+Shift+Space selects the current task from its editor
+    And Escape returns to ordinary text editing
+
+  Scenario: Safe grouped cut
+    Given whole tasks are selected
+    When I press Ctrl+X
+    Then the full task payload is written to the system clipboard before deletion
+    And failed clipboard access or failed saving leaves the tasks intact
+    And stale revisions cannot delete newer edits from another window
+    And one Undo restores the cut group with its original IDs
+    And interrupted requests retain recoverable undo progress
+
+  Scenario: Pasting complete tasks
+    Given the clipboard contains whole Glance tasks
+    When I paste below a task in Dashboard or People
+    Then new independent tasks preserve titles, rich formatting, links, and nested content
+    And they use the destination person or category and date with recurrence disabled
+    And completion and send history are not copied
+    And repeated paste creates new IDs
+    And one Undo removes the pasted group without affecting the originals
+    And newer edits from another window are protected during Undo and Redo
+    And attachment references work across windows of the same database
+    And attachment payloads from another database are rejected before creation
+    And ordinary text copy and paste remain unchanged

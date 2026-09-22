@@ -316,8 +316,7 @@ export const appendListItem = (editor) => {
     editor.commands.focus();
     return true;
   }
-  const listPos = 1;
-  const insertPos = listPos + listNode.nodeSize - 1;
+  const insertPos = listNode.nodeSize - 1;
   const tr = state.tr.insert(insertPos, newItem);
   const selectionPos = insertPos + 2;
   tr.setSelection(TextSelection.create(tr.doc, selectionPos));
@@ -424,13 +423,16 @@ export const splitAtSelection = (editor) => {
       ]
     }
     : emptyDoc;
-  const newTaskContent = after.length
+  // Promoting the parent must retain its nested subitems, not just siblings.
+  const descendants = (current.content || []).filter((node) => LIST_TYPES.has(node.type)).flatMap((node) => node.content || []);
+  const following = [...descendants, ...after];
+  const newTaskContent = following.length
     ? {
       type: "doc",
       content: [
         {
           type: listTypeName,
-          content: after
+          content: following
         }
       ]
     }

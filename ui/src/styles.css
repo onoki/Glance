@@ -2,7 +2,7 @@
 
 :root {
   color-scheme: light;
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
   background: var(--bg-app);
   color: var(--text-main);
 }
@@ -50,7 +50,7 @@ textarea {
   color: var(--text-main);
   padding: 4px 8px;
   border-radius: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   cursor: pointer;
 }
 
@@ -75,7 +75,7 @@ textarea {
   word-break: break-word;
   min-height: 0;
   outline: none;
-  font-size: 0.9rem;
+  font-size: var(--font-size-body);
 }
 
 .rich-editor, .editor-surface { min-width: 0; max-width: 100%; }

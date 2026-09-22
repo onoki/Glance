@@ -1,6 +1,6 @@
 namespace Glance.Server;
 
-public sealed record PersonTagItem(string Id, string Name, double Position);
+public sealed record PersonTagItem(string Id, string Name, double Position, string? Color = null);
 
 public sealed record PersonItem(
     string Id,
@@ -19,7 +19,7 @@ public sealed record PersonCreateRequest(string DisplayName);
 public sealed record PersonUpdateRequest(string? DisplayName, double? Position, bool? Archived);
 public sealed record PersonTagsRequest(IReadOnlyList<string> TagIds);
 public sealed record PersonTagCreateRequest(string Name);
-public sealed record PersonTagUpdateRequest(string? Name, double? Position);
+public sealed record PersonTagUpdateRequest(string? Name, double? Position, string? Color = null);
 
 public sealed record TaskSendToPeopleRequest(
     IReadOnlyList<string>? PersonIds,

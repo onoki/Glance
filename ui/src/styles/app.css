@@ -21,15 +21,15 @@
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 1.4rem;
+  gap: 4px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .brand-version {
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -48,7 +48,7 @@
   border-radius: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   cursor: pointer;
   transition: background 0.2s ease;
 }
@@ -87,7 +87,7 @@
   color: var(--text-warning);
   padding: 2px 6px;
   border-radius: 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 
 .warning-dismiss {
@@ -107,7 +107,7 @@
   border-bottom: 1px solid var(--border-panel);
   background: var(--bg-header);
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body);
 }
 
 .dashboard {
@@ -214,7 +214,7 @@
   border: 1px solid var(--border-panel);
   border-radius: 0;
   padding: 4px 6px;
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   background: var(--bg-panel);
 }
 
@@ -225,7 +225,7 @@
 
 .search-empty {
   color: var(--text-muted);
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   padding: 8px 2px;
 }
 
@@ -249,7 +249,7 @@
 
 .search-result-context {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
 }
 
 .list-card {
@@ -286,13 +286,13 @@
 
 .list-header h2 {
   margin: 0 0 4px;
-  font-size: 1.2rem;
+  font-size: var(--font-size-body);
   font-weight: 400;
 }
 
 .subtitle {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
 }
 
@@ -309,7 +309,7 @@
   padding: 2px 6px;
   border-radius: 0;
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
 }
 
 .ghost:disabled {
@@ -358,12 +358,12 @@
   background: var(--bg-panel);
   color: var(--text-muted);
   padding: 6px;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   cursor: text;
 }
 
 .category-title {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -383,7 +383,7 @@
   top: 0;
   z-index: 1;
   background: var(--bg-app);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   padding: 6px 0 2px;
   text-transform: uppercase;
@@ -438,7 +438,7 @@
 .chart-axis {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
 }
 
@@ -446,7 +446,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  font-size: 0.7rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   text-align: right;
   height: 120px;
@@ -465,14 +465,14 @@
 }
 
 .history-date {
-  font-size: 0.9rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   margin: 0;
 }
 
 .history-empty {
   color: var(--text-muted);
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
 }
 
 .add-task {
@@ -493,10 +493,10 @@
 .settings-view {
   background: var(--bg-app);
   border-radius: 0;
-  padding: var(--pad-sm);
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: var(--pad-sm);
+  gap: 8px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -508,7 +508,10 @@
 .settings-card {
   background: var(--bg-panel);
   border-radius: 0;
-  padding: var(--pad-sm) var(--pad-md) var(--pad-md);
+  padding: 8px;
+  width: 100%;
+  max-width: 760px;
+  overflow-wrap: anywhere;
   border-bottom: 1px solid var(--border-panel);
   box-shadow: none;
   display: flex;
@@ -518,11 +521,12 @@
 
 .settings-card h2 {
   margin: 0;
-  padding: var(--pad-xs) 0;
-  font-size: 0.85rem;
+  padding: 0 0 4px;
+  border-bottom: 1px solid var(--border-panel);
+  font-size: var(--font-size-body);
   line-height: var(--line-height-body);
   font-weight: 400;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .settings-card p {
@@ -531,10 +535,17 @@
 
 .settings-card-content {
   display: grid;
-  gap: var(--pad-md);
-  margin-left: var(--pad-md);
-  padding-left: var(--pad-md);
-  border-left: 1px solid var(--border-panel);
+  gap: 8px;
+  min-width: 0;
+  padding-left: 12px;
+}
+
+.settings-view .settings-subsection { display: grid; gap: 4px; min-width: 0; }
+.settings-view .settings-subsection + .settings-subsection {
+  padding-top: 8px; border-top: 1px solid var(--border-panel);
+}
+.settings-view .settings-subsection h3 {
+  margin: 0; font-size: var(--font-size-body); font-weight: 400;
 }
 
 .settings-description {

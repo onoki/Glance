@@ -102,8 +102,8 @@ onMounted(reload);
 .status-view { padding: 6px; width: 100%; height: 100%; overflow: auto; box-sizing: border-box; font-size: var(--font-size-body); }
 .status-view > * { max-width: 1150px; }
 .status-view > header p { max-width: 850px; }
-.status-view h2 { margin: 0 0 3px; font-size: 1rem; font-weight: 400; }
-.status-view h3 { margin: 0 0 3px; font-size: 0.9rem; font-weight: 400; }
+.status-view h2 { margin: 0 0 3px; font-size: var(--font-size-body); font-weight: 400; }
+.status-view h3 { margin: 0 0 3px; font-size: var(--font-size-body); font-weight: 400; }
 .status-view p { margin: 3px 0; }
 .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 4px; margin: 8px 0; }
 .status-card { border: 1px solid var(--border-panel); background: var(--bg-panel); padding: 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
@@ -115,5 +115,5 @@ onMounted(reload);
 .output-preview { border-top: 1px solid var(--border-panel); margin-top: 18px; padding-top: 10px; max-width: 900px; }
 .long-text { white-space: pre-wrap; }
 .preview-item { margin: 6px 0; }
-.new-label { font-size: 0.72rem; background: #a86018; color: white; padding: 2px 4px; }
+.new-label { font-size: var(--font-size-body); background: #a86018; color: white; padding: 2px 4px; }
 </style>
