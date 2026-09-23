@@ -1,5 +1,31 @@
 /* Shared control system. BigBlue's 12px grid at 150%: 8 CSS px = 12 device px. */
 body { font-size: var(--font-size-body); font-synthesis: none; }
+.ProseMirror, .pixel-text { position: relative; left: var(--pixel-x, 0px); top: var(--pixel-y, 0px); }
+#app .task-item:focus-within:not(.actions-dismissed):not(.task-dragging)::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  border-left: 1px solid var(--focus-outline); pointer-events: none;
+}
+#app .task-item:focus-within .task-meta { border-bottom: 1px solid var(--focus-outline); box-sizing: border-box; }
+#app .task-item.task-dragging .task-meta { visibility: hidden; pointer-events: none; }
+#app .task-item.task-dragging .task-meta * { pointer-events: none; }
+#app .task-list-tail {
+  min-height: 64px; flex: 0 0 64px; width: 100%; text-align: left;
+  background: transparent; border: 0; color: var(--text-muted); cursor: text;
+}
+.task-list-tail span { opacity: 0; }
+.task-list-tail:hover span, .task-list-tail:focus-visible span { opacity: 1; }
+.dashboard-column .task-list { flex: 1 0 auto; overflow: visible; }
+.workspace-feedback {
+  position: fixed; bottom: 4px; left: 4px; z-index: 1200;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  max-width: calc(100vw - 8px); padding: 3px 5px;
+  background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border-panel);
+}
+#app .search-result-actions { justify-content: flex-start; gap: 8px; }
+#app .search-result { padding-top: 4px; padding-bottom: 4px; }
+.settings-subsection:not([open])[class*="restore-section"] > :not(summary),
+.shared-tag-settings:not([open]) > :not(summary) { display: none; }
+.next-step { color: var(--text-main); border-left: 2px solid var(--focus-outline); padding-left: 4px; }
 /* One final rule for both groups: imported legacy styles must not split them. */
 #app .top-nav :is(.tabs, .brand) { gap: 1px; }
 #app .brand-version { margin-right: 7px; }
@@ -65,3 +91,13 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; padding: 0; flex: 0 0 20px;
 }
+
+/* Keep the extra insertion space visually empty, including on hover. */
+#app button.task-list-tail, #app button.task-list-tail:hover {
+  min-height: 64px; border: 0; background: transparent; cursor: text;
+  color: var(--text-muted); box-shadow: none;
+}
+
+/* A transformed row becomes the containing block of its fixed toolbar.
+   Keep the focused row in viewport coordinates during list rearrangement. */
+#app .task-item:focus-within { transform: none !important; }

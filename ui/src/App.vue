@@ -10,7 +10,7 @@
           :disabled="startupSafety.recoveryMode && tab !== 'Settings'"
           @click="selectTab(tab)"
         >
-          {{ tab }}
+          <span class="pixel-text">{{ tab }}</span>
         </button>
       </nav>
       <div class="brand">
@@ -120,11 +120,22 @@
         <p>This section will be implemented in the next iteration.</p>
       </section>
     </main>
+    <div v-if="actionFeedback || saveSummary.dirty || saveSummary.saving || saveSummary.failures.length || taskClipboard.selected.value.size" class="workspace-feedback" role="status">
+      <span v-if="saveSummary.failures.length">{{ saveSummary.failures.length }} task(s) need saving — see the task warning.</span>
+      <span v-else-if="saveSummary.saving">Saving…</span>
+      <span v-else-if="saveSummary.dirty">Unsaved changes</span>
+      <span v-if="taskClipboard.selected.value.size">{{ taskClipboard.selected.value.size }} task(s) selected · Ctrl+C copy · Ctrl+X cut · Esc cancel</span>
+      <span v-if="actionFeedback">{{ actionFeedback.text }}</span>
+      <button v-if="actionFeedback?.undo && actionFeedback.canUndo()" type="button" @click="undoFeedback">Undo</button>
+      <button v-if="actionFeedback" type="button" aria-label="Dismiss notification" @click="dismissAction">×</button>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { taskClipboard } from './services/taskClipboard.js';
+import { actionFeedback, dismissAction } from './services/actionFeedback.js';
+import { subscribeToSaveSummary } from './services/saveCoordinator.js';
 import { createTaskClipboardAdapter } from './services/taskClipboardAdapter.js';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
@@ -207,6 +218,14 @@ const {
 
 let removeTaskClipboard;
 const peopleTaskHistory = { undo: [], redo: [] };
+const saveSummary = ref({ dirty: 0, saving: 0, failures: [] });
+const unsubscribeSaves = subscribeToSaveSummary(value => { saveSummary.value = value; });
+const undoFeedback = async () => {
+  const feedback = actionFeedback.value;
+  if (!feedback?.undo || !feedback.canUndo()) return;
+  try { await feedback.undo(); dismissAction(); }
+  catch (error) { window.alert(error?.message || 'Could not undo the action.'); }
+};
 const noop = () => {};
 const noopAsync = async () => false;
 
@@ -249,6 +268,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  unsubscribeSaves();
   removeTaskClipboard?.();
   removeDesktopLifecycle?.();
   removeDesktopLifecycle = null;
@@ -299,6 +319,7 @@ const {
   splitTitleToNewTask,
   moveTaskToPrevious,
   mergeTaskToPrevious,
+  mergeTaskWithNext,
   focusPrevTaskFromTitle,
   focusNextTaskFromContent,
   handleDirtyChange,
@@ -485,6 +506,7 @@ const getTaskItemBindings = (task, list, options) => ({
   onSplitTitleToNewTask: splitTitleToNewTask,
   onTabToPrevious: moveTaskToPrevious,
   onMergeToPrevious: mergeTaskToPrevious,
+  onMergeWithNext: mergeTaskWithNext,
   onSplitToNewTask: splitSubcontentToNewTask,
   onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
   onFocusNextTaskFromContent: focusNextTaskFromContent,

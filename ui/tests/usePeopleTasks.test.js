@@ -183,3 +183,68 @@ const secondMount = usePeopleTasks({ selectedPersonId: remountedPerson, api, his
 await secondMount.undo();
 assert.equal(clipboardUndos, 1);
 assert.equal(remountedPerson.value, 'person-one');
+
+const mergePerson = usePeopleTasks({ selectedPersonId: ref('merge-caret-person'), api });
+await mergePerson.loadTasks();
+const mergeFirst = mergePerson.tasks.value[0];
+await mergePerson.saveTask({id:mergeFirst.id,title:textDoc('First task'),content:emptyDoc(),baseUpdatedAt:mergeFirst.updatedAt});
+const mergeSecondId = await mergePerson.createTaskBelow(mergePerson.tasks.value[0]);
+const mergeSecond = mergePerson.tasks.value.find(task=>task.id===mergeSecondId);
+await mergePerson.saveTask({id:mergeSecond.id,title:textDoc('Second task'),content:emptyDoc(),baseUpdatedAt:mergeSecond.updatedAt});
+await mergePerson.mergeTaskToPrevious(mergePerson.tasks.value.find(task=>task.id===mergeSecondId));
+assert.deepEqual(mergePerson.focusTaskId.value,{taskId:mergeFirst.id,selection:{from:11,to:11}},'merge caret stays immediately before Second task');
+assert.equal(store.find(task=>task.id===mergeFirst.id).title.content[0].content.map(node=>node.text).join(''),'First taskSecond task');
+
+// Delete moves forward to title start; Backspace retains the prior-row route.
+const directionPerson=usePeopleTasks({selectedPersonId:ref('direction-person'),api});
+await directionPerson.loadTasks();
+const firstDirection=directionPerson.tasks.value[0];
+const middleDirection=await directionPerson.createTaskBelow(firstDirection);
+const finalDirection=await directionPerson.createTaskBelow(directionPerson.tasks.value.find(task=>task.id===middleDirection));
+await directionPerson.saveTask({id:finalDirection,title:textDoc('Next title'),content:emptyDoc(),baseUpdatedAt:directionPerson.tasks.value.find(task=>task.id===finalDirection).updatedAt});
+await directionPerson.removeTask(directionPerson.tasks.value.find(task=>task.id===middleDirection),{direction:'forward'});
+assert.deepEqual(directionPerson.focusTaskId.value,{taskId:finalDirection,selection:{from:1,to:1}});
+await directionPerson.removeTask(directionPerson.tasks.value.find(task=>task.id===finalDirection),{direction:'backward'});
+assert.equal(directionPerson.focusTaskId.value,firstDirection.id);
+
+// Switching people is atomic and a late response / background poll cannot undo it.
+const delayed=new Map();
+const selectedSwitch=ref('old');
+const switching=usePeopleTasks({selectedPersonId:selectedSwitch,api:{...api,fetchPersonTasks:id=>new Promise(resolve=>delayed.set(id,resolve))}});
+switching.tasks.value=[{id:'old-row',ownerPersonId:'old'}];
+const firstSwitch=switching.loadTasks('one');
+assert.equal(selectedSwitch.value,'old');
+assert.equal(switching.tasks.value[0].id,'old-row');
+await switching.loadTasks();
+assert.equal(delayed.has('old'),false,'poll cannot cancel a user switch');
+const secondSwitch=switching.loadTasks('two');
+delayed.get('two')({tasks:[{id:'two-row',ownerPersonId:'two',title:textDoc('Two'),content:emptyDoc()}]});
+await secondSwitch;
+delayed.get('one')({tasks:[{id:'one-row',ownerPersonId:'one',title:textDoc('One'),content:emptyDoc()}]});
+await firstSwitch;
+assert.equal(selectedSwitch.value,'two');
+assert.equal(switching.tasks.value[0].id,'two-row');
+
+// Both directions join at the previous task's final subcontent line, with Undo.
+for (const forward of [false,true]) {
+  const joinedPerson=usePeopleTasks({selectedPersonId:ref(`join-person-${forward}`),api});
+  await joinedPerson.loadTasks();
+  const upperId=joinedPerson.tasks.value[0].id;
+  const lines={type:'doc',content:[{type:'bulletList',content:[{type:'listItem',content:[{type:'paragraph',content:[{type:'text',text:'Tail'}]}]}]}]};
+  await joinedPerson.saveTask({id:upperId,title:textDoc('Upper'),content:lines,baseUpdatedAt:joinedPerson.tasks.value[0].updatedAt});
+  const lowerId=await joinedPerson.createTaskBelow(joinedPerson.tasks.value[0]);
+  await joinedPerson.saveTask({id:lowerId,title:textDoc('Lower'),content:lines,baseUpdatedAt:joinedPerson.tasks.value.find(task=>task.id===lowerId).updatedAt});
+  const source=joinedPerson.tasks.value.find(task=>task.id===(forward?upperId:lowerId));
+  await (forward?joinedPerson.mergeTaskWithNext(source):joinedPerson.mergeTaskToPrevious(source));
+  const merged=store.find(task=>task.id===upperId);
+  assert.equal(merged.title.content[0].content[0].text,'Upper');
+  assert.equal(merged.content.content[0].content[0].content[0].content.map(node=>node.text).join(''),'TailLower');
+  assert.equal(merged.content.content[0].content.length,2);
+  assert.deepEqual(joinedPerson.focusContentTarget.value,{taskId:upperId,selection:{from:7,to:7}});
+  assert.equal(joinedPerson.focusTaskId.value,null);
+  await joinedPerson.undo();
+  assert.ok(store.some(task=>task.id===lowerId));
+  assert.deepEqual(store.find(task=>task.id===upperId).content,lines);
+  await joinedPerson.redo();
+  assert.equal(store.some(task=>task.id===lowerId),false);
+}

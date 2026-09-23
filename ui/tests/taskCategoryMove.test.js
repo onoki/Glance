@@ -137,8 +137,9 @@ TaskItem.render = () => {
   return h('task');
 };
 const dragged = [];
+const actionFocus = ref(null);
 const actionApp = renderer.createApp({ render: () => h(TaskItem, {
-  ...bindings, task, draggable: true, onSave: async () => ({ updatedAt: 2 }),
+  ...bindings, task, focusTitleId: actionFocus.value, draggable: true, onSave: async () => ({ updatedAt: 2 }),
   onDragStart: (item) => dragged.push(item.id)
 }) });
 actionApp.mount(node('root'));
@@ -174,6 +175,31 @@ assert.equal(prevented, false);
 actionState.handleDragStart({ target: { closest: (selector) => selector.includes('.ProseMirror') }, preventDefault() { prevented = true; } });
 assert.equal(prevented, true, 'editor text cannot start task reordering');
 assert.equal(dragged.length, 1);
+assert.equal(actionState.dragging,true);
+actionState.handleDragEnd();
+assert.equal(actionState.dragging,false);
+// A Delete/merge focus request must resume the destination's dismissed controls.
+windowListeners.get('blur')();
+assert.equal(actionState.actionsDismissed,true);
+actionFocus.value={taskId:task.id,selection:{from:1,to:1}};
+await nextTick(); await nextTick(); await nextTick();
+assert.equal(actionState.actionsDismissed,false);
+assert.equal(actionState.sendOpen,false);
+assert.equal(actionState.categoryOpen,false);
+
+// Moving a row without resizing it still repositions the fixed bar on update.
+globalThis.innerWidth=1000; globalThis.innerHeight=800;
+let rowTop=200;
+metaElement.getBoundingClientRect=()=>({height:18});
+actionState.taskRoot={matches:()=>true,closest:()=>null,getBoundingClientRect:()=>({left:10,right:310,top:rowTop,bottom:rowTop+20})};
+actionState.positionTaskOverlay();
+assert.equal(actionState.overlayStyle.top,'182px');
+rowTop=160;
+actionFocus.value={taskId:task.id,selection:{from:1,to:1}};
+await nextTick(); await nextTick(); await nextTick();
+assert.equal(actionState.overlayStyle.top,'142px');
+actionState.taskRoot=null;
+delete globalThis.innerWidth; delete globalThis.innerHeight;
 actionApp.unmount();
 assert.equal(windowListeners.has('blur'), false);
 assert.equal(documentListeners.has('click'), false);
@@ -217,3 +243,67 @@ for (const inFlight of [false, true]) {
   }
 }
 console.log('Fast Enter/Tab preserves the source and targets the intended new line');
+
+for (const key of ['Delete', 'Backspace']) {
+  let handlers, deleted = 0, merged = 0, deleteDirection;
+  const empty = {type:'doc',content:[{type:'paragraph'}]};
+  const content = ref(empty);
+  const harness = renderer.createApp({ setup() {
+    handlers = useTaskEditing({props:{task:{id:'empty'},onDelete:(_task,options)=>{deleted++;deleteDirection=options.direction;},onMergeToPrevious:()=>merged++},titleRef:ref(empty),contentRef:content,titleEditorRef:ref(null),contentEditorRef:ref(null),hasSubcontent:ref(false),revealContent(){},saveNow:async()=>true});
+    return ()=>h('test');
+  }});
+  harness.mount(node('root'));
+  const editor = {state:{doc:{textContent:''},selection:{empty:true,$from:{pos:1,start:()=>1,parentOffset:0,depth:1},$to:{pos:1}}}};
+  assert.equal(handlers.handleTitleKeydown({key,preventDefault(){}},editor),true);
+  assert.equal(deleted,1,`${key} removes an entirely empty task`);
+  assert.equal(deleteDirection,key === "Delete" ? "forward" : "backward");
+  content.value=titleDoc;
+  handlers.handleTitleKeydown({key,preventDefault(){}},editor);
+  assert.equal(deleted,1,`${key} preserves a task with subcontent`);
+  if(key==='Delete') assert.equal(merged,0,'Delete does not merge nonempty tasks');
+  harness.unmount();
+}
+
+// Structural edits use the editor's acknowledged revision, not stale rendered props.
+let mergeHandlers, mergedSnapshot;
+const revisionHarness = renderer.createApp({setup(){
+  mergeHandlers=useTaskEditing({props:{task:{id:'revision',updatedAt:1},onMergeToPrevious:task=>{mergedSnapshot=task;}},getTaskSnapshot:()=>({id:'revision',updatedAt:2,title:titleDoc}),titleRef:ref(titleDoc),contentRef:ref({type:'doc',content:[{type:'paragraph'}]}),titleEditorRef:ref(null),contentEditorRef:ref(null),hasSubcontent:ref(false),saveNow:async()=>true});
+  return ()=>h('test');
+}});
+revisionHarness.mount(node('root'));
+mergeHandlers.handleTitleKeydown({key:'Backspace',preventDefault(){}},{state:{doc:{textContent:'Original'},selection:{empty:true,$from:{pos:1,start:()=>1,parentOffset:0,parent:{content:{size:8}},depth:1,index:()=>0,node:()=>({childCount:1})}}}});
+await Promise.resolve();
+assert.equal(mergedSnapshot.updatedAt,2);
+revisionHarness.unmount();
+
+// Real ProseMirror selections exercise Delete boundary routing and local joins.
+const { Schema } = await import('prosemirror-model');
+const { EditorState, TextSelection } = await import('prosemirror-state');
+const boundarySchema=new Schema({nodes:{doc:{content:'block+'},paragraph:{group:'block',content:'inline*'},bulletList:{group:'block',content:'listItem+'},listItem:{content:'paragraph block*'},text:{group:'inline'}}});
+const boundaryTitle={type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Title'}]}]};
+const boundaryContent={type:'doc',content:[{type:'bulletList',content:[itemDoc('First'),itemDoc('Second')]}]};
+for (const mode of ['title-content','title-next','content-next','content-middle','selection','read-only']) {
+  let handlers, nextCalls=0, titleCaret;
+  const title=ref(structuredClone(boundaryTitle));
+  const content=ref(mode==='title-next'?{type:'doc',content:[{type:'paragraph'}]}:structuredClone(boundaryContent));
+  const harness=renderer.createApp({setup(){
+    handlers=useTaskEditing({props:{task:{id:'boundary'},readOnly:mode==='read-only',onMergeWithNext:async()=>{nextCalls++;}},titleRef:title,contentRef:content,titleEditorRef:ref({focus:selection=>{titleCaret=selection;}}),contentEditorRef:ref(null),hasSubcontent:ref(true),saveNow:async()=>true,onContentChanged(){}});
+    return ()=>h('test');
+  }});harness.mount(node('root'));
+  const inContent=mode.startsWith('content');
+  const doc=boundarySchema.nodeFromJSON(inContent?boundaryContent:boundaryTitle);
+  let end=0;doc.descendants((node,pos)=>{if(node.type.name==='paragraph') end=pos+1+node.content.size;});
+  const position=mode==='content-middle'?8:end;
+  const state=EditorState.create({schema:boundarySchema,doc,selection:TextSelection.create(doc,mode==='selection'?1:position,position)});
+  const editor={state};
+  const handled=(inContent?handlers.handleContentKeydown:handlers.handleTitleKeydown)({key:'Delete',preventDefault(){}},editor);
+  await nextTick(); await nextTick(); await nextTick();
+  if(mode==='title-content') {
+    assert.equal(boundarySchema.nodeFromJSON(title.value).textContent,'TitleFirst');
+    assert.equal(boundarySchema.nodeFromJSON(content.value).textContent,'Second');
+    assert.deepEqual(titleCaret,{from:6,to:6});
+    assert.equal(nextCalls,0);
+  } else if(mode==='title-next'||mode==='content-next') assert.equal(nextCalls,1);
+  else { assert.equal(handled,false); assert.equal(nextCalls,0); }
+  harness.unmount();
+}

@@ -30,6 +30,15 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // Grayscale antialiasing avoids RGB fringes without changing Windows settings.
+        // Set before any WebView2 environment is created, including child windows.
+        if (OperatingSystem.IsWindows())
+        {
+            const string key = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+            var arguments = Environment.GetEnvironmentVariable(key) ?? "";
+            if (!arguments.Contains("--disable-lcd-text", StringComparison.Ordinal))
+                Environment.SetEnvironmentVariable(key, $"{arguments} --disable-lcd-text".Trim());
+        }
         var appRoot = ResolveAppRoot();
         EnsureDirectories(appRoot);
         InitLogging(appRoot);

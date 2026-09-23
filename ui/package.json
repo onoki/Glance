@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5173",
-    "test": "node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/searchNavigation.test.js && node tests/externalLinks.test.js && node tests/editorLinks.test.js && node tests/questionMarker.test.js && node tests/taskDocUtils.test.js && node tests/useDashboardData.test.js && node tests/usePeopleTasks.test.js && node tests/titleSplitUtils.test.js && node tests/outdentSelection.test.js && node tests/statusMetadata.test.js && node tests/saveCoordinator.test.js && node tests/desktopLifecycle.test.js && node tests/taskCategoryMove.test.js && node tests/taskClipboard.test.js",
+    "test": "node tests/taskJoinParity.test.js && node tests/taskJoin.test.js && node tests/compactEditing.test.js && node tests/dateUtils.test.js && node tests/categoryUtils.test.js && node tests/searchUtils.test.js && node tests/searchNavigation.test.js && node tests/externalLinks.test.js && node tests/editorLinks.test.js && node tests/questionMarker.test.js && node tests/taskDocUtils.test.js && node tests/useDashboardData.test.js && node tests/usePeopleTasks.test.js && node tests/titleSplitUtils.test.js && node tests/outdentSelection.test.js && node tests/statusMetadata.test.js && node tests/saveCoordinator.test.js && node tests/desktopLifecycle.test.js && node tests/taskCategoryMove.test.js && node tests/taskClipboard.test.js",
     "lint": "eslint \"src/**/*.{js,vue}\" \"tests/**/*.js\""
   },
   "dependencies": {

@@ -48,6 +48,7 @@
                 })"
               />
             </TransitionGroup>
+            <button class="task-list-tail" type="button" aria-label="Add task to New tasks" @click="appendTask(newTasks, 'new')"><span>+ Add task</span></button>
           </div>
         </section>
         <div v-if="!expandedNew" class="column-resizer" @pointerdown="startResize('new', $event)"></div>
@@ -103,6 +104,7 @@
                   />
                 </TransitionGroup>
               </template>
+              <button class="task-list-tail" type="button" :aria-label="`Add task to ${category.label}`" @click="appendTask(category.tasks, category.id)"><span>+ Add task</span></button>
             </div>
           </section>
           <div
@@ -189,6 +191,16 @@ const props = defineProps({
 
 const emit = defineEmits(["update:dashboardColumnsRef"]);
 const columnsRef = ref(null);
+let appending = false;
+const appendTask = async (tasks, categoryId) => {
+  if (appending) return;
+  appending = true;
+  try {
+    const last = tasks[tasks.length - 1];
+    if (!last) await props.onCreateNewTask();
+    else await props.getTaskItemBindings(last, tasks, { categoryId }).onCreateBelow(last, categoryId);
+  } finally { appending = false; }
+};
 const resizing = ref(null);
 const MIN_COLUMN_WIDTH = 200;
 

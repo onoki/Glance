@@ -44,3 +44,14 @@ In Dashboard and People, the narrow dotted handle beside a task's checkbox selec
 
 Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights, and Ctrl+7 marks Dashboard or History lines for status input. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized. People tabs wrap and use colored dots and a shared legend to show assigned tags.
 
+### Compact editing and navigation
+
+Task columns include blank space below the last row: click it to append a task. Typing near an edge keeps the caret visible. Delete, like Backspace, removes an entirely empty task; Backspace at the start of a subsequent task joins it to the previous one and keeps the caret at the join.
+
+Category menus open by clicking their button (or keyboard activation). Moves provide a short Undo notification when still applicable; copies are explicitly labelled as copies. The selected person's name appears beside their controls, and shared tag editing is separated from personal tag assignment. Search shows source context; History activity charts, restore controls, and technical Status Updates details use compact disclosures.
+
+BigBlue remains 8 CSS pixels. Editor and navigation text origins are aligned to the physical pixel grid to reduce uneven smoothing at 150% scaling. UI controls retain their compact sizes; task bold and italic formatting remains supported.
+
+The Windows desktop app requests grayscale text smoothing to avoid colored LCD fringes. Fully close all Glance windows and reopen after upgrading to test this change. It retains the same font size and does not alter Windows settings; it does not disable all antialiasing. Empty-task Delete now focuses the beginning of the next task (falling back to the previous task if no next task exists), while Backspace keeps its backward behavior. People switches replace the person and fetched list together without cross-person task animations.
+
+Delete at the end of a title joins its first subcontent line, or the following task title when there is no subcontent. Delete at the end of the final subcontent line joins the following task there. Backspace at the start of a title joins into the previous task's final subcontent line, or its title when there is no subcontent. Remaining subcontent and formatting are preserved, the caret stays at the join, and Undo can restore the original tasks.

@@ -1,7 +1,7 @@
 <template>
   <section ref="peopleRoot" class="people-view dashboard" @scroll.capture="keepTaskListsLeft">
     <header class="people-navigation">
-      <button type="button" class="add-task" @click="addPerson">+ Person</button>
+      <button type="button" class="ghost" @click="addPerson">+ Person</button>
       <div class="people-tabs" role="tablist" aria-label="People">
         <div
           v-for="person in activePeople"
@@ -74,12 +74,13 @@
 
     <div v-else-if="selectedPerson" class="person-panel">
       <header class="person-controls">
+        <h2 class="selected-person-name">{{ selectedPerson.displayName }}</h2>
         <details class="person-tags-menu">
           <summary class="ghost tag-summary">
             Tags<span v-if="selectedTagNames.length">: {{ selectedTagNames.join(", ") }}</span>
           </summary>
           <div class="tag-menu-panel">
-            <strong>Person tags</strong>
+            <strong>Tags for {{ selectedPerson.displayName }}</strong>
             <div v-for="tag in directory.tags" :key="tag.id" class="tag-menu-row">
               <label>
                 <input
@@ -89,12 +90,19 @@
                 />
                 <span>{{ tag.name }}</span>
               </label>
+            </div>
+            <p v-if="!directory.tags.length" class="empty-message">No tags yet.</p>
+            <details class="shared-tag-settings">
+              <summary>Manage shared tags</summary>
+              <p class="empty-message">Rename, color, and deletion affect everyone using the tag.</p>
+              <div v-for="tag in directory.tags" :key="tag.id" class="tag-menu-row">
+                <span>{{ tag.name }}</span>
               <input type="color" :value="tag.color || tagColor(tag.id)" :aria-label="`Color for ${tag.name}`" title="Colors are saved automatically; click outside to close" @input="changeTagColor(tag, $event.target.value)" @change="changeTagColor(tag, $event.target.value)" />
               <button type="button" class="tiny-action" title="Rename tag" @click="renameTag(tag)">Rename</button>
               <button type="button" class="delete-task task-icon-button" title="Delete tag" :aria-label="`Delete tag ${tag.name}`" @click="removeTag(tag)">×</button>
-            </div>
-            <p v-if="!directory.tags.length" class="empty-message">No tags yet.</p>
+              </div>
             <button type="button" class="ghost tag-add" @click="addTag">+ New tag</button>
+            </details>
           </div>
         </details>
         <button type="button" class="ghost" @click="renamePerson">Rename</button>
@@ -102,7 +110,7 @@
       </header>
 
       <div class="person-task-list task-list">
-        <TransitionGroup name="task-move" tag="div" class="task-list-group">
+        <TransitionGroup :key="selectedId" name="task-move" tag="div" class="task-list-group">
           <TaskItem
             v-for="(task, index) in tasks"
             :key="task.id"
@@ -126,6 +134,7 @@
             :on-split-title-to-new-task="splitTitleToNewTask"
             :on-tab-to-previous="moveTaskToPrevious"
             :on-merge-to-previous="mergeTaskToPrevious"
+            :on-merge-with-next="mergeTaskWithNext"
             :on-split-to-new-task="splitSubcontentToNewTask"
             :on-focus-prev-task-from-title="focusPreviousTask"
             :on-focus-next-task-from-content="focusNextTask"
@@ -140,6 +149,7 @@
             :on-dismiss-send-marker="dismissSend"
           />
         </TransitionGroup>
+        <button class="task-list-tail" type="button" aria-label="Add a note for this person" @click="appendPersonTask"><span>+ Add note</span></button>
         <p v-if="!tasks.length" class="empty-message">Preparing an empty note…</p>
       </div>
     </div>
@@ -184,6 +194,13 @@ watch(selectedId, (id) => {
   else sessionStorage.removeItem("glance.selectedPerson");
 });
 const viewMode = ref("person");
+let appending = false;
+const appendPersonTask = async () => {
+  if (appending || !tasks.value.length) return;
+  appending = true;
+  try { await createTaskBelow(tasks.value[tasks.value.length - 1]); }
+  finally { appending = false; }
+};
 const archiveNavigationNotice = ref("");
 const archivedNavigationPersonId = ref(null);
 const navigationHighlightId = ref(null);
@@ -225,6 +242,7 @@ const {
   createTaskBelow,
   moveTaskToPrevious,
   mergeTaskToPrevious,
+  mergeTaskWithNext,
   focusPreviousTask,
   focusNextTask,
   splitSubcontentToNewTask,
@@ -283,9 +301,8 @@ const selectPerson = async (id) => {
   archiveNavigationNotice.value = "";
   archivedNavigationPersonId.value = null;
   viewMode.value = "person";
-  if (selectedId.value === id) return;
-  selectedId.value = id;
-  await loadTasks();
+
+  await loadTasks(id);
 };
 
 const showArchive = () => {
@@ -604,7 +621,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
 
 .person-controls {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 3px;
   min-height: 23px;
@@ -612,6 +629,9 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   z-index: 3;
 }
 
+.selected-person-name { margin: 0 6px 0 0; font-size: var(--font-size-body); }
+.shared-tag-settings { display: grid; gap: 4px; }
+.shared-tag-settings > :not(summary) { margin-top: 4px; }
 .person-tags-menu { position: relative; }
 .person-tags-menu > summary { list-style: none; }
 .person-tags-menu > summary::-webkit-details-marker { display: none; }
@@ -621,7 +641,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   position: absolute;
   z-index: 1000;
   top: calc(100% + 1px);
-  right: 0;
+  left: 0;
   min-width: 260px;
   display: flex;
   flex-direction: column;

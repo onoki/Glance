@@ -3,6 +3,8 @@
     <div class="history-toolbar">
       <button class="ghost" @click="onMoveCompletedToHistory">Move completed to history</button>
     </div>
+    <details v-if="historyBars.some(day => day.count > 0)" class="history-activity">
+      <summary>Activity over time</summary>
     <div class="history-chart">
       <div class="chart-area">
         <div class="chart-bars">
@@ -23,6 +25,7 @@
         <span>{{ historySeries[historySeries.length - 1]?.date }}</span>
       </div>
     </div>
+    </details>
     <div class="history-list">
       <div v-if="historyGroups.length === 0" class="history-empty">No completed tasks yet.</div>
       <div v-else>

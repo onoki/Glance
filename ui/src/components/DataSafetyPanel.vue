@@ -14,6 +14,7 @@
 
     <section class="settings-subsection">
       <h3>Backups</h3>
+      <p v-if="backups.length">{{ backups.length }} restore points available · Latest: {{ formatBackupOption(backups[0]) }}</p>
       <p>
         Glance keeps verified local snapshots. By default it retains 48 hourly, 30 daily,
         and 12 monthly restore points; unchanged hours do not create duplicates.
@@ -56,8 +57,8 @@
       </div>
     </section>
 
-    <section class="settings-subsection restore-section">
-      <h3>Restore an earlier snapshot</h3>
+    <details class="settings-subsection restore-section" :open="startupSafety.recoveryMode || startupSafety.pendingRestore">
+      <summary>Restore an earlier snapshot…</summary>
       <p>
         Choose a restore point below. Restoring replaces notes, people, images, and status updates
         with that snapshot; Glance first makes an emergency backup of the current state.
@@ -88,7 +89,7 @@
           {{ startupSafety.pendingRestore ? "Restore already staged" : isRestoringBackup ? "Preparing restore..." : "Restore selected snapshot..." }}
         </button>
       </div>
-    </section>
+    </details>
 
     <section class="settings-subsection portable-export-section">
       <h3>Take your notes with you</h3>

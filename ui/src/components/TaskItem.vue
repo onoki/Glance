@@ -2,10 +2,11 @@
   <div
     ref="taskRoot"
     class="task-item"
-    @focusin="positionTaskOverlay"
+    @focusin="trackFocusOverlay"
     @click="actionDismissal.interact($event)"
     @keydown="actionDismissal.interact($event)"
-    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected }"
+    @keydown.esc="closeTaskMenus"
+    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected, 'actions-dismissed': actionsDismissed, 'task-dragging': dragging }"
     :draggable="false"
     :data-task-id="task.id"
     @dragstart="handleDragStart"
@@ -61,13 +62,13 @@
           v-if="canSetCategory"
           ref="categoryPickerRef"
           class="category-picker contextual-task-action"
-          @mouseenter="updateCategoryMenuPosition"
-          @focusin="updateCategoryMenuPosition"
         >
-          <button type="button" class="category-toggle task-icon-button" aria-label="Change category" title="Change category">▦</button>
+          <button type="button" class="category-toggle task-icon-button" aria-label="Move to category" title="Move to category…" :aria-expanded="categoryOpen" @click.stop="toggleCategoryMenu">▦</button>
           <div
+            v-if="categoryOpen"
             ref="categoryMenuRef"
             class="floating-menu category-menu"
+            @click.stop
             :style="{ left: `${categoryMenuLeft}px`, top: `${categoryMenuTop}px` }"
           >
             <button
@@ -215,8 +216,9 @@
 
 <script setup>
 import { taskClipboard } from "../services/taskClipboard.js";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
 import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
+import { announceAction } from "../services/actionFeedback.js";
 import RichTextEditor from "./RichTextEditor.vue";
 import RecurrenceControls from "./RecurrenceControls.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
@@ -323,6 +325,7 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  onMergeWithNext: { type: Function, default: null },
   onMergeToPrevious: {
     type: Function,
     default: null
@@ -388,6 +391,7 @@ const clipboardBusy = computed(() => taskClipboard.busy.value);
 let unregisterClipboard;
 const taskMeta = ref(null);
 const actionsDismissed = ref(false);
+const dragging = ref(false);
 const actionDismissal = createTaskActionDismissal((dismissed) => {
   actionsDismissed.value = dismissed;
   if (dismissed) {
@@ -403,6 +407,18 @@ const actionDismissal = createTaskActionDismissal((dismissed) => {
 });
 const overlayStyle = ref({});
 let overlayObserver;
+let overlayFrame = null;
+function trackFocusOverlay() {
+  if (overlayFrame !== null) cancelAnimationFrame(overlayFrame);
+  const until = performance.now() + 350;
+  const follow = () => {
+    overlayFrame = null;
+    if (!taskRoot.value?.matches(':focus-within') || actionsDismissed.value) return;
+    positionTaskOverlay();
+    if (performance.now() < until) overlayFrame = requestAnimationFrame(follow);
+  };
+  follow();
+}
 
 function positionTaskOverlay() {
   const root = taskRoot.value;
@@ -412,17 +428,26 @@ function positionTaskOverlay() {
   const bounds = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
   const left = Math.max(0, bounds.left, rect.left);
   const right = Math.min(innerWidth, bounds.right - (container ? container.offsetWidth - container.clientWidth : 0), rect.right);
-  const top = Math.max(0, rect.top - taskMeta.value.offsetHeight);
-  overlayStyle.value = {
+  const top = Math.max(0, rect.top - taskMeta.value.getBoundingClientRect().height);
+  const nextStyle = {
     left: `${left}px`, top: `${top}px`, width: `${Math.max(0, right - left)}px`,
     display: right <= left || rect.bottom < bounds.top || rect.top > Math.min(innerHeight, bounds.bottom) ? 'none' : ''
   };
+  if (Object.keys(nextStyle).some(key => overlayStyle.value[key] !== nextStyle[key])) overlayStyle.value = nextStyle;
 }
 const contentEditorRef = ref(null);
 const forceSubcontent = ref(false);
 const contentFocused = ref(false);
 const highlightFlash = ref(false);
 const categoryPickerRef = ref(null);
+const categoryOpen = ref(false);
+const toggleCategoryMenu = async () => {
+  const open = !categoryOpen.value;
+  closeTaskMenus();
+  categoryOpen.value = open;
+  await nextTick();
+  updateCategoryMenuPosition();
+};
 const categoryMenuRef = ref(null);
 const categoryMenuTop = ref(0);
 const categoryMenuLeft = ref(0);
@@ -455,6 +480,9 @@ const removeMenuListeners = () => {
   document.removeEventListener("scroll", updateOpenMenuPositions, true);
   document.removeEventListener("click", closeTaskMenus);
 };
+
+// A sibling deletion can move this row without resizing it or firing focusin.
+onUpdated(positionTaskOverlay);
 
 onBeforeUnmount(() => {
   if (saveTimer) {
@@ -537,6 +565,7 @@ const updateCategoryMenuPosition = () => {
 };
 
 function updateOpenMenuPositions() {
+  if (categoryOpen.value) updateCategoryMenuPosition();
   if (sendOpen.value) {
     positionFloatingMenu(sendPickerRef.value, sendMenuRef.value, sendMenuTop, sendMenuLeft);
   }
@@ -545,7 +574,12 @@ function updateOpenMenuPositions() {
   }
 }
 
-function closeTaskMenus() {
+function closeTaskMenus(event) {
+  if (event?.key === 'Escape') {
+    const picker = categoryOpen.value ? categoryPickerRef.value : sendOpen.value ? sendPickerRef.value : eventsOpen.value ? eventsPickerRef.value : null;
+    picker?.querySelector('button')?.focus();
+  }
+  categoryOpen.value = false;
   sendOpen.value = false;
   eventsOpen.value = false;
 }
@@ -646,6 +680,7 @@ onBeforeUnmount(() => {
   unregisterClipboard?.();
   document.removeEventListener('scroll', positionTaskOverlay, true);
   overlayObserver?.disconnect();
+  if (overlayFrame !== null) cancelAnimationFrame(overlayFrame);
 });
 
 const saveNow = async (force = false, options = null) => {
@@ -708,6 +743,7 @@ const handleContentBlur = () => {
 };
 
 const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
+  getTaskSnapshot: snapshot,
   props,
   onDelete: handleDelete,
   revealContent: () => { forceSubcontent.value = true; },
@@ -737,10 +773,10 @@ const toggleComplete = async () => {
 };
 
 let deleting = false;
-async function handleDelete() {
+async function handleDelete(_task, options = {}) {
   if (deleting) return;
   deleting = true;
-  try { await props.onDelete?.(snapshot()); }
+  try { await props.onDelete?.(snapshot(), options); }
   finally { deleting = false; }
 }
 
@@ -757,6 +793,8 @@ const handleDragStart = (event) => {
     event.preventDefault();
     return;
   }
+  dragging.value = true;
+  closeTaskMenus();
   props.onDragStart(props.task, event);
 };
 
@@ -790,6 +828,8 @@ const handleDrop = (event) => {
 };
 
 const handleDragEnd = () => {
+  dragging.value = false;
+  nextTick(positionTaskOverlay);
   props.onDragEnd?.();
 };
 
@@ -819,11 +859,13 @@ const handleSplitToNewTask = async (payload) => {
 
 const noopSplit = () => {};
 
-const setCategory = (category) => {
+const setCategory = async (category) => {
   if (props.readOnly || !props.onSetCategory) {
     return;
   }
-  props.onSetCategory(props.task, category);
+  closeTaskMenus();
+  try { await props.onSetCategory(props.task, category); }
+  catch (error) { window.alert(error?.message || "Could not move the task."); }
 };
 
 const toggleStatusButton = async () => {
@@ -840,6 +882,7 @@ const toggleStatusButton = async () => {
 };
 
 const toggleSendMenu = async () => {
+  categoryOpen.value = false;
   eventsOpen.value = false;
   sendOpen.value = !sendOpen.value;
   if (sendOpen.value) {
@@ -854,6 +897,7 @@ const sendToPeople = async () => {
     const saved = await saveNow();
     if (!saved) throw new Error("Could not save the latest edits before copying the task.");
     await props.onSendToPeople(props.task, selectedPeople.value, selectedTags.value);
+    announceAction('Sent a copy to the selected people.');
     sendMarkerVisible.value = true;
     selectedPeople.value = [];
     selectedTags.value = [];
@@ -869,6 +913,7 @@ const sendToDashboard = async () => {
     const saved = await saveNow();
     if (!saved) throw new Error("Could not save the latest edits before copying the task.");
     await props.onSendToDashboard(props.task);
+    announceAction('Sent a copy to Dashboard.');
     sendMarkerVisible.value = true;
   } catch (error) {
     window.alert(error?.message || "Could not copy the task");
@@ -876,6 +921,7 @@ const sendToDashboard = async () => {
 };
 
 const toggleEvents = async () => {
+  categoryOpen.value = false;
   sendOpen.value = false;
   eventsOpen.value = !eventsOpen.value;
   if (!eventsOpen.value || !props.onLoadSendEvents) return;
@@ -901,7 +947,7 @@ const dismissSendMarker = async () => {
 const formatEventTime = (milliseconds) => new Date(milliseconds).toLocaleString();
 
 watch(
-  () => sendOpen.value || eventsOpen.value,
+  () => categoryOpen.value || sendOpen.value || eventsOpen.value,
   async (open) => {
     removeMenuListeners();
     if (!open) return;
@@ -988,7 +1034,12 @@ watch(
       return;
     }
     await nextTick();
+    // Explicit editing navigation (Delete/merge/etc.) may resume controls on
+    // the destination. Native window focus restoration still cannot do this.
+    actionDismissal.interact();
     titleEditorRef.value?.focus(target?.selection);
+    await nextTick();
+    positionTaskOverlay();
   },
   { immediate: true }
 );
@@ -1001,7 +1052,11 @@ watch(
     }
     forceSubcontent.value = true;
     await nextTick();
-    contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
+    actionDismissal.interact();
+    if (target.selection) contentEditorRef.value?.focus(target.selection);
+    else contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
+    await nextTick();
+    positionTaskOverlay();
   },
   { immediate: true }
 );
@@ -1386,24 +1441,8 @@ watch(
 }
 
 .category-menu {
-  opacity: 0;
-  pointer-events: none;
-  transform: none;
-}
-
-/* Bridge the 3px positioning gap (plus rounding) on either opening side. */
-.category-menu::before {
-  content: "";
-  position: absolute;
-  inset: -4px 0;
-  z-index: -1;
-}
-
-.category-picker:hover .category-menu,
-.category-picker:focus-within .category-menu {
-  opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: none;
 }
 
 .category-option {

@@ -124,9 +124,9 @@ Feature: History view
 
   Scenario: Viewing task completion history
     Given I navigate to the history tab
-    Then I see a bar chart showing how many tasks were completed each day
-    And the chart shows only the last 180 days
-    And I see a list of completed tasks grouped by completion date
+    Then I see a list of completed tasks grouped by completion date
+    And a collapsed activity chart is available when it contains completions from the last 180 days
+    And expanding Activity over time shows daily completion counts
 
   Scenario: Moving completed tasks to history
     Given I am on the history tab
@@ -421,10 +421,10 @@ Feature: Recurrence controls
 
 Feature: Category interaction
 
-  Scenario: Category actions appear on hover
+  Scenario: Category actions open deliberately
     Given a task is visible on the dashboard
-    When I hover over the task
-    Then category action buttons are shown
+    When I focus the task and activate its Move to category button
+    Then category options are shown
 
   Scenario: This week scheduling on category change
     Given a task is moved into the This week category
@@ -854,3 +854,146 @@ Feature: Whole-task selection and clipboard
     And attachment references work across windows of the same database
     And attachment payloads from another database are rejected before creation
     And ordinary text copy and paste remain unchanged
+
+  Scenario: Compact text rendering and highlights
+    Given Windows display scaling is 150 percent
+    Then BigBlue TerminalPlus remains at 8 CSS pixels
+    And editor and navigation text origins align to physical pixels after layout, scrolling, and resize
+    And existing control sizes stay unchanged
+    And ordinary text stays dark neutral while semantic colors remain meaningful
+    And green and red highlights have pale backgrounds, including previously saved marks
+
+  Scenario: Bottom insertion space and caret visibility
+    Given a Dashboard category or People task list
+    Then at least 64 CSS pixels of blank insertion space follows its tasks
+    When I click that space
+    Then an editable task is appended to that list
+    When I type near the visible edge
+    Then the column scrolls enough to keep the caret visible with room below it
+    And editing an earlier visible task does not scroll to the end
+
+  Scenario: Empty task Delete key
+    Given a task has no title or subcontent
+    When I press Delete or Backspace in its editor
+    Then the empty task is removed using the same safe deletion behavior
+    And Delete never merges backward into a preceding task
+
+  Scenario: Backspace join position
+    Given adjacent task titles First task and Second task and the first task has no subcontent
+    When I press Backspace immediately before the S of Second task
+    Then their titles and subcontent are combined
+    And the caret stays immediately before the S in the combined title
+    And this works in Dashboard and People immediately after saving an edit
+
+  Scenario: Compact focus and feedback
+    Then the focused task has a subtle ownership indicator without moving surrounding rows
+    And category menus open by click or keyboard activation, never hovering
+    And Escape, outside clicks, and window blur close task menus
+    And actions distinguish Move from Send a copy
+    And a move offers brief Undo feedback only while it remains the next undo entry
+    And save feedback is shown only for pending changes, saving, or failures
+    And whole-task selection shows count and copy, cut, and escape hints
+
+  Scenario: People tag scope
+    Given a person is selected
+    Then their name appears beside their controls
+    And personal tag assignment is separate from collapsed Manage shared tags controls
+    And shared tag controls explain that changes affect everyone using the tag
+
+  Scenario: Compact secondary views
+    Then Search results show source context with Open source beside copy controls
+    And Up and Down navigate Open source buttons and Enter opens the source
+    And History omits an empty chart and collapses populated charts behind Activity over time
+    And Settings keeps group indentation and collapses restore controls unless recovery requires them
+    And Status Updates explains the next step with technical details in a disclosure
+
+  Scenario: Grayscale desktop text rendering
+    Given Glance runs in its Windows desktop host
+    Then its WebView2 processes request grayscale text antialiasing with disable-lcd-text
+    And the font size remains 8 CSS pixels
+    And Windows-wide font settings are unchanged
+    And this is not described as disabling all font smoothing
+
+  Scenario: Neutral Add Person control
+    Then + Person uses the same neutral button treatment as Rename and Archive
+    And dark selected styling identifies the selected person or navigation tab
+
+  Scenario: Stable person switching
+    When I choose another person
+    Then the current person's name and tasks stay together until the new list is loaded
+    And the selected person, heading, and tasks change together without cross-person list animations
+    And stale responses and background polling cannot replace a newer requested person
+
+  Scenario: Connected task ownership outline
+    Given a task's action bar is visible
+    Then its top blue line extends across the bar to meet the left task line
+    And neither line reserves layout space or blocks clicks through empty bar space
+    When I drag a task
+    Then both ownership lines and the action bar are hidden together
+    And window blur hides the ownership indication with the controls
+
+  Scenario: Delete moves forward and Backspace moves backward
+    Given an entirely empty task has a following task
+    When I press Delete in its editor
+    Then it is removed and the caret goes to the beginning of the following task title
+    When I instead press Backspace in an entirely empty task
+    Then the previous task receives focus as before
+    And when Delete has no following task it falls back to the previous task
+    And these rules apply in Dashboard and People
+
+  Scenario: Deletion transfers the complete focus indicator
+    When Delete removes an empty task and focuses the following title
+    Then both the left outline and full-width top outline belong to that task
+    And the action bar is positioned again after the list layout changes
+    And explicit editing navigation resumes dismissed destination controls without reopening menus
+    And native window activation alone still cannot reopen dismissed controls
+
+  Scenario: Backspace merges only within the current Dashboard column
+    Given Dashboard tasks from different categories are interleaved in storage order
+    When I press Backspace at the beginning of a task title
+    Then it merges only into the preceding visible task in that same column
+    And its caret remains at the join
+    And Backspace on the first task in a column does not merge into another column
+
+
+  Scenario: Delete joins the next title when the current task has no subcontent
+    Given the caret is at the end of a title with no subcontent and no text selection
+    When I press Delete
+    Then the following task title is appended to this title without inserting a space
+    And its subcontent becomes this task's subcontent
+    And the caret stays at the join
+
+  Scenario: Delete joins the first subcontent line into the title
+    Given the caret is at the end of a title with subcontent
+    When I press Delete
+    Then only the first logical subcontent line is appended to the title
+    And its remaining hard-break text, paragraphs, children, and later rows are preserved as subcontent
+    And children of a consumed parent bullet are promoted one level
+    And the caret stays at the join
+
+  Scenario: Delete at the end of subcontent joins the next task
+    Given the caret is at the end of the last logical subcontent line
+    When I press Delete
+    Then the following task's title is appended to that line
+    And its subcontent is appended as subsequent subcontent rows
+    And the current task's title is unchanged
+    And the caret stays immediately before the appended title
+
+  Scenario: Backspace respects the preceding task's subcontent
+    Given the caret is at the beginning of a task title with no text selection
+    When I press Backspace
+    Then its title is appended to the preceding task's final subcontent line if one exists
+    And otherwise its title is appended to the preceding task title
+    And its remaining subcontent is appended as subsequent rows
+    And the caret stays at the join
+
+  Scenario: Safe logical-line joins
+    Then Dashboard and People use the same line-joining rules
+    And nested structure, rich marks, links, inline images, and remaining blank lines are preserved
+    And a soft-wrapped visual line is not a separate logical line
+    And a join never crosses a Dashboard column or a person boundary
+    And no adjacent task means there is nothing to join
+    And Delete on a text selection retains native selection deletion
+    And repeated keys cannot overlap an in-flight join
+    And Undo restores both original tasks and Redo joins them again
+    And entirely empty task deletion retains its forward Delete and backward Backspace focus rules

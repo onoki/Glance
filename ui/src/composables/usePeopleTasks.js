@@ -1,3 +1,4 @@
+import { joinTaskDocuments } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { ref } from "vue";
 import {
@@ -13,7 +14,6 @@ import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
 import {
   emptyContentDoc,
   emptyTitleDoc,
-  mergeTitleDocs,
   normalizeContent,
   normalizeTask,
   normalizeTitle,
@@ -114,21 +114,30 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     }
   };
 
-  const loadTasks = async () => {
-    const personId = selectedPersonId.value;
+  let switchingPerson = false;
+  const loadTasks = async (requestedPersonId) => {
+    // Polling must not cancel a deliberate person switch that is still loading.
+    if (switchingPerson && requestedPersonId === undefined) return;
+    const personId = requestedPersonId ?? selectedPersonId.value;
+    const selectionAtRequest = selectedPersonId.value;
     const sequence = ++loadSequence;
-    focusTaskId.value = null;
-    focusContentTarget.value = null;
-    if (!personId) {
-      tasks.value = [];
-      return;
+    switchingPerson = personId !== selectionAtRequest;
+    try {
+      if (!personId) { tasks.value = []; return; }
+      const response = await fetchPersonTasks(personId);
+      if (sequence !== loadSequence || selectedPersonId.value !== selectionAtRequest) return;
+      // Commit label, selection and rows in the same Vue update. Keep the old view
+      // intact while fetching, and remount the list rather than animating people.
+      selectedPersonId.value = personId;
+      focusTaskId.value = null;
+      focusContentTarget.value = null;
+      for (const task of response.tasks || []) persistedTasks.set(task.id, cloneTask(task));
+      tasks.value = mergeDirtyTasks((response.tasks || []).map(normalizeTask));
+      sortTasks();
+      await ensureBlankTask(personId);
+    } finally {
+      if (sequence === loadSequence) switchingPerson = false;
     }
-    const response = await fetchPersonTasks(personId);
-    if (sequence !== loadSequence || selectedPersonId.value !== personId) return;
-    for (const task of response.tasks || []) persistedTasks.set(task.id, cloneTask(task));
-    tasks.value = mergeDirtyTasks((response.tasks || []).map(normalizeTask));
-    sortTasks();
-    await ensureBlankTask(personId);
   };
 
   const saveTask = async (payload) => {
@@ -158,12 +167,14 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     const current = resolveTask(task);
     const index = tasks.value.findIndex((item) => item.id === task.id);
     const previous = index > 0 ? tasks.value[index - 1] : null;
+    const next = tasks.value[index + 1];
     await deleteTask(task.id);
     saveCoordinator.forget(task.id);
     if (options.recordUndo !== false) pushDeleteUndo(current);
     dirtySnapshots.delete(task.id);
     tasks.value = tasks.value.filter((item) => item.id !== task.id);
-    focusTaskId.value = previous?.id || null;
+    focusTaskId.value = options.direction === "forward" && next
+      ? { taskId: next.id, selection: { from: 1, to: 1 } } : previous?.id || null;
     await ensureBlankTask(selectedPersonId.value);
     onHistoryChange?.();
   };
@@ -343,21 +354,19 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return true;
   };
 
-  const mergeTaskToPrevious = async (task) => {
-    const index = tasks.value.findIndex((item) => item.id === task.id);
-    if (index <= 0) return false;
+  const mergeTaskToPrevious = async (task, forward = false) => {
+    if (!(await saveCoordinator.flushAll()).ok) return false;
+    const index = tasks.value.findIndex((item) => item.id === task.id) + (forward ? 1 : 0);
+    if (index <= 0 || index >= tasks.value.length) return false;
     const previous = cloneTask(resolveTask(tasks.value[index - 1]));
-    const current = cloneTask(resolveTask(task));
-    const previousItems = normalizeContent(previous.content).content?.[0]?.content || [];
-    const currentItems = normalizeContent(current.content).content?.[0]?.content || [];
-    const mergedItems = [...previousItems, ...currentItems].filter((item) => !isDocEmptyJson(item));
-    const content = mergedItems.length
-      ? { type: "doc", content: [{ type: "bulletList", content: mergedItems }] }
-      : emptyContentDoc();
+    const current = cloneTask(resolveTask(tasks.value[index]));
+    const joined = joinTaskDocuments(previous, current);
+    const mergedTitle = joined.title;
+    const mergedContent = joined.content;
     await saveTask({
       id: previous.id,
-      title: mergeTitleDocs(previous.title, current.title),
-      content,
+      title: mergedTitle,
+      content: mergedContent,
       baseUpdatedAt: previous.updatedAt,
       suppressUndo: true
     });
@@ -368,7 +377,10 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     redoStack.length = 0;
     dirtySnapshots.delete(current.id);
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
-    focusTaskId.value = previous.id;
+    focusTaskId.value = null;
+    focusContentTarget.value = null;
+    if (joined.area === 'content') focusContentTarget.value = { taskId: previous.id, selection: joined.selection };
+    else focusTaskId.value = { taskId: previous.id, selection: joined.selection };
     if (current.completedAt) onHistoryChange?.();
     return true;
   };
@@ -482,6 +494,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     createTaskBelow,
     moveTaskToPrevious,
     mergeTaskToPrevious,
+    mergeTaskWithNext: task => mergeTaskToPrevious(task, true),
     focusPreviousTask,
     focusNextTask,
     splitSubcontentToNewTask,

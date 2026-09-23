@@ -117,7 +117,7 @@ textarea {
 }
 
 mark[data-color="green"] {
-  background: #d6f5d6;
+  background: #d6f5d6 !important;
 }
 
 mark[data-color="yellow"] {
@@ -125,7 +125,7 @@ mark[data-color="yellow"] {
 }
 
 mark[data-color="red"] {
-  background: #ffd6d6;
+  background: #ffd6d6 !important;
 }
 
 mark[data-color="search"] {

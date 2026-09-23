@@ -2,29 +2,33 @@
   <section class="status-view">
     <header>
       <h2>Project status update</h2>
-      <p>Collect a read-only input package, complete its output in your ChatGPT project, then upload it here for validation and Office export.</p>
+      <p>Create report input, complete the report in your ChatGPT project, and bring it back to export.</p>
     </header>
 
+    <p class="next-step" role="status">Next: {{ nextStep }}</p>
     <div class="status-grid">
       <article class="status-card">
-        <h3>1. Collect input</h3>
+        <h3>1. Prepare report input</h3>
         <label>Project name <input v-model="projectName" /></label>
-        <label>New evidence starts <input v-model="fromLocal" type="datetime-local" /></label>
-        <label>Context starts <input v-model="contextLocal" type="datetime-local" /></label>
+        <label>Include new activity since <input v-model="fromLocal" type="datetime-local" /></label>
+        <label>Include background since <input v-model="contextLocal" type="datetime-local" /></label>
         <p class="hint">Leave the first date blank to continue from the prior completed report (four weeks on the first run). Context defaults to four weeks. A rerun replaces this day’s earlier package.</p>
         <button class="ghost" :disabled="busy" @click="authenticate">Microsoft sign in / test</button>
         <button class="add-task" :disabled="busy" @click="collect">Collect and replace today’s input</button>
       </article>
 
       <article class="status-card">
-        <h3>2. Complete externally</h3>
-        <button class="add-task" :disabled="!overview.latest || busy" @click="downloadJson">Download StatusSummary.json</button>
+        <h3>2. Complete in ChatGPT</h3>
+        <button class="add-task" :disabled="!overview.latest || busy" @click="downloadJson">Download report input</button>
+        <details>
+          <summary>Format and validation details</summary>
         <button class="ghost" @click="downloadSchema">Download schema</button>
         <p class="hint">Only edit the output section. Glance verifies the report ID, revision, schema, and unchanged input when it comes back.</p>
+        </details>
       </article>
 
       <article class="status-card">
-        <h3>3. Validate and upload</h3>
+        <h3>3. Upload completed report</h3>
         <input ref="fileInput" type="file" accept="application/json,.json" @change="upload" />
         <p class="hint">A superseded same-day input is rejected, preventing accidental export from stale source data.</p>
       </article>
@@ -61,10 +65,11 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { authenticateStatusSources, collectStatusInput, downloadStatusExcel, downloadStatusJson, downloadStatusPowerPoint, downloadStatusSchema, fetchStatusOverview, importStatusSummary } from "../../api/statusUpdates.js";
 
 const overview = ref({ latest: null, azureDevOpsConfigured: false, outlookConfigured: false, azureDevOpsMessage: "", outlookMessage: "" });
+const nextStep = computed(() => !overview.value.latest ? "Prepare report input." : overview.value.latest.documentStatus === "completed" ? "Export the completed report." : "Download the input, complete it in ChatGPT, then upload the completed report.");
 const projectName = ref("Project");
 const fromLocal = ref("");
 const contextLocal = ref("");

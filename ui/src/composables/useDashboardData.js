@@ -1,4 +1,6 @@
+import { joinTaskDocuments } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
+import { announceAction } from "../services/actionFeedback.js";
 import { computed, nextTick, ref } from "vue";
 import {
   completeTask,
@@ -10,13 +12,12 @@ import {
   runRecurrence,
   updateTask as updateTaskApi
 } from "../api/tasks.js";
-import { deriveCategories } from "../utils/categoryUtils.js";
+import { deriveCategories, groupTasksByWeekday, isThisWeekCategory } from "../utils/categoryUtils.js";
 import { formatDateKey, getDayKey, getWeekStart } from "../utils/dateUtils.js";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
 import {
   emptyContentDoc,
   emptyTitleDoc,
-  mergeTitleDocs,
   normalizeContent,
   normalizeTask,
   normalizeTitle,
@@ -508,6 +509,7 @@ export const useDashboardData = (options) => {
     const list = getOrderedTasksForPage(task);
     const index = list.findIndex((item) => item.id === task.id);
     const prevTask = index > 0 ? list[index - 1] : null;
+    const nextTask = list[index + 1];
     try {
       await deleteTaskApi(task.id);
     saveCoordinator.forget(task.id);
@@ -524,9 +526,8 @@ export const useDashboardData = (options) => {
     dirtySnapshots.delete(task.id);
     newTasks.value = newTasks.value.filter((item) => item.id !== task.id);
     mainTasks.value = mainTasks.value.filter((item) => item.id !== task.id);
-    if (prevTask) {
-      focusTaskId.value = prevTask.id;
-    }
+    focusTaskId.value = options.direction === "forward" && nextTask
+      ? { taskId: nextTask.id, selection: { from: 1, to: 1 } } : prevTask?.id || null;
     await loadDashboard();
     if (activeTab?.value === "History") {
       await loadHistory?.();
@@ -661,50 +662,33 @@ export const useDashboardData = (options) => {
     return true;
   };
 
-  const mergeTaskToPrevious = async (task) => {
-    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
-    const index = list.findIndex((item) => item.id === task.id);
-    if (index <= 0) {
+  const mergeTaskToPrevious = async (task, forward = false) => {
+    if (!(await saveCoordinator.flushAll()).ok) return false;
+    // Backspace joins visual neighbours in one column, not neighbours in the
+    // server's interleaved list of every dashboard category.
+    const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
+    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value
+      : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
+    const index = list.findIndex((item) => item.id === task.id) + (forward ? 1 : 0);
+    if (index <= 0 || index >= list.length) {
       return false;
     }
 
     const previous = resolveTaskSnapshot(list[index - 1]);
-    const current = resolveTaskSnapshot(task);
+    const current = resolveTaskSnapshot(list[index]);
     if (!previous || !current) {
       return false;
     }
 
-    const mergedTitle = mergeTitleDocs(previous.title, current.title);
-    const prevContent = normalizeContent(previous.content);
-    const currentContent = normalizeContent(current.content);
-    const prevList = prevContent.content?.[0]?.content ?? [];
-    const currentList = currentContent.content?.[0]?.content ?? [];
-    const filteredPrevList = prevList.filter((item) => !isDocEmptyJson(item));
-    const filteredCurrentList = currentList.filter((item) => !isDocEmptyJson(item));
-    const mergedList = [...filteredPrevList, ...filteredCurrentList];
-    const mergedContent = mergedList.length
-      ? {
-          type: "doc",
-          content: [
-            {
-              type: "bulletList",
-              content: mergedList
-            }
-          ]
-        }
-      : emptyContentDoc();
-
+    const joined = joinTaskDocuments(previous, current);
+    const mergedTitle = joined.title;
+    const mergedContent = joined.content;
     const prevLogicalId = resolveLogicalId(previous.id);
     const currentLogicalId = resolveLogicalId(current.id);
     const beforePrevSnapshot = snapshotTask(previous);
     const beforeCurrentSnapshot = snapshotTask(current);
     const afterPrevSnapshot = { ...beforePrevSnapshot, title: mergedTitle, content: mergedContent };
-    const afterCurrentSnapshot = {
-      ...beforeCurrentSnapshot,
-      page: "dashboard:hidden",
-      title: emptyTitleDoc(),
-      content: emptyContentDoc()
-    };
+    const afterCurrentSnapshot = null;
 
     await saveTask({
       id: previous.id,
@@ -715,18 +699,15 @@ export const useDashboardData = (options) => {
       suppressUndo: true
     });
 
-    await saveTask({
-      id: current.id,
-      title: emptyTitleDoc(),
-      content: emptyContentDoc(),
-      baseUpdatedAt: current.updatedAt,
-      page: "dashboard:hidden",
-      suppressUndo: true
-    });
+    await deleteTaskApi(current.id, current.updatedAt);
+    saveCoordinator.forget(current.id);
 
     dirtySnapshots.delete(previous.id);
     dirtySnapshots.delete(current.id);
-    focusTaskId.value = previous.id;
+    focusTaskId.value = null;
+    focusContentTarget.value = null;
+    if (joined.area === 'content') focusContentTarget.value = { taskId: previous.id, selection: joined.selection };
+    else focusTaskId.value = { taskId: previous.id, selection: joined.selection };
 
     newTasks.value = newTasks.value.filter((item) => item.id !== current.id);
     mainTasks.value = mainTasks.value.filter((item) => item.id !== current.id);
@@ -1115,14 +1096,17 @@ export const useDashboardData = (options) => {
       const afterSnapshot = {
         ...beforeSnapshot,
         page: update.page ?? beforeSnapshot.page,
-        scheduledDate: update.scheduledDate ?? beforeSnapshot.scheduledDate,
-        recurrence: update.recurrence ?? beforeSnapshot.recurrence
+        scheduledDate: update.scheduledDate,
+        recurrence: update.recurrence
       };
       if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {
         pushUndoEntry({
           label: "move",
           diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
         });
+        const entry = undoStack.value[undoStack.value.length - 1];
+        const label = category.replaceAll('-', ' ');
+        announceAction(`Moved to ${label}.`, undo, () => undoStack.value[undoStack.value.length - 1] === entry);
       }
     }
   };
@@ -1263,6 +1247,7 @@ export const useDashboardData = (options) => {
     splitTitleToNewTask,
     moveTaskToPrevious,
     mergeTaskToPrevious,
+    mergeTaskWithNext: task => mergeTaskToPrevious(task, true),
     focusPrevTaskFromTitle,
     focusNextTaskFromContent,
     handleDirtyChange,

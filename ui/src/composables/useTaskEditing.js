@@ -1,3 +1,4 @@
+import { isAtDocumentEdge, joinFirstContentLine } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
@@ -74,7 +75,7 @@ export const useTaskEditing = (options) => {
     return selection.$from.pos === selection.$from.start();
   };
 
-  const currentTaskSnapshot = () => ({
+  const currentTaskSnapshot = () => options.getTaskSnapshot?.() || ({
     ...props.task,
     title: titleRef.value,
     content: contentRef.value
@@ -179,6 +180,22 @@ export const useTaskEditing = (options) => {
     return true;
   };
 
+  let joining = false;
+  const join = (event, action) => {
+    event.preventDefault();
+    if (joining) return true;
+    joining = true;
+    if (pendingCreateTimer) { clearTimeout(pendingCreateTimer); pendingCreateTimer = null; }
+    void (async () => {
+      try {
+        if (await saveNow() !== false) await action();
+      } catch (error) {
+        if (typeof window !== 'undefined') window.alert?.(error?.message || 'Could not join the lines.');
+      } finally { joining = false; }
+    })();
+    return true;
+  };
+
   const handleTitleKeydown = (event, editor) => {
     if (props.readOnly) {
       return false;
@@ -193,22 +210,26 @@ export const useTaskEditing = (options) => {
       });
       return true;
     }
-    if (event.key === "Backspace") {
+    if (event.key === "Backspace" || event.key === "Delete") {
       if (isTitleEmpty(editor) && isContentEmpty(null)) {
         event.preventDefault();
-        (options.onDelete || props.onDelete)(props.task);
+        (options.onDelete || props.onDelete)(props.task, { direction: event.key === "Delete" ? "forward" : "backward" });
         return true;
       }
-      if (isSelectionAtStart(editor) && props.onMergeToPrevious) {
-        event.preventDefault();
-        if (pendingCreateTimer) {
-          clearTimeout(pendingCreateTimer);
-          pendingCreateTimer = null;
-        }
-        void saveNow().then((saved) => {
-          if (saved !== false) props.onMergeToPrevious(currentTaskSnapshot());
+      if (event.key === "Delete" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && isAtDocumentEdge(editor, true)) {
+        const merged = joinFirstContentLine(titleRef.value, contentRef.value);
+        if (merged) return join(event, async () => {
+          titleRef.value = merged.title;
+          contentRef.value = merged.content;
+          options.onContentChanged?.();
+          await nextTick();
+          titleEditorRef.value?.focus(merged.selection);
+          await saveNow(true);
         });
-        return true;
+        if (props.onMergeWithNext) return join(event, () => props.onMergeWithNext(currentTaskSnapshot()));
+      }
+      if (event.key === "Backspace" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && isAtDocumentEdge(editor, false) && props.onMergeToPrevious) {
+        return join(event, () => props.onMergeToPrevious(currentTaskSnapshot()));
       }
     }
     if (event.key === "Tab") {
@@ -319,7 +340,12 @@ export const useTaskEditing = (options) => {
     if (props.readOnly) {
       return false;
     }
-    if (event.key === "Backspace") {
+    if (event.key === "Delete" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+      && isAtDocumentEdge(editor, true) && props.onMergeWithNext
+      && !(isContentEmpty(editor) && isTitleEmpty(null))) {
+      return join(event, () => props.onMergeWithNext(currentTaskSnapshot()));
+    }
+    if (event.key === "Backspace" || event.key === "Delete") {
       if (removeSingleEmptyList(editor)) {
         event.preventDefault();
         titleEditorRef.value?.focus();
@@ -327,7 +353,7 @@ export const useTaskEditing = (options) => {
       }
       if (isContentEmpty(editor) && isTitleEmpty(null)) {
         event.preventDefault();
-        (options.onDelete || props.onDelete)(props.task);
+        (options.onDelete || props.onDelete)(props.task, { direction: event.key === "Delete" ? "forward" : "backward" });
         return true;
       }
     }

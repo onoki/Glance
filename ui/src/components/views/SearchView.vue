@@ -18,7 +18,7 @@
         <div v-for="result in searchResults" :key="result.task.id" class="search-result">
           <div class="search-result-actions">
             <span class="search-result-context">{{ describeSource(result.task) }}</span>
-            <button type="button" class="ghost" @click="onOpenSource(result)">Open source</button>
+            <button type="button" class="ghost search-open-source" @click="onOpenSource(result)" @keydown.down.prevent="focusResult(result.task.id, 1)" @keydown.up.prevent="focusResult(result.task.id, -1)">Open source</button>
           </div>
           <TaskItem
             :task="result.task"
@@ -95,6 +95,11 @@ const props = defineProps({
 defineEmits(["update:searchQuery"]);
 
 const searchRoot = ref(null);
+const focusResult = (id, step) => {
+  const index = props.searchResults.findIndex(result => result.task.id === id);
+  const buttons = searchRoot.value?.querySelectorAll('.search-open-source');
+  buttons?.[Math.max(0, Math.min(buttons.length - 1, index + step))]?.focus();
+};
 
 const describeSource = (task) => {
   if (task.completedAt !== null && task.completedAt !== undefined) {
@@ -103,7 +108,10 @@ const describeSource = (task) => {
   if (task.page === "people:main") {
     return task.ownerPersonName ? `People · ${task.ownerPersonName}` : "People";
   }
-  return "Dashboard";
+  const category = task.page === 'dashboard:new' ? 'New tasks' : task.recurrence?.type === 'notes'
+    ? 'Notes' : task.recurrence ? 'Repeatable' : task.scheduledDate === 'no-date'
+      ? 'No date' : task.scheduledDate || 'Uncategorized';
+  return `Dashboard · ${category}`;
 };
 
 const scrollToNavigationTarget = async (target) => {

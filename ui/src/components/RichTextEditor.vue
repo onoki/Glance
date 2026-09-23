@@ -34,6 +34,7 @@ import {
   splitAtSelection
 } from "../utils/editorListUtils.js";
 import ResizableImage from "../utils/resizableImage.js";
+import { revealCaret } from "../utils/editorVisibility.js";
 import { insertDateShortcut } from "../utils/insertDateShortcut.js";
 import { StatusMetadata, toggleStatusAtSelection } from "../utils/statusMetadata.js";
 import {
@@ -370,7 +371,10 @@ const editorRef = useEditor({
       return false;
     }
   },
+  onSelectionUpdate({ editor }) { requestAnimationFrame(() => revealCaret(editor)); },
+  onFocus({ editor }) { requestAnimationFrame(() => revealCaret(editor)); },
   onUpdate({ editor }) {
+    requestAnimationFrame(() => revealCaret(editor));
     const json = editor.getJSON();
     emit("update:modelValue", json);
     props.onDirty(json);

@@ -176,6 +176,11 @@ export const mergeTitleDocs = (first, second) => {
   };
 };
 
+// ProseMirror positions count inline atoms (breaks/images) as one, and text in
+// UTF-16 units. Position one is the start of the merged title paragraph.
+export const titleJoinPosition = (title) => 1 + titleDocToInlineContent(title || emptyTitleDoc())
+  .reduce((size, node) => size + (node.type === "text" ? node.text.length : 1), 0);
+
 export const normalizeTask = (task) => ({
   ...task,
   title: normalizeTitle(task.title),
