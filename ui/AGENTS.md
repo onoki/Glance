@@ -19,3 +19,7 @@
 - Boundary Delete/Backspace joins logical lines, not just task titles. Use `taskJoin.js` for shared rich-document transformations. Forward Delete consumes the first subcontent line before the next task; cross-task joins append the lower title to the upper task's final subcontent paragraph (or title if there is no subcontent). Preserve caret position, nesting, remaining lines, and rich marks. Keep joins within the current column/person and recoverable with Undo.
 
 - Plain Left/Right cross exact collapsed editor boundaries within the current column/person, including title/subcontent; preserve modified arrows and selections. Do not create a task at the last Right boundary.
+
+- Up/Down navigation must never create tasks or cross Dashboard columns. At editor boundaries, Down enters the first subcontent paragraph at its end; Up from its first visual line returns to the title end. Leave wrapped-line navigation, selections and modified arrows native. The whole insertion tail darkens slightly on hover.
+
+- Cross-task Up/Down preserve beginning/end caret intent; an empty source counts as beginning. Middle positions preserve screen X as closely as possible on the destination visual line. Helper windows use a lightly blue top bar and compact Helper badge; keep task surfaces and typography unchanged.

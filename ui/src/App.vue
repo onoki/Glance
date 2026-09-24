@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <header class="top-nav">
+    <header class="top-nav" :class="{ 'helper-window-nav': isHelperWindow }">
       <nav class="tabs">
         <button
           v-for="tab in tabs"
@@ -14,6 +14,7 @@
         </button>
       </nav>
       <div class="brand">
+        <span v-if="isHelperWindow" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper</span>
         <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
         <ZoomControls />
         <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
@@ -134,6 +135,8 @@
 </template>
 
 <script setup>
+import { useWindowRole } from "./composables/useWindowRole.js";
+const { isHelperWindow } = useWindowRole();
 import ZoomControls from "./components/ZoomControls.vue";
 import { taskClipboard } from './services/taskClipboard.js';
 import { actionFeedback, dismissAction } from './services/actionFeedback.js';

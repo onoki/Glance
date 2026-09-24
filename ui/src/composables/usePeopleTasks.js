@@ -355,10 +355,11 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return true;
   };
 
-  const navigateHorizontal = (task, direction) => {
+  const navigateHorizontal = (task, direction, vertical = null) => {
     const list = tasks.value;
     const target = horizontalTaskTarget(list.map(resolveTask), task, direction);
     if (!target) return;
+    if (vertical) target.vertical = { ...vertical, direction };
     focusTaskId.value = null;
     focusContentTarget.value = null;
     if (target.area === 'content') focusContentTarget.value = target;
@@ -396,27 +397,9 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return true;
   };
 
-  const focusPreviousTask = (task) => {
-    const index = tasks.value.findIndex((item) => item.id === task.id);
-    if (index <= 0) return;
-    const previous = tasks.value[index - 1];
-    const items = normalizeContent(previous.content).content?.[0]?.content || [];
-    if (!items.length) {
-      focusTaskId.value = previous.id;
-      return;
-    }
-    focusContentTarget.value = { taskId: previous.id, listIndex: items.length - 1, atEnd: true };
-  };
+  const focusPreviousTask = (task, intent) => navigateHorizontal(task, -1, intent);
 
-  const focusNextTask = async (task) => {
-    const index = tasks.value.findIndex((item) => item.id === task.id);
-    const next = index >= 0 ? tasks.value[index + 1] : null;
-    if (next) {
-      focusTaskId.value = next.id;
-      return;
-    }
-    await createTaskBelow(task);
-  };
+  const focusNextTask = (task, intent) => navigateHorizontal(task, 1, intent);
 
   const splitSubcontentToNewTask = (task, payload) => createTaskBelow(task, null, {
     title: payload?.title ?? emptyTitleDoc(),

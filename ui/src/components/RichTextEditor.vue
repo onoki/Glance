@@ -6,6 +6,7 @@
 </template>
 
 <script setup>
+import { listItemFocusPosition, verticalFocusPosition } from "../utils/taskNavigation.js";
 import { computed, onBeforeUnmount, watch } from "vue";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
 import { TextSelection } from "prosemirror-state";
@@ -840,8 +841,16 @@ const insertImageFromFile = async (editor, file) => {
   }
 };
 
-const focus = (selection) => {
-  if (selection) editorInstance.value?.commands.setTextSelection(selection);
+const focus = (selection, vertical) => {
+  if (vertical && editorInstance.value) {
+    const editor = editorInstance.value;
+    if (vertical.edge === 'middle') {
+      editor.commands.setTextSelection(verticalFocusPosition(editor, { ...vertical, edge: vertical.direction > 0 ? 'start' : 'end' }));
+      editor.commands.scrollIntoView();
+    }
+    selection = verticalFocusPosition(editor, vertical);
+  }
+  if (selection != null) editorInstance.value?.commands.setTextSelection(selection);
   editorInstance.value?.chain().focus().run();
 };
 
@@ -856,28 +865,10 @@ const focusListItem = (listIndex, place = "start") => {
     editor.commands.focus("end");
     return;
   }
-  const doc = editor.state.doc;
-  const listNode = doc.childCount > 0 ? doc.child(0) : null;
-  if (!listNode || (listNode.type.name !== "bulletList" && listNode.type.name !== "taskList")) {
+  const targetPos = listItemFocusPosition(editor.state.doc, listIndex, place);
+  if (targetPos == null) {
     editor.commands.focus("end");
     return;
-  }
-  if (typeof listIndex !== "number" || listIndex < 0 || listIndex >= listNode.childCount) {
-    editor.commands.focus("end");
-    return;
-  }
-  let pos = 1;
-  pos += 1;
-  for (let i = 0; i < listIndex; i += 1) {
-    pos += listNode.child(i).nodeSize;
-  }
-  let targetPos = pos + 2;
-  if (place === "end") {
-    targetPos = pos + listNode.child(listIndex).nodeSize - 2;
-  }
-  const maxPos = doc.content.size;
-  if (targetPos > maxPos) {
-    targetPos = maxPos;
   }
   editor.commands.setTextSelection(targetPos);
   editor.commands.focus();

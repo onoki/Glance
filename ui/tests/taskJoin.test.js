@@ -49,3 +49,37 @@ assert.equal(isAtDocumentEdge(editor(3+'Parent'.length),true),false,'end of pare
 const selected={state:EditorState.create({schema,doc:nested,selection:TextSelection.create(nested,end-1,end)})};
 assert.equal(isAtDocumentEdge(selected,true),false,'selection deletion stays native');
 console.log('Boundary joins preserve nested content, rich marks, hard breaks and exact caret positions');
+
+const { listItemFocusPosition } = await import('../src/utils/taskNavigation.js');
+const focusSchema=new Schema({nodes:{doc:{content:'block+'},paragraph:{group:'block',content:'inline*'},bulletList:{group:'block',content:'listItem+'},listItem:{content:'paragraph block*'},text:{group:'inline'}}});
+const focusDoc=focusSchema.nodeFromJSON({type:'doc',content:[{type:'bulletList',content:[{type:'listItem',content:[{type:'paragraph',content:[{type:'text',text:'First'}]},{type:'bulletList',content:[{type:'listItem',content:[{type:'paragraph',content:[{type:'text',text:'Nested'}]}]}]}]},{type:'listItem',content:[{type:'paragraph'}]}]}]});
+for(const index of [0,1]) {
+  for(const place of ['start','end']) {
+    const pos=listItemFocusPosition(focusDoc,index,place);
+    const resolved=focusDoc.resolve(pos);
+    assert.equal(resolved.parent.type.name,'paragraph');
+    assert.equal(resolved.parent.textContent,index===0?'First':'');
+    assert.equal(resolved.parentOffset,place==='start'?0:resolved.parent.content.size);
+  }
+}
+assert.equal(listItemFocusPosition(focusDoc,99),null);
+console.log('List focus targets the first paragraph exactly, including empty and nested items');
+
+const { verticalCaretIntent, verticalFocusPosition } = await import('../src/utils/taskNavigation.js');
+for (const [offset,edge] of [[0,'start'],[2,'middle'],[5,'end']]) {
+  const intent=verticalCaretIntent({state:{selection:{$from:{parentOffset:offset,parent:{content:{size:5}},pos:3+offset}}},view:{coordsAtPos:()=>({left:125})}});
+  assert.equal(intent.edge,edge);
+  if(edge==='middle') assert.equal(intent.x,125);
+}
+assert.equal(verticalCaretIntent({state:{selection:{$from:{parentOffset:0,parent:{content:{size:0}}}}}}).edge,'start');
+const verticalDoc=focusSchema.nodeFromJSON({type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'First line'}]},{type:'paragraph',content:[{type:'text',text:'Last line'}]}]});
+const verticalEditor={state:{doc:verticalDoc},view:{coordsAtPos:pos=>({left:100,top:pos<12?10:30,bottom:pos<12?22:42}),posAtCoords:point=>({pos:point.top<30?5:16})}};
+assert.equal(verticalFocusPosition(verticalEditor,{direction:1,edge:'start'}),1);
+assert.equal(verticalFocusPosition(verticalEditor,{direction:1,edge:'end'}),11);
+assert.equal(verticalFocusPosition(verticalEditor,{direction:-1,edge:'start'}),13);
+assert.equal(verticalFocusPosition(verticalEditor,{direction:-1,edge:'end'}),22);
+assert.equal(verticalFocusPosition(verticalEditor,{direction:1,edge:'middle',x:125}),5);
+assert.equal(verticalFocusPosition(verticalEditor,{direction:-1,edge:'middle',x:125}),16);
+verticalEditor.view.posAtCoords=()=>({pos:999});
+assert.equal(verticalFocusPosition(verticalEditor,{direction:1,edge:'middle',x:900}),11,'short destination clamps to its end');
+console.log('Cross-task vertical focus preserves start/end and the nearest visual horizontal position');

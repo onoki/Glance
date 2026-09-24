@@ -1038,7 +1038,7 @@ watch(
     // Explicit editing navigation (Delete/merge/etc.) may resume controls on
     // the destination. Native window focus restoration still cannot do this.
     actionDismissal.interact();
-    titleEditorRef.value?.focus(target?.selection);
+    titleEditorRef.value?.focus(target?.selection, target?.vertical);
     await nextTick();
     positionTaskOverlay();
   },
@@ -1054,7 +1054,7 @@ watch(
     forceSubcontent.value = true;
     await nextTick();
     actionDismissal.interact();
-    if (target.selection) contentEditorRef.value?.focus(target.selection);
+    if (target.selection) contentEditorRef.value?.focus(target.selection, target.vertical);
     else contentEditorRef.value?.focusListItem(target.listIndex, target.atEnd ? "end" : "start");
     await nextTick();
     positionTaskOverlay();

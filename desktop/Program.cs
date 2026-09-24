@@ -79,7 +79,7 @@ internal static class Program
         var initialSize = new Size(initialPlacement.Width, initialPlacement.Height);
 
         var window = new PhotinoWindow()
-            .SetTitle("Glance")
+            .SetTitle("Glance — Main window (closing closes all windows)")
             .SetUseOsDefaultSize(false)
             .SetSize(initialSize.Width, initialSize.Height)
             .SetMinSize(MinWidth, MinHeight)
@@ -341,6 +341,10 @@ internal static class Program
                 case "openExternal" when !string.IsNullOrWhiteSpace(requestId):
                     HandleOpenExternal(window, requestId, GetString(root, "target"));
                     break;
+                case "getWindowRole":
+                    if (Windows.TryGetValue(window.Id, out var roleState))
+                        TrySend(window, new { type = "windowRole", role = roleState.IsPrimary ? "main" : "helper" });
+                    break;
                 case "zoomSync":
                     SyncZoom(window, force: true);
                     break;
@@ -419,7 +423,7 @@ internal static class Program
             var parentPlacement = OperatingSystem.IsWindows() ? WindowPlacement.Capture(parent.WindowHandle) : null;
             var placement = WindowPlacement.Resolve(parentPlacement, WindowPlacement.GetMonitors());
             var child = new PhotinoWindow(parent)
-                .SetTitle("Glance")
+                .SetTitle("Glance — Helper window")
                 .SetUseOsDefaultSize(false)
                 .SetSize(placement.Width, placement.Height)
                 .SetUseOsDefaultLocation(false)

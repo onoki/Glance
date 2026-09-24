@@ -275,26 +275,30 @@ Feature: Arrow key navigation
   Scenario: Down arrow from title enters subcontent
     Given a task title has focus
     When I press the down arrow key
-    Then the focus moves to the beginning of the first subcontent line
+    Then the caret moves to the end of the first subcontent paragraph
+    And wrapped title lines retain native vertical navigation until the last visual line
 
   Scenario: Up arrow from title jumps to previous task
     Given a task title has focus
     And there is a task above
     When I press the up arrow key
-    Then the focus moves to the end of the last subcontent line of the task above
+    Then the focus moves to the last subcontent line of the task above, or its title if it has no subcontent
+    And cross-task movement preserves start or end position, or the nearest horizontal position for a middle caret
 
-  Scenario: Down arrow from subcontent to next title or new task
+  Scenario: Down arrow from subcontent to next title
     Given a task has subcontent
     And the cursor is at the end of the subcontent
     When I press the down arrow key
-    Then the focus moves to the beginning of the next task title if one exists
-    And if no task exists below a new task is created with an empty title
+    Then the focus moves to the next task title if one exists
+    And cross-task movement preserves start or end position, or the nearest horizontal position for a middle caret
+    And if no task exists below in the same column or person the caret stays in place
+    And no task is created by any arrow key
 
   Scenario: Up arrow from subcontent to title
     Given a task has subcontent
-    And the cursor is at the beginning of the subcontent
+    And the cursor is on the first visual line of the first subcontent paragraph
     When I press the up arrow key
-    Then the focus moves to the task title
+    Then the caret moves to the end of the task title
 
 
 Feature: Version visibility and update metadata
@@ -1033,3 +1037,36 @@ Feature: Whole-task selection and clipboard
   Scenario: People navigation alignment
     Then the top edges of + Person, person names, and Archived align without extra wrapper borders
     And drag indicators do not change button positions or heights
+
+  Scenario: Visible insertion target
+    When I hover over the blank Add note area at the end of a Dashboard column or People list
+    Then its entire hitbox has a background slightly darker than the app background
+    And its size and the surrounding task positions remain unchanged
+
+  Scenario: Main and helper window close behavior is visible
+    Then the main native title bar says "Main window (closing closes all windows)"
+    And additional native windows say "Helper window"
+    When I close a helper window
+    Then only that helper closes after its pending saves finish
+    When I close the main window
+    Then all Glance windows close after their pending saves finish
+    And any failed save cancels closing and preserves the unsaved text
+
+  Scenario: Caret intent when moving vertically between tasks
+    Given Dashboard or People with another task in the current column or person
+    When Up or Down moves between tasks from a paragraph's end
+    Then the caret lands at the destination paragraph's end
+    When Up or Down moves between tasks from a paragraph's beginning
+    Then the caret lands at the destination paragraph's beginning
+    And an empty source paragraph counts as a beginning
+    And a caret in the middle retains the nearest horizontal position on the destination's entering visual line
+    And within-task navigation remains unchanged
+    And arrow navigation never creates tasks
+
+  Scenario: Subtle helper window appearance
+    Given a helper window opened through New window
+    Then only its top navigation bar has a muted blue tint
+    And a compact regular-weight Helper badge appears beside the version
+    And the badge tooltip explains that closing this helper leaves other windows open
+    And task backgrounds, text, navigation controls, and the native title bar remain available
+    And the main window keeps its usual navigation appearance

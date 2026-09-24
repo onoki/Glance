@@ -337,3 +337,33 @@ for (const area of ['title','content']) {
   }
 }
 console.log('Horizontal navigation preserves selections and modified arrows, and crosses exact boundaries only');
+
+// Up/Down cross visual editor edges, preserving wrapped-line and modified navigation.
+for (const area of ['title','content']) {
+  for (const direction of ['up','down']) {
+    for (const mode of ['edge','wrapped','middle','shift','ctrl','selection']) {
+      let handlers; const calls=[];
+      const harness=renderer.createApp({setup(){
+        handlers=useTaskEditing({props:{task:{id:'vertical'},onFocusPrevTaskFromTitle:()=>calls.push('previous'),onFocusNextTaskFromContent:()=>calls.push('next')},
+          titleRef:ref(boundaryTitle),contentRef:ref(boundaryContent),hasSubcontent:ref(true),saveNow:async()=>true,
+          titleEditorRef:ref({focus:selection=>calls.push(['title',selection])}),contentEditorRef:ref({focusListItem:(...args)=>calls.push(['content',...args])})});
+        return ()=>h('test');
+      }}); harness.mount(node('root'));
+      const doc=boundarySchema.nodeFromJSON(area==='title'?boundaryTitle:boundaryContent);
+      const paragraphs=[];doc.descendants((node,pos)=>{if(node.type.name==='paragraph') paragraphs.push({start:pos+1,end:pos+1+node.content.size});});
+      const paragraph=mode==='middle' && area==='content' ? paragraphs[direction==='up'?1:0] : paragraphs[direction==='up'?0:paragraphs.length-1];
+      // Up from the END of the first subcontent line is the reported regression.
+      const position=paragraph.end;
+      const editor={state:EditorState.create({schema:boundarySchema,doc,selection:TextSelection.create(doc,mode==='selection'?paragraph.start:position,position)}),view:{endOfTextblock:()=>mode!=='wrapped'}};
+      const handled=(area==='title'?handlers.handleTitleKeydown:handlers.handleContentKeydown)({key:direction==='up'?'ArrowUp':'ArrowDown',shiftKey:mode==='shift',ctrlKey:mode==='ctrl',preventDefault(){}},editor);
+      const crosses=mode==='edge'||(mode==='middle'&&area==='title');
+      assert.equal(handled,crosses,`${area} ${direction} ${mode}`);
+      if(crosses) {
+        if(area==='title') assert.deepEqual(calls,direction==='up'?['previous']:[['content',0,'end']]);
+        else assert.deepEqual(calls,direction==='up'?[['title',{from:6,to:6}]]:['next']);
+      } else assert.deepEqual(calls,[]);
+      harness.unmount();
+    }
+  }
+}
+console.log('Vertical arrows cross visual edges at exact caret positions and preserve wrapped-line navigation');

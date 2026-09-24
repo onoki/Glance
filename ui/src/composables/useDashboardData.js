@@ -663,12 +663,13 @@ export const useDashboardData = (options) => {
     return true;
   };
 
-  const navigateHorizontal = (task, direction) => {
+  const navigateHorizontal = (task, direction, vertical = null) => {
     const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
     const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value
       : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
     const target = horizontalTaskTarget(list.map(resolveTaskSnapshot), task, direction);
     if (!target) return;
+    if (vertical) target.vertical = { ...vertical, direction };
     focusTaskId.value = null;
     focusContentTarget.value = null;
     if (target.area === 'content') focusContentTarget.value = target;
@@ -736,38 +737,9 @@ export const useDashboardData = (options) => {
     return true;
   };
 
-  const focusPrevTaskFromTitle = async (task) => {
-    const list = getOrderedTasksForPage(task);
-    const index = list.findIndex((item) => item.id === task.id);
-    if (index <= 0) {
-      return;
-    }
-    const previous = list[index - 1];
-    const prevContent = normalizeContent(previous.content);
-    const prevList = prevContent.content?.[0]?.content ?? [];
-    if (prevList.length === 0) {
-      focusTaskId.value = previous.id;
-      return;
-    }
-    const listIndex = Math.max(prevList.length - 1, 0);
-    focusContentTarget.value = {
-      taskId: previous.id,
-      listIndex,
-      atEnd: true
-    };
-  };
+  const focusPrevTaskFromTitle = (task, intent) => navigateHorizontal(task, -1, intent);
 
-  const focusNextTaskFromContent = async (task) => {
-    const list = getOrderedTasksForPage(task);
-    const index = list.findIndex((item) => item.id === task.id);
-    const next = index >= 0 ? list[index + 1] : null;
-    if (next) {
-      focusTaskId.value = next.id;
-      return;
-    }
-    const newId = await createTaskBelow(task);
-    focusTaskId.value = newId;
-  };
+  const focusNextTaskFromContent = (task, intent) => navigateHorizontal(task, 1, intent);
 
   const splitSubcontentToNewTask = async (task, payload) => {
     const categoryId = payload?.categoryId ?? null;

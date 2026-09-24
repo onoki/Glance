@@ -1,3 +1,4 @@
+import { atVerticalDocumentEdge, verticalCaretIntent } from "../utils/taskNavigation.js";
 import { isAtDocumentEdge, joinFirstContentLine, lastParagraph } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
@@ -64,46 +65,11 @@ export const useTaskEditing = (options) => {
     return selection.$from.pos === selection.$from.end();
   };
 
-  const isSelectionAtStart = (editor) => {
-    if (!editor) {
-      return false;
-    }
-    const { selection } = editor.state;
-    if (!selection.empty) {
-      return false;
-    }
-    return selection.$from.pos === selection.$from.start();
-  };
-
   const currentTaskSnapshot = () => options.getTaskSnapshot?.() || ({
     ...props.task,
     title: titleRef.value,
     content: contentRef.value
   });
-
-  const getListContext = (editor) => {
-    if (!editor) {
-      return null;
-    }
-    const { $from, empty } = editor.state.selection;
-    if (!empty) {
-      return null;
-    }
-    const listItemDepth = getListItemDepth(editor);
-    if (!listItemDepth) {
-      return null;
-    }
-    const listDepth = listItemDepth - 1;
-    const listNode = $from.node(listDepth);
-    if (!listNode || !isListNodeName(listNode.type.name) || listDepth !== 1) {
-      return null;
-    }
-    const listIndex = $from.index(listDepth);
-    const listCount = listNode.childCount;
-    const atStart = $from.parentOffset === 0;
-    const atEnd = $from.parentOffset === $from.parent.content.size;
-    return { listIndex, listCount, atStart, atEnd };
-  };
 
   const removeEmptyLastListItem = (editor) => {
     if (!editor) {
@@ -215,6 +181,8 @@ export const useTaskEditing = (options) => {
     return true;
   };
 
+  const isPlainArrow = event => !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing;
+
   const handleTitleKeydown = (event, editor) => {
     if (handleHorizontalArrow(event, editor, "title")) return true;
     if (props.readOnly) {
@@ -283,25 +251,15 @@ export const useTaskEditing = (options) => {
       return true;
     }
 
-    if (event.key === "ArrowDown") {
-      if (!isSelectionAtEnd(editor)) {
-        return false;
-      }
+    if (isPlainArrow(event) && event.key === "ArrowDown" && atVerticalDocumentEdge(editor, "down")) {
       event.preventDefault();
-      if (hasSubcontent.value) {
-        contentEditorRef.value?.focusListItem(0, "start");
-        return true;
-      }
-      props.onFocusNextTaskFromContent(props.task);
+      if (hasSubcontent.value) contentEditorRef.value?.focusListItem(0, "end");
+      else props.onFocusNextTaskFromContent(props.task, verticalCaretIntent(editor));
       return true;
     }
-
-    if (event.key === "ArrowUp") {
-      if (!isSelectionAtStart(editor)) {
-        return false;
-      }
+    if (isPlainArrow(event) && event.key === "ArrowUp" && atVerticalDocumentEdge(editor, "up")) {
       event.preventDefault();
-      props.onFocusPrevTaskFromTitle(props.task);
+      props.onFocusPrevTaskFromTitle(props.task, verticalCaretIntent(editor));
       return true;
     }
 
@@ -385,21 +343,16 @@ export const useTaskEditing = (options) => {
         return true;
       }
     }
-    if (event.key === "ArrowDown") {
-      const ctx = getListContext(editor);
-      if (ctx && ctx.listIndex === ctx.listCount - 1 && ctx.atEnd) {
-        event.preventDefault();
-        props.onFocusNextTaskFromContent(props.task);
-        return true;
-      }
+    if (isPlainArrow(event) && event.key === "ArrowDown" && atVerticalDocumentEdge(editor, "down")) {
+      event.preventDefault();
+      props.onFocusNextTaskFromContent(props.task, verticalCaretIntent(editor));
+      return true;
     }
-    if (event.key === "ArrowUp") {
-      const ctx = getListContext(editor);
-      if (ctx && ctx.listIndex === 0 && ctx.atStart) {
-        event.preventDefault();
-        titleEditorRef.value?.focus();
-        return true;
-      }
+    if (isPlainArrow(event) && event.key === "ArrowUp" && atVerticalDocumentEdge(editor, "up")) {
+      event.preventDefault();
+      const position = lastParagraph(titleRef.value)?.end || 1;
+      titleEditorRef.value?.focus({ from: position, to: position });
+      return true;
     }
     return false;
   };

@@ -72,6 +72,23 @@ async function exercise(view, upperContent, lowerContent, forward) {
     assert.equal(model.focusTaskId.value,null);
     assert.equal(model.focusContentTarget.value,null);
     assert.equal(rows.length,2,'horizontal edge navigation creates no task');
+    const down = view==='People' ? model.focusNextTask : model.focusNextTaskFromContent;
+    const up = view==='People' ? model.focusPreviousTask : model.focusPrevTaskFromTitle;
+    down(tasks.value[1]); up(tasks.value[0]);
+    assert.equal(model.focusTaskId.value,null);
+    assert.equal(model.focusContentTarget.value,null);
+    assert.equal(rows.length,2,'vertical edge navigation creates no task');
+    down(tasks.value[0]);
+    assert.equal(model.focusTaskId.value.taskId,'1');
+    assert.deepEqual(model.focusTaskId.value.selection,{from:1,to:1});
+    for (const intent of [{edge:'start'},{edge:'end'},{edge:'middle',x:120}]) {
+      down(tasks.value[0],intent);
+      assert.deepEqual(model.focusTaskId.value.vertical,{...intent,direction:1});
+      up(tasks.value[1],intent);
+      const destination=model.focusContentTarget.value || model.focusTaskId.value;
+      assert.deepEqual(destination.vertical,{...intent,direction:-1});
+    }
+
     assert.equal(await model.mergeTaskToPrevious(tasks.value[0]),false,'first task never merges backward');
     assert.equal(await model.mergeTaskWithNext(tasks.value[1]),false,'last task never merges forward');
     await (forward ? model.mergeTaskWithNext(tasks.value[0]) : model.mergeTaskToPrevious(tasks.value[1]));
