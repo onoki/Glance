@@ -45,7 +45,7 @@ internal static class TaskEndpoints
             }
 
             var response = await tasks.CreateTaskAsync(request, token);
-            if (request.Recurrence.HasValue)
+            if (request.Recurrence is { ValueKind: JsonValueKind.Object })
             {
                 await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
             }
@@ -97,7 +97,7 @@ internal static class TaskEndpoints
             {
                 return Results.NotFound(new { error = "NotFound", message = "Task not found" });
             }
-            if (request.Recurrence.HasValue)
+            if (request.Recurrence is { ValueKind: JsonValueKind.Object })
             {
                 await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
             }

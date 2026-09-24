@@ -858,7 +858,7 @@ Feature: Whole-task selection and clipboard
   Scenario: Compact text rendering and highlights
     Given Windows display scaling is 150 percent
     Then BigBlue TerminalPlus remains at 8 CSS pixels
-    And editor and navigation text origins align to physical pixels after layout, scrolling, and resize
+    And text origins are not repeatedly repositioned by a self-correcting layout loop
     And existing control sizes stay unchanged
     And ordinary text stays dark neutral while semantic colors remain meaningful
     And green and red highlights have pale backgrounds, including previously saved marks
@@ -997,3 +997,39 @@ Feature: Whole-task selection and clipboard
     And repeated keys cannot overlap an in-flight join
     And Undo restores both original tasks and Redo joins them again
     And entirely empty task deletion retains its forward Delete and backward Backspace focus rules
+
+  Scenario: Practical zoom with monitor-local preferences
+    Given BigBlue TerminalPlus remains at an 8 CSS pixel base size
+    Then compact minus, percentage reset, and plus controls appear in the top bar between the version number and Settings
+    And Ctrl+wheel and Ctrl+plus/minus use the same practical intermediate zoom steps
+    And clicking the percentage or pressing Ctrl+0 resets extra Glance zoom to 100 percent
+    And Windows display scaling remains in effect
+    And near-whole multiples of the native 12-device-pixel font height show an asterisk
+    And the percentage tooltip explains that the asterisk suggests sharpness without guaranteeing it
+    And no text-origin correction loop runs after zoom, layout, or monitor changes
+    And desktop zoom is remembered per monitor on this PC, outside portable app data
+    When the window changes monitors
+    Then it adopts that monitor's saved zoom, defaulting to 100 percent for an unseen monitor
+
+  Scenario: Horizontal task navigation in Dashboard and People
+    Given no selection or modifier key is active
+    When I press Left at the beginning of a task title
+    Then the caret moves to the final subcontent position of the previous task, or its title end
+    When I press Right at the end of the task's final content, or a title with no subcontent
+    Then the caret moves to the next task title at position 1
+    And Right at a title with subcontent moves to the beginning of its subcontent
+    And Left at the beginning of subcontent moves to the title end
+    And navigation stays within the current visible column or person
+    And no new task is created at the last boundary
+    And modified arrows and selection behavior remain native
+
+  Scenario: Category moves clear obsolete scheduling metadata
+    Given any Dashboard category including New tasks, Uncategorized, Notes, No date, This week, Next week, and Repeatable
+    When I move a task to any other category using a menu or dragging
+    Then its scheduled date and recurrence match the destination, including explicit clearing
+    And its title and subcontent remain unchanged
+    And an ordinary text update that omits scheduling fields preserves its category
+
+  Scenario: People navigation alignment
+    Then the top edges of + Person, person names, and Archived align without extra wrapper borders
+    And drag indicators do not change button positions or heights

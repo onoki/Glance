@@ -1,3 +1,4 @@
+import { horizontalTaskTarget } from "../utils/taskNavigation.js";
 import { joinTaskDocuments } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { announceAction } from "../services/actionFeedback.js";
@@ -662,6 +663,18 @@ export const useDashboardData = (options) => {
     return true;
   };
 
+  const navigateHorizontal = (task, direction) => {
+    const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
+    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value
+      : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
+    const target = horizontalTaskTarget(list.map(resolveTaskSnapshot), task, direction);
+    if (!target) return;
+    focusTaskId.value = null;
+    focusContentTarget.value = null;
+    if (target.area === 'content') focusContentTarget.value = target;
+    else focusTaskId.value = target;
+  };
+
   const mergeTaskToPrevious = async (task, forward = false) => {
     if (!(await saveCoordinator.flushAll()).ok) return false;
     // Backspace joins visual neighbours in one column, not neighbours in the
@@ -1246,6 +1259,7 @@ export const useDashboardData = (options) => {
     splitSubcontentToNewTask,
     splitTitleToNewTask,
     moveTaskToPrevious,
+    navigateHorizontal,
     mergeTaskToPrevious,
     mergeTaskWithNext: task => mergeTaskToPrevious(task, true),
     focusPrevTaskFromTitle,

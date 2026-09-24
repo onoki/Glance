@@ -42,8 +42,8 @@ public sealed record TaskUpdateRequest(
     JsonElement? Content,
     string? Page,
     double? Position,
-    JsonElement? ScheduledDate,
-    JsonElement? Recurrence
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? ScheduledDate,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? Recurrence
 );
 
 public sealed record TaskUpdateResponse(

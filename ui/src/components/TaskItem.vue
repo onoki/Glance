@@ -334,6 +334,7 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  onNavigateHorizontal: { type: Function, default: null },
   onFocusPrevTaskFromTitle: {
     type: Function,
     required: true

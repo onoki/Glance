@@ -1,3 +1,4 @@
+import { lastParagraph } from "../src/utils/taskJoin.js";
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import { useDashboardData } from '../src/composables/useDashboardData.js';
@@ -56,6 +57,21 @@ async function exercise(view, upperContent, lowerContent, forward) {
     const load=view==='People' ? model.loadTasks : model.loadDashboard;
     const tasks=view==='People' ? model.tasks : model.newTasks;
     await load();
+    model.navigateHorizontal(tasks.value[0], 1);
+    assert.deepEqual(model.focusTaskId.value.selection,{from:1,to:1});
+    assert.equal(model.focusTaskId.value.taskId,'1');
+    model.navigateHorizontal(tasks.value[1], -1);
+    const expectedTail = upperContent.content?.[0]?.type==='bulletList' ? lastParagraph(upperContent) : null;
+    const expectedEnd=(expectedTail || lastParagraph(original[0].title)).end;
+    const focus=expectedTail ? model.focusContentTarget.value : model.focusTaskId.value;
+    assert.equal(focus.taskId,'0');
+    assert.deepEqual(focus.selection,{from:expectedEnd,to:expectedEnd});
+    model.focusTaskId.value=null; model.focusContentTarget.value=null;
+    model.navigateHorizontal(tasks.value[0],-1);
+    model.navigateHorizontal(tasks.value[1],1);
+    assert.equal(model.focusTaskId.value,null);
+    assert.equal(model.focusContentTarget.value,null);
+    assert.equal(rows.length,2,'horizontal edge navigation creates no task');
     assert.equal(await model.mergeTaskToPrevious(tasks.value[0]),false,'first task never merges backward');
     assert.equal(await model.mergeTaskWithNext(tasks.value[1]),false,'last task never merges forward');
     await (forward ? model.mergeTaskWithNext(tasks.value[0]) : model.mergeTaskToPrevious(tasks.value[1]));

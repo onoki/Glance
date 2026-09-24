@@ -282,3 +282,5 @@ RULES
 - Contains lossless JSON, readable HTML, media, status JSON, and a SHA-256 manifest
 - Returns HTTP 409 if a durable database table or column has not been classified for export
 - The versioned JSON contract is `schema/glance-export-v1.schema.json`
+
+Task updates distinguish omitted `scheduledDate` / `recurrence` (preserve existing values) from explicit JSON `null` (clear the value). Setting a date while omitting recurrence continues to clear prior recurrence. Category moves send both fields explicitly.

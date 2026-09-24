@@ -94,6 +94,7 @@ internal static class Program
         }
 
         window.RegisterWebMessageReceivedHandler(HandleWebMessage);
+        RegisterZoom(window);
         window.WindowCreated += (_, _) => RestoreWindowPlacement(window, savedPlacement);
 
         window.WindowClosing += (_, _) => RequestWindowClose(window);
@@ -287,6 +288,37 @@ internal static class Program
         return Path.Combine(baseDir, "icon.png");
     }
 
+    private static void RegisterZoom(PhotinoWindow window)
+    {
+        window.SetZoom(100);
+        window.WindowLocationChanged += (_, _) => SyncZoom(window);
+        window.WindowSizeChanged += (_, _) => SyncZoom(window);
+    }
+
+    private static void SyncZoom(PhotinoWindow window, bool force = false, int? requested = null)
+    {
+        if (!Windows.TryGetValue(window.Id, out var state) || (!state.ZoomReady && !force)) return;
+        try
+        {
+            var (monitor, scale) = MonitorZoom.Identify(window.WindowHandle);
+            var changed = state.ZoomMonitor != monitor;
+            state.ZoomReady = true;
+            if (changed || requested.HasValue)
+            {
+                state.ZoomMonitor = monitor; // Set before native zoom can raise resize events.
+                state.ZoomPercent = Math.Clamp(requested ?? MonitorZoom.Get(monitor), 50, 400);
+                window.SetZoom(state.ZoomPercent);
+                if (requested.HasValue) MonitorZoom.Save(monitor, state.ZoomPercent);
+            }
+            if (force || changed || state.DisplayScale != scale)
+            {
+                state.DisplayScale = scale;
+                TrySend(window, new { type = "zoomState", percent = state.ZoomPercent, scale });
+            }
+        }
+        catch (Exception ex) { Log($"Unable to update monitor zoom: {ex.Message}"); }
+    }
+
     private static void HandleWebMessage(object? sender, string rawMessage)
     {
         if (sender is not PhotinoWindow window || string.IsNullOrWhiteSpace(rawMessage) || rawMessage.Length > 65536)
@@ -308,6 +340,12 @@ internal static class Program
             {
                 case "openExternal" when !string.IsNullOrWhiteSpace(requestId):
                     HandleOpenExternal(window, requestId, GetString(root, "target"));
+                    break;
+                case "zoomSync":
+                    SyncZoom(window, force: true);
+                    break;
+                case "setZoom" when root.TryGetProperty("percent", out var percent) && percent.TryGetInt32(out var zoom):
+                    SyncZoom(window, force: true, requested: Math.Clamp(zoom, 50, 400));
                     break;
                 case "newWindow":
                     CreateChildWindow();
@@ -389,6 +427,7 @@ internal static class Program
                 .SetMinSize(MinWidth, MinHeight)
                 .SetResizable(true);
             child.RegisterWebMessageReceivedHandler(HandleWebMessage);
+            RegisterZoom(child);
             child.WindowCreated += (_, _) => RestoreWindowPlacement(child, parentPlacement);
             child.WindowClosing += (_, _) => RequestWindowClose(child);
             if (!string.IsNullOrWhiteSpace(_iconPath) && File.Exists(_iconPath))
@@ -698,6 +737,10 @@ internal static class Program
         public PhotinoWindow Window { get; }
         public bool IsPrimary { get; }
         public bool AllowClose { get; set; }
+        public bool ZoomReady { get; set; }
+        public string? ZoomMonitor { get; set; }
+        public int ZoomPercent { get; set; } = 100;
+        public double DisplayScale { get; set; }
     }
 
     private sealed class CloseOperation

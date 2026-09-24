@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\server\Glance.Server.csproj" />
     <Compile Include="..\desktop\WindowPlacement.cs" Link="WindowPlacement.cs" />
+    <Compile Include="..\desktop\MonitorZoom.cs" Link="MonitorZoom.cs" />
   </ItemGroup>
 
 </Project>

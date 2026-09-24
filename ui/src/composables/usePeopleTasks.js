@@ -1,3 +1,4 @@
+import { horizontalTaskTarget } from "../utils/taskNavigation.js";
 import { joinTaskDocuments } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { ref } from "vue";
@@ -354,6 +355,16 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return true;
   };
 
+  const navigateHorizontal = (task, direction) => {
+    const list = tasks.value;
+    const target = horizontalTaskTarget(list.map(resolveTask), task, direction);
+    if (!target) return;
+    focusTaskId.value = null;
+    focusContentTarget.value = null;
+    if (target.area === 'content') focusContentTarget.value = target;
+    else focusTaskId.value = target;
+  };
+
   const mergeTaskToPrevious = async (task, forward = false) => {
     if (!(await saveCoordinator.flushAll()).ok) return false;
     const index = tasks.value.findIndex((item) => item.id === task.id) + (forward ? 1 : 0);
@@ -493,6 +504,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     toggleComplete,
     createTaskBelow,
     moveTaskToPrevious,
+    navigateHorizontal,
     mergeTaskToPrevious,
     mergeTaskWithNext: task => mergeTaskToPrevious(task, true),
     focusPreviousTask,

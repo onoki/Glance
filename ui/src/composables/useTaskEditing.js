@@ -1,4 +1,4 @@
-import { isAtDocumentEdge, joinFirstContentLine } from "../utils/taskJoin.js";
+import { isAtDocumentEdge, joinFirstContentLine, lastParagraph } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
 import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
@@ -196,7 +196,27 @@ export const useTaskEditing = (options) => {
     return true;
   };
 
+  const handleHorizontalArrow = (event, editor, area) => {
+    if (props.readOnly || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return false;
+    const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+    if (!direction || !isAtDocumentEdge(editor, direction > 0)) return false;
+    if (area === 'title' && direction > 0 && hasSubcontent.value) {
+      event.preventDefault();
+      contentEditorRef.value?.focusListItem(0, 'start');
+    } else if (area === 'content' && direction < 0) {
+      event.preventDefault();
+      const position = lastParagraph(titleRef.value)?.end || 1;
+      titleEditorRef.value?.focus({ from: position, to: position });
+    } else {
+      if (!props.onNavigateHorizontal) return false;
+      event.preventDefault();
+      props.onNavigateHorizontal(props.task, direction);
+    }
+    return true;
+  };
+
   const handleTitleKeydown = (event, editor) => {
+    if (handleHorizontalArrow(event, editor, "title")) return true;
     if (props.readOnly) {
       return false;
     }
@@ -337,6 +357,7 @@ export const useTaskEditing = (options) => {
   };
 
   const handleContentKeydown = (event, editor) => {
+    if (handleHorizontalArrow(event, editor, "content")) return true;
     if (props.readOnly) {
       return false;
     }

@@ -15,6 +15,7 @@
       </nav>
       <div class="brand">
         <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
+        <ZoomControls />
         <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 3 1-2h4l1 2 2 1 2-1 3 3-1 2 1 2 2 1v4l-2 1-1 2 1 2-3 3-2-1-2 1-1 2h-4l-1-2-2-1-2 1-3-3 1-2-1-2-2-1v-4l2-1 1-2-1-2 3-3 2 1z" transform="translate(1 0) scale(.9)" /><circle cx="12" cy="12" r="3" /></svg>
         </button>
@@ -133,6 +134,7 @@
 </template>
 
 <script setup>
+import ZoomControls from "./components/ZoomControls.vue";
 import { taskClipboard } from './services/taskClipboard.js';
 import { actionFeedback, dismissAction } from './services/actionFeedback.js';
 import { subscribeToSaveSummary } from './services/saveCoordinator.js';
@@ -320,6 +322,7 @@ const {
   moveTaskToPrevious,
   mergeTaskToPrevious,
   mergeTaskWithNext,
+  navigateHorizontal,
   focusPrevTaskFromTitle,
   focusNextTaskFromContent,
   handleDirtyChange,
@@ -508,6 +511,7 @@ const getTaskItemBindings = (task, list, options) => ({
   onMergeToPrevious: mergeTaskToPrevious,
   onMergeWithNext: mergeTaskWithNext,
   onSplitToNewTask: splitSubcontentToNewTask,
+  onNavigateHorizontal: navigateHorizontal,
   onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
   onFocusNextTaskFromContent: focusNextTaskFromContent,
   onDelete: deleteTask,

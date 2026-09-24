@@ -31,3 +31,5 @@ Use one compact height (suggestion: 16px) and `--font-size-meta` for button text
 Share hover, keyboard-focus, pressed, disabled and loading rules. Preserve clear selected/pressed semantics; remove the duplicated per-view font and padding overrides. Keep the empty-editor target distinct because it represents an insertion point, not a command. Retire unused button styles after checking their references.
 
 This would keep the compact appearance while eliminating accidental differences in weight, typography, spacing and active colors. The shared styles now use BigBlue TerminalPlus at 8 CSS px (12 device pixels at 150% scaling), regular UI weight, and 16px minimum control height.
+
+The top bar includes compact − / percentage / + zoom controls between the version number and Settings. Percentage is also reset; its tooltip explains the `*` hint for near-native-grid sizes. Intermediate sizes remain available. Zoom does not change font family or introduce bold UI text.

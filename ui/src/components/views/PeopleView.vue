@@ -136,6 +136,7 @@
             :on-merge-to-previous="mergeTaskToPrevious"
             :on-merge-with-next="mergeTaskWithNext"
             :on-split-to-new-task="splitSubcontentToNewTask"
+            :on-navigate-horizontal="navigateHorizontal"
             :on-focus-prev-task-from-title="focusPreviousTask"
             :on-focus-next-task-from-content="focusNextTask"
             :on-delete="removeTask"
@@ -243,6 +244,7 @@ const {
   moveTaskToPrevious,
   mergeTaskToPrevious,
   mergeTaskWithNext,
+  navigateHorizontal,
   focusPreviousTask,
   focusNextTask,
   splitSubcontentToNewTask,
@@ -589,7 +591,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   flex-wrap: wrap;
 }
 
-.people-navigation > .add-task { flex: 0 0 auto; font-family: inherit; font-size: var(--font-size-meta); font-weight: 400; }
+.people-navigation > .ghost { flex: 0 0 auto; font-family: inherit; font-size: var(--font-size-meta); font-weight: 400; }
 .person-tab { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; overflow-wrap: anywhere; }
 .person-tab-shell { max-width: 100%; min-width: 0; }
 .person-tag-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; border: 1px solid #0003; }
@@ -601,13 +603,13 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  border: 1px solid transparent;
+  border: 0;
   cursor: grab;
 }
 
 .person-tab-shell.dragging { opacity: 0.45; }
-.person-tab-shell.drop-target { border-left-color: var(--focus-outline); }
-.person-tab-shell.drop-target.drop-after { border-left-color: transparent; border-right-color: var(--focus-outline); }
+.person-tab-shell.drop-target { box-shadow: -1px 0 var(--focus-outline); }
+.person-tab-shell.drop-target.drop-after { box-shadow: 1px 0 var(--focus-outline); }
 .person-tab-grip { color: var(--text-muted); font-size: var(--font-size-meta); padding-right: 3px; user-select: none; }
 .archived-tab { margin-left: auto; flex: 0 0 auto; }
 

@@ -307,3 +307,33 @@ for (const mode of ['title-content','title-next','content-next','content-middle'
   else { assert.equal(handled,false); assert.equal(nextCalls,0); }
   harness.unmount();
 }
+
+// Real selections: horizontal arrows cross only exact document boundaries.
+for (const area of ['title','content']) {
+  for (const direction of [-1,1]) {
+    for (const mode of ['edge','middle','selection','shift','ctrl','readOnly']) {
+      const calls=[];
+      let handlers;
+      const harness=renderer.createApp({setup(){
+        handlers=useTaskEditing({props:{task:{id:'arrow'},readOnly:mode==='readOnly',onNavigateHorizontal:(task,delta)=>calls.push(['task',task.id,delta])},
+          titleRef:ref(boundaryTitle),contentRef:ref(boundaryContent),hasSubcontent:ref(true),saveNow:async()=>true,
+          titleEditorRef:ref({focus:selection=>calls.push(['title',selection])}),contentEditorRef:ref({focusListItem:(...args)=>calls.push(['content',...args])})});
+        return ()=>h('test');
+      }}); harness.mount(node('root'));
+      const doc=boundarySchema.nodeFromJSON(area==='title'?boundaryTitle:boundaryContent);
+      let start, end; doc.descendants((node,pos)=>{if(node.type.name==='paragraph') { start ??= pos+1; end=pos+1+node.content.size; }});
+      const edge=direction<0?start:end;
+      const pos=mode==='middle'?start+1:edge;
+      const editor={state:EditorState.create({schema:boundarySchema,doc,selection:TextSelection.create(doc,mode==='selection'?start:pos,mode==='selection'?end:pos)})};
+      const handled=(area==='title'?handlers.handleTitleKeydown:handlers.handleContentKeydown)({key:direction<0?'ArrowLeft':'ArrowRight',shiftKey:mode==='shift',ctrlKey:mode==='ctrl',preventDefault(){}},editor);
+      assert.equal(handled,mode==='edge',`${area} ${direction} ${mode}`);
+      if(mode==='edge') {
+        if(area==='title' && direction>0) assert.deepEqual(calls,[['content',0,'start']]);
+        else if(area==='content' && direction<0) assert.deepEqual(calls,[['title',{from:6,to:6}]]);
+        else assert.deepEqual(calls,[['task','arrow',direction]]);
+      } else assert.deepEqual(calls,[]);
+      harness.unmount();
+    }
+  }
+}
+console.log('Horizontal navigation preserves selections and modified arrows, and crosses exact boundaries only');
