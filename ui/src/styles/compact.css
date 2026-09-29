@@ -197,12 +197,7 @@ body {
   border: none;
 }
   
-  /* 6) Task title emphasis */
-.dashboard .title-editor .ProseMirror {
-  font-size: var(--font-size-title);
-  font-weight: 400;
-  color: var(--text-title);
-}
+  /* Task title and subcontent typography share the final controls.css rule. */
   
   /* 7) Subcontent compactness */
 .dashboard .ProseMirror {
@@ -289,3 +284,12 @@ body {
   border-radius: 0;
 }
   
+
+/* Weekday scheduling stays compact, including empty drop targets. */
+.dashboard .weekday-header { display: flex; align-items: center; justify-content: space-between; min-height: 20px; }
+.dashboard .weekday-group { min-height: 28px; }
+#app .weekday-add { min-width: 20px; padding: 0 4px; }
+.week-picker { padding: 4px; border-top: 1px solid var(--border-panel); }
+.week-picker-days { display: flex; gap: 1px; margin-top: 4px; }
+#app .week-picker-days button { padding: 0 4px; }
+#app .week-picker-days button[aria-pressed="true"] { background: var(--bg-app); outline: 1px solid currentColor; }

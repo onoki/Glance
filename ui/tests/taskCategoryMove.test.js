@@ -215,12 +215,12 @@ const itemDoc = (text) => ({ type: 'listItem', content: [{ type: 'paragraph', co
 for (const inFlight of [false, true]) {
   let handlers, finishCreate, timer;
   const moves = [];
-  const content = ref({ type: 'doc', content: [{ type: 'bulletList', content: [itemDoc('First'), itemDoc('Second')] }] });
+  const content = ref(inFlight ? {type:'doc',content:[{type:'paragraph'}]} : { type: 'doc', content: [{ type: 'bulletList', content: [itemDoc('First'), itemDoc('Second')] }] });
   const harness = renderer.createApp({ setup() {
     handlers = useTaskEditing({
       props: { task: { id: 'original' }, onCreateBelow: () => new Promise(resolve => { finishCreate = resolve; }), onTabToPrevious: async task => { moves.push(task.id); return true; } },
       titleRef: ref(titleDoc), contentRef: content,
-      titleEditorRef: ref(null), contentEditorRef: ref({ focusListItem() {} }), hasSubcontent: ref(true),
+      titleEditorRef: ref(null), contentEditorRef: ref({ focusListItem() {} }), hasSubcontent: ref(!inFlight),
       revealContent() {}, saveNow: async () => true
     });
     return () => h('test');
@@ -367,3 +367,36 @@ for (const area of ['title','content']) {
   }
 }
 console.log('Vertical arrows cross visual edges at exact caret positions and preserve wrapped-line navigation');
+
+// Enter at title end adds a leading bullet, preserving every existing line.
+for (const mode of ['end','middle','readOnly']) {
+  let handlers, focused, split, saved=0, created=0;
+  const title=ref(structuredClone(boundaryTitle));
+  const original=structuredClone(boundaryContent);
+  original.content[0].content[0].content.push({type:'bulletList',content:[itemDoc('Nested retained')]});
+  const content=ref(structuredClone(original));
+  const harness=renderer.createApp({setup(){
+    handlers=useTaskEditing({props:{task:{id:'enter'},readOnly:mode==='readOnly',onCreateBelow:()=>{created++;},onSplitTitleToNewTask:(_task,_category,payload)=>{split=payload;}},
+      titleRef:title,contentRef:content,titleEditorRef:ref(null),contentEditorRef:ref({focusListItem:(...args)=>{focused=args;}}),hasSubcontent:ref(true),saveNow:async()=>{saved++;return true;},onContentChanged(){}});
+    return ()=>h('test');
+  }}); harness.mount(node('root'));
+  const doc=boundarySchema.nodeFromJSON(boundaryTitle);
+  const pos=mode==='middle'?3:6;
+  const editor={state:EditorState.create({schema:boundarySchema,doc,selection:TextSelection.create(doc,pos)}),getJSON:()=>structuredClone(boundaryTitle),commands:{setContent(){}}};
+  const handled=handlers.handleTitleKeydown({key:'Enter',preventDefault(){}},editor);
+  await nextTick(); await nextTick();
+  assert.equal(created,0);
+  if(mode==='end') {
+    assert.equal(handled,true);
+    assert.deepEqual(content.value.content[0].content[0],{type:'listItem',content:[{type:'paragraph'}]});
+    assert.deepEqual(content.value.content[0].content.slice(1),original.content[0].content);
+    assert.deepEqual(title.value,boundaryTitle);
+    assert.deepEqual(focused,[0,'start']);
+    assert.equal(saved,1);
+  } else if(mode==='middle') {
+    assert.deepEqual(split.newContent,original);
+    assert.equal(boundarySchema.nodeFromJSON(split.newTitle).textContent,'tle');
+  } else { assert.equal(handled,false); assert.deepEqual(content.value,original); }
+  harness.unmount();
+}
+console.log('Title-end Enter prepends subcontent while middle-title splitting remains intact');

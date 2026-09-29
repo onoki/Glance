@@ -69,7 +69,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   .tag-summary, .version, .category-title, .weekday-header, .empty-message) {
   font-size: var(--font-size-meta); font-weight: 400;
 }
-#app .ProseMirror { font-size: var(--font-size-body); font-synthesis: weight style; }
+#app .ProseMirror { font-family: var(--font-ui); font-size: var(--font-size-body); font-weight: 400; font-style: normal; line-height: var(--line-height-body); letter-spacing: 0; font-synthesis: weight style; }
 #app .tag-menu-row input[type="color"] { width: 32px; height: 16px; padding: 1px; }
 
 #app :is(h1, h2, h3, h4, strong, b, em):not(.ProseMirror *) { font-weight: 400; font-style: normal; }
@@ -107,6 +107,6 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
 
 #app .top-nav.helper-window-nav { background: #dbe7f1; }
 #app .helper-window-badge {
-  color: var(--text-main); background: #c9daea; border: 1px solid #91adc5;
-  padding: 0 4px; margin-right: 4px; line-height: 14px; font-weight: 400;
+  color: var(--text-main); background: transparent; border: 0;
+  padding: 0; margin-right: 4px; line-height: 14px; font-weight: 400;
 }

@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>glance</AssemblyName>
+    <AssemblyTitle>Glance</AssemblyTitle>
+    <Product>Glance</Product>
+    <Description>Glance</Description>
     <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 

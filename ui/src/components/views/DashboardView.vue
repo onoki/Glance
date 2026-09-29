@@ -56,7 +56,7 @@
 
       <template v-for="category in mainCategories" :key="category.id">
         <div
-          v-if="category.tasks.length"
+          v-if="category.tasks.length || isThisWeekCategory(category)"
           class="dashboard-column"
           :style="getColumnStyle(category.id)"
           :data-category-id="category.id"
@@ -75,9 +75,18 @@
                   :key="group.id"
                   class="weekday-group"
                   @dragover.prevent
-                  @drop.prevent="handleDropOnWeekday(category.id, group.id, $event)"
+                  @drop.prevent.stop="handleDropOnWeekday(category.id, group, $event)"
                 >
-                  <div class="weekday-header">{{ group.label }}</div>
+                  <div class="weekday-header">
+                    <span>{{ group.label }}</span>
+                    <button
+v-if="!group.isPast" type="button" class="weekday-add"
+                      :aria-label="`Add task on ${group.label} ${group.dateKey}`"
+                      :title="`Add task on ${group.dateKey}`" @click="appendDay(group)"
+>
++
+</button>
+                  </div>
                   <TransitionGroup name="task-move" tag="div" class="task-list-group">
                     <TaskItem
                       v-for="task in group.tasks"
@@ -183,6 +192,7 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  onCreateDayTask: { type: Function, required: true },
   onDropOnWeekday: {
     type: Function,
     required: true
@@ -197,7 +207,8 @@ const appendTask = async (tasks, categoryId) => {
   appending = true;
   try {
     const last = tasks[tasks.length - 1];
-    if (!last) await props.onCreateNewTask();
+    if (!last && categoryId !== "new") await props.onCreateDayTask(new Date());
+    else if (!last) await props.onCreateNewTask();
     else await props.getTaskItemBindings(last, tasks, { categoryId }).onCreateBelow(last, categoryId);
   } finally { appending = false; }
 };
@@ -227,17 +238,15 @@ const handleEmptyKeydown = (event) => {
   }
 };
 
-const handleDropOnWeekday = (categoryId, weekdayId, event) => {
-  const match = typeof weekdayId === "string" ? weekdayId.match(/weekday-(\d+)/) : null;
-  const dayIndex = match ? Number.parseInt(match[1], 10) : 1;
-  const now = new Date();
-  const weekStart = new Date(now);
-  const day = weekStart.getDay();
-  const diff = (day + 6) % 7;
-  weekStart.setDate(weekStart.getDate() - diff + (dayIndex - 1));
-  weekStart.setHours(0, 0, 0, 0);
-  const dateKey = `${weekStart.getFullYear()}-${`${weekStart.getMonth() + 1}`.padStart(2, "0")}-${`${weekStart.getDate()}`.padStart(2, "0")}`;
-  props.onDropOnWeekday(categoryId, dateKey, event);
+const appendDay = async (group) => {
+  if (appending || group.isPast) return;
+  appending = true;
+  try { await props.onCreateDayTask(group.dateKey); }
+  finally { appending = false; }
+};
+
+const handleDropOnWeekday = (categoryId, group, event) => {
+  if (!group.isPast) return props.onDropOnWeekday(categoryId, group.dateKey, event);
 };
 
 const loadColumnWidths = () => {

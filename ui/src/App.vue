@@ -14,7 +14,7 @@
         </button>
       </nav>
       <div class="brand">
-        <span v-if="isHelperWindow" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper</span>
+        <span v-if="isHelperWindow" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper window</span>
         <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
         <ZoomControls />
         <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
@@ -51,6 +51,7 @@
         :on-toggle-expand="toggleExpandNew"
         :on-drop-on-category="dropOnCategoryFromView"
         :on-drop-on-weekday="dropOnWeekdayFromView"
+        :on-create-day-task="createDayTask"
         :on-pointer-down="handleDashboardPointerDown"
         :on-pointer-move="handleDashboardPointerMove"
         :on-pointer-up="handleDashboardPointerUp"
@@ -135,6 +136,7 @@
 </template>
 
 <script setup>
+import { formatDateKey } from "./utils/dateUtils.js";
 import { useWindowRole } from "./composables/useWindowRole.js";
 const { isHelperWindow } = useWindowRole();
 import ZoomControls from "./components/ZoomControls.vue";
@@ -555,6 +557,12 @@ const dismissSendMarker = async (task) => {
 
 const toggleExpandNew = () => {
   expandedNew.value = !expandedNew.value;
+};
+
+const createDayTask = async (date) => {
+  const dateKey = date instanceof Date ? formatDateKey(date) : date;
+  const newId = await createTask("dashboard:main", emptyTitleDoc(), emptyContentDoc(), Date.now(), `day-${dateKey}`);
+  focusTaskId.value = newId;
 };
 
 const createNewTaskFromEmpty = async (initialText = "") => {

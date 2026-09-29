@@ -25,6 +25,10 @@ const { useDashboardData } = await import('../src/composables/useDashboardData.j
 const doc = text => ({type:'doc',content:[{type:'paragraph',content:[{type:'text',text}]}]});
 const rows = ['First task','Second task'].map((text,index)=>({id:String(index),page:'dashboard:new',title:doc(text),content:emptyDoc,position:index,updatedAt:1,completedAt:null}));
 const originalFetch = globalThis.fetch;
+const originalDocument = globalThis.document;
+const originalFrame = globalThis.requestAnimationFrame;
+globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
+globalThis.requestAnimationFrame = callback => callback();
 const removedRows=new Map();
 globalThis.fetch = async (path,request) => {
   if(path==='/api/dashboard') return {ok:true,json:async()=>({newTasks:structuredClone(rows.filter(row=>row.page==='dashboard:new')),mainTasks:structuredClone(rows.filter(row=>row.page==='dashboard:main'))})};
@@ -32,6 +36,11 @@ globalThis.fetch = async (path,request) => {
     const id=path.split('/')[3];const restored=removedRows.get(id);
     assert.ok(restored); restored.updatedAt++; rows.push(restored); removedRows.delete(id);
     return {ok:true,json:async()=>({updatedAt:restored.updatedAt})};
+  }
+  if (path === '/api/tasks' && request.method === 'POST') {
+    const payload = JSON.parse(request.body);
+    rows.push({ ...payload, id: 'created-day', updatedAt: 1, completedAt: null });
+    return {ok:true,json:async()=>({taskId:'created-day',updatedAt:1})};
   }
   const row=rows.find(row=>path.split('?')[0]===`/api/tasks/${row.id}`);
   assert.ok(row, `unexpected request: ${path}`);
@@ -81,4 +90,34 @@ try {
   assert.deepEqual(rows.find(task=>task.id==='notes-first').content,lines);
   await dashboard.redo();
   assert.equal(rows.some(task=>task.id==='notes-third'),false);
-} finally {globalThis.fetch=originalFetch;}
+  const { currentWeekDays } = await import('../src/utils/categoryUtils.js');
+  const sunday = currentWeekDays().at(-1).dateKey;
+  const created = await dashboard.createTask('dashboard:main', doc('Sunday task'), emptyDoc, 10, `day-${sunday}`);
+  assert.equal(rows.find(row => row.id === created).scheduledDate, sunday);
+  const movable = dashboard.newTasks.value[0];
+  const original = structuredClone(rows.find(row => row.id === movable.id));
+  await dashboard.setTaskCategory(movable, `day-${sunday}`);
+  assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+  assert.equal(rows.find(row => row.id === movable.id).page, 'dashboard:main');
+  await dashboard.undo();
+  assert.equal(rows.find(row => row.id === movable.id).page, original.page);
+  await dashboard.redo();
+  assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+  await assert.rejects(dashboard.setTaskCategory(movable, 'day-2000-01-01'));
+  const current = dashboard.mainTasks.value.find(row => row.id === movable.id);
+  await dashboard.applyTaskMove(current, 'new', 20);
+  assert.equal(rows.find(row => row.id === movable.id).scheduledDate, null);
+  await dashboard.undo();
+  assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+  await dashboard.redo();
+  assert.equal(rows.find(row => row.id === movable.id).page, 'dashboard:new');
+  const newTask = dashboard.newTasks.value.find(row => row.id === movable.id);
+  await dashboard.applyTaskMove(newTask, `week-${sunday}`, 21, sunday);
+  assert.equal(rows.find(row => row.id === movable.id).page, 'dashboard:main');
+  assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+
+} finally {
+  globalThis.fetch = originalFetch;
+  globalThis.document = originalDocument;
+  globalThis.requestAnimationFrame = originalFrame;
+}

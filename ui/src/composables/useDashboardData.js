@@ -13,7 +13,7 @@ import {
   runRecurrence,
   updateTask as updateTaskApi
 } from "../api/tasks.js";
-import { deriveCategories, groupTasksByWeekday, isThisWeekCategory } from "../utils/categoryUtils.js";
+import { currentWeekDays, deriveCategories, groupTasksByWeekday, isThisWeekCategory } from "../utils/categoryUtils.js";
 import { formatDateKey, getDayKey, getWeekStart } from "../utils/dateUtils.js";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
 import {
@@ -350,6 +350,11 @@ export const useDashboardData = (options) => {
       recurrenceCache.set(task.id, existingRecurrence);
     }
 
+    if (categoryId.startsWith("day-")) {
+      const day = currentWeekDays().find(day => day.dateKey === categoryId.slice(4) && !day.isPast);
+      if (!day) throw new Error("Choose today or a remaining day of this week.");
+      return { scheduledDate: day.dateKey, recurrence: null };
+    }
     if (categoryId.startsWith("week-")) {
       const weekKey = categoryId.slice(5);
       const currentWeekKey = formatDateKey(getWeekStart(new Date()));
@@ -1058,8 +1063,12 @@ export const useDashboardData = (options) => {
           ? existingRecurrence
           : cachedRecurrence || { type: "weekly", weekdays: [] };
         break;
-      default:
-        return;
+      default: {
+        if (!category.startsWith("day-")) return;
+        const dayUpdate = buildCategoryUpdate(task, category);
+        scheduledDate = dayUpdate.scheduledDate;
+        recurrence = null;
+      }
     }
 
     const update = {
@@ -1109,10 +1118,9 @@ export const useDashboardData = (options) => {
   };
 
   const buildCategoryUpdateForMove = (task, categoryId) => {
-    if (task.page === DASHBOARD_MAIN_PAGE) {
-      return buildCategoryUpdate(task, categoryId);
-    }
-    return null;
+    return categoryId === "new"
+      ? { scheduledDate: null, recurrence: null }
+      : buildCategoryUpdate(task, categoryId);
   };
 
   const applyTaskMove = async (task, categoryId, position, scheduledDateOverride = null) => {
@@ -1121,7 +1129,8 @@ export const useDashboardData = (options) => {
     const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
     const update = {
       baseUpdatedAt: task.updatedAt,
-      position
+      position,
+      page: categoryId === "new" ? DASHBOARD_NEW_PAGE : DASHBOARD_MAIN_PAGE
     };
 
     const categoryUpdate = buildCategoryUpdateForMove(task, categoryId);
@@ -1144,8 +1153,8 @@ export const useDashboardData = (options) => {
       const afterSnapshot = {
         ...beforeSnapshot,
         position: update.position ?? beforeSnapshot.position,
-        scheduledDate: update.scheduledDate ?? beforeSnapshot.scheduledDate,
-        recurrence: update.recurrence ?? beforeSnapshot.recurrence,
+        scheduledDate: update.scheduledDate !== undefined ? update.scheduledDate : beforeSnapshot.scheduledDate,
+        recurrence: update.recurrence !== undefined ? update.recurrence : beforeSnapshot.recurrence,
         page: update.page ?? beforeSnapshot.page
       };
       if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {

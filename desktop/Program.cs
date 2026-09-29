@@ -34,6 +34,7 @@ internal static class Program
         // Set before any WebView2 environment is created, including child windows.
         if (OperatingSystem.IsWindows())
         {
+            WindowsShellIdentity.Register();
             const string key = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
             var arguments = Environment.GetEnvironmentVariable(key) ?? "";
             if (!arguments.Contains("--disable-lcd-text", StringComparison.Ordinal))
@@ -43,6 +44,11 @@ internal static class Program
         EnsureDirectories(appRoot);
         InitLogging(appRoot);
         Log($"App root: {appRoot}");
+        if (OperatingSystem.IsWindows() && Environment.ProcessPath is { } executable)
+        {
+            try { WindowsShellIdentity.CreateShortcut(executable); }
+            catch (Exception ex) { Log($"Could not create the portable Glance shortcut: {ex.Message}"); }
+        }
 
         var port = ResolvePort();
         Log($"Server port: {port}");
@@ -79,7 +85,7 @@ internal static class Program
         var initialSize = new Size(initialPlacement.Width, initialPlacement.Height);
 
         var window = new PhotinoWindow()
-            .SetTitle("Glance — Main window (closing closes all windows)")
+            .SetTitle("Glance")
             .SetUseOsDefaultSize(false)
             .SetSize(initialSize.Width, initialSize.Height)
             .SetMinSize(MinWidth, MinHeight)
@@ -423,7 +429,7 @@ internal static class Program
             var parentPlacement = OperatingSystem.IsWindows() ? WindowPlacement.Capture(parent.WindowHandle) : null;
             var placement = WindowPlacement.Resolve(parentPlacement, WindowPlacement.GetMonitors());
             var child = new PhotinoWindow(parent)
-                .SetTitle("Glance — Helper window")
+                .SetTitle("G - Secondary")
                 .SetUseOsDefaultSize(false)
                 .SetSize(placement.Width, placement.Height)
                 .SetUseOsDefaultLocation(false)
@@ -442,6 +448,7 @@ internal static class Program
             {
                 Windows[child.Id] = new WindowState(child, isPrimary: false);
             }
+            UpdateWindowTitles();
             child.Load(_startUrl);
             child.WaitForClose();
             Log($"Opened secondary window {child.Id}.");
@@ -450,6 +457,13 @@ internal static class Program
         {
             Log($"Unable to open secondary window: {ex}");
         }
+    }
+
+    private static void UpdateWindowTitles()
+    {
+        lock (WindowGate)
+            foreach (var state in Windows.Values)
+                state.Window.SetTitle(WindowPresentation.Title(state.IsPrimary, Windows.Count));
     }
 
     private static bool RequestWindowClose(PhotinoWindow window)
@@ -464,10 +478,15 @@ internal static class Program
             {
                 SaveWindowPlacement(window);
                 Windows.Remove(window.Id);
+                UpdateWindowTitles();
                 return false;
             }
         }
 
+        if (_closeOperation != null || _flushOperation != null) return true;
+        if (Windows.TryGetValue(window.Id, out var closingState)
+            && WindowPresentation.NeedsCloseWarning(closingState.IsPrimary, Windows.Count)
+            && OperatingSystem.IsWindows() && !WindowPresentation.ConfirmCloseAll(window.WindowHandle)) return true;
         BeginClose(window, restart: false);
         return true;
     }

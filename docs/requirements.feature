@@ -1044,12 +1044,15 @@ Feature: Whole-task selection and clipboard
     And its size and the surrounding task positions remain unchanged
 
   Scenario: Main and helper window close behavior is visible
-    Then the main native title bar says "Main window (closing closes all windows)"
-    And additional native windows say "Helper window"
+    Then a single native window is titled "Glance"
+    And while multiple windows are open their titles are "G - Main" and "G - Secondary"
+    And the remaining main window returns to "Glance" when helpers close
     When I close a helper window
     Then only that helper closes after its pending saves finish
     When I close the main window
-    Then all Glance windows close after their pending saves finish
+    Then a Yes/No warning explains that all Glance windows will close, with No selected by default
+    And cancellation leaves every window open
+    And confirmation closes all windows after their pending saves finish
     And any failed save cancels closing and preserves the unsaved text
 
   Scenario: Caret intent when moving vertically between tasks
@@ -1066,7 +1069,47 @@ Feature: Whole-task selection and clipboard
   Scenario: Subtle helper window appearance
     Given a helper window opened through New window
     Then only its top navigation bar has a muted blue tint
-    And a compact regular-weight Helper badge appears beside the version
-    And the badge tooltip explains that closing this helper leaves other windows open
+    And a compact regular-weight Helper window label appears beside the version without a border or background
+    And the label tooltip explains that closing this helper leaves other windows open
     And task backgrounds, text, navigation controls, and the native title bar remain available
     And the main window keeps its usual navigation appearance
+
+  Scenario: Enter at the end of a title with existing subcontent
+    Given a task has existing subcontent in Dashboard or People
+    When I press Enter at the end of its title with no text selected
+    Then an empty first subcontent bullet is inserted and receives the caret
+    And the title and all existing subcontent and nesting are preserved
+    And no separate task is created
+    And an immediate Tab cannot indent the original task
+    And title-only Enter and middle-title splitting retain their existing behavior
+
+  Scenario: Newly generated recurrence ordering
+    When a weekly or monthly occurrence is generated
+    Then it is inserted before existing tasks on its scheduled day
+    And weekday grouping is preserved
+    And running generation again does not duplicate or reorder existing occurrences
+
+  Scenario: Windows taskbar identity
+    Then the process and its portable Glance shortcut share the stable Glance.Desktop AppUserModelID
+    And executable display metadata is capitalized Glance
+    And opening the app on its destination PC creates or refreshes Glance.lnk beside the executable
+    And Windows taskbar grouping and monitor preferences are not changed by Glance
+
+  Scenario: People scrollbar and editor typography
+    Then the People task scrolling viewport extends to the right window edge
+    And the compact task content width is retained inside that viewport
+    And plain task titles and subcontent share font family, size, weight, style, line height, letter spacing, and color
+    And explicit rich-text marks, links and completed-task styling remain meaningful
+
+  Scenario: Assigning tasks to remaining days of this week
+    Given today is Wednesday
+    Then This week shows compact Wednesday through Sunday headers even with no tasks
+    And Monday and Tuesday headers appear only if they still contain visible tasks
+    And those existing tasks retain their scheduled dates
+    When I use a remaining day's plus button
+    Then a task is created on that date and its title receives focus
+    When I move a task using the Mon-Sun picker or drop it onto an upcoming day header
+    Then it is scheduled for that date and the operation can be undone
+    And the drop does not also run the surrounding column handler
+    And past days are unavailable for new assignments
+    And This week remains available when all its tasks have been removed

@@ -25,7 +25,7 @@ const weekCategories = deriveCategories([
 const thisWeek = weekCategories.find((cat) => cat.label === "This week");
 assert.ok(thisWeek);
 const grouped = groupTasksByWeekday(thisWeek.tasks);
-assert.equal(grouped.length, 1);
+assert.equal(grouped.length, 8 - (((today.getDay() + 6) % 7) + 1));
 assert.equal(grouped[0].tasks.length, 2);
 
 const now = new Date();
@@ -37,4 +37,17 @@ assert.ok(pastCategories.some((cat) => cat.label.startsWith("Week starting")));
 const farFuture = new Date(getWeekStart(now));
 farFuture.setDate(farFuture.getDate() + 35);
 const futureCategories = deriveCategories([makeTask({ scheduledDate: formatDateKey(farFuture) })]);
-assert.equal(futureCategories.length, 0);
+assert.equal(futureCategories.length, 1);
+assert.equal(futureCategories[0].label, "This week");
+assert.deepEqual(futureCategories[0].tasks, []);
+
+// Wednesday: retain overdue Monday tasks, hide empty Tuesday, expose Wed-Sun.
+const wednesday = new Date(2026, 8, 30);
+const overdue = makeTask({ id: "overdue", scheduledDate: "2026-09-28" });
+const days = groupTasksByWeekday([overdue], wednesday);
+assert.deepEqual(days.map(day => day.label), ["Mon", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+assert.equal(days[0].isPast, true);
+assert.equal(days[0].tasks[0].scheduledDate, "2026-09-28");
+assert.equal(days.at(-1).dateKey, "2026-10-04");
+assert.deepEqual(groupTasksByWeekday([], new Date(2026, 9, 4)).map(day => day.label), ["Sun"]);
+assert.equal(groupTasksByWeekday([], new Date(2026, 9, 5)).length, 7);

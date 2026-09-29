@@ -80,6 +80,19 @@
             >
               {{ option.label }}
             </button>
+            <div class="week-picker" aria-label="Schedule this week">
+              <span>This week</span>
+              <div class="week-picker-days">
+                <button
+v-for="day in currentWeekDays()" :key="day.dateKey" type="button"
+                  :disabled="day.isPast" :aria-pressed="task.scheduledDate === day.dateKey"
+                  :title="day.isPast ? `${day.dateKey} has passed` : `Move to ${day.label} ${day.dateKey}`"
+                  @click="setCategory(`day-${day.dateKey}`)"
+>
+{{ day.label }}
+</button>
+              </div>
+            </div>
           </div>
         </div>
         <button
@@ -217,6 +230,7 @@
 <script setup>
 import { taskClipboard } from "../services/taskClipboard.js";
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
+import { currentWeekDays } from "../utils/categoryUtils.js";
 import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
 import { announceAction } from "../services/actionFeedback.js";
 import RichTextEditor from "./RichTextEditor.vue";
@@ -1370,10 +1384,7 @@ watch(
 }
 
 .title-editor :deep(.ProseMirror) {
-  line-height: var(--task-title-line-height);
-  font-weight: 400;
-  font-size: var(--task-title-size, 1rem);
-  color: var(--text-title);
+  /* Typography is shared with subcontent in controls.css. */
   min-height: 1.2em;
 }
 

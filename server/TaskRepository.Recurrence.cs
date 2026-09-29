@@ -31,6 +31,12 @@ public sealed partial class TaskRepository
             foreach (var date in dates)
             {
                 var taskId = CreateDeterministicId(source.Id, date);
+                await using var positionCommand = connection.CreateCommand();
+                positionCommand.Transaction = transaction;
+                positionCommand.CommandText = "SELECT COALESCE(MIN(position), 0) - 1 FROM tasks WHERE page = $page AND scheduled_date = $date AND deleted_at IS NULL";
+                positionCommand.Parameters.AddWithValue("$page", source.Page);
+                positionCommand.Parameters.AddWithValue("$date", date);
+                var position = Convert.ToDouble(await positionCommand.ExecuteScalarAsync(cancellationToken));
                 var inserted = await InsertGeneratedTaskAsync(
                     connection,
                     transaction,
@@ -39,7 +45,7 @@ public sealed partial class TaskRepository
                     source.TitleText,
                     source.TitleJson,
                     source.ContentJson,
-                    now + created,
+                    position,
                     now,
                     date);
 
@@ -154,7 +160,8 @@ public sealed partial class TaskRepository
             SELECT id, page, title, title_json, content_json, recurrence_json
             FROM tasks
             WHERE recurrence_json IS NOT NULL
-              AND deleted_at IS NULL;
+              AND deleted_at IS NULL
+            ORDER BY position, id;
             """;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

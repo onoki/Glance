@@ -1,3 +1,4 @@
+import { currentWeekDays } from "../utils/categoryUtils.js";
 import { ref } from "vue";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
 
@@ -43,9 +44,8 @@ export const useDashboardDrag = (options) => {
     if (!dragged || dragged.id === targetTask.id) {
       return;
     }
-    if (dragged.page !== targetTask.page) {
-      return;
-    }
+    const day = currentWeekDays().find(day => day.dateKey === targetTask.scheduledDate);
+    if (day?.isPast && dragged.scheduledDate !== targetTask.scheduledDate) return;
 
     const list = getCategoryTasks?.(targetTask.page, categoryId);
     const filtered = list.filter((item) => item.id !== dragged.id);
@@ -65,7 +65,7 @@ export const useDashboardDrag = (options) => {
   const dropOnCategory = async (categoryId, page, event, scheduledDateOverride = null) => {
     const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
     const dragged = dragId ? findTaskById?.(dragId) : null;
-    if (!dragged || dragged.page !== page) {
+    if (!dragged) {
       return;
     }
     const list = getCategoryTasks?.(page, categoryId).filter((item) => item.id !== dragged.id);
@@ -80,6 +80,7 @@ export const useDashboardDrag = (options) => {
   };
 
   const dropOnWeekdayFromView = (categoryId, scheduledDate, event) => {
+    if (!currentWeekDays().some(day => day.dateKey === scheduledDate && !day.isPast)) return;
     return dropOnCategoryFromView(categoryId, event, scheduledDate);
   };
 

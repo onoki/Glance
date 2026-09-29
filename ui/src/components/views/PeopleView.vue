@@ -618,7 +618,7 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  padding: 2px 4px 0;
+  padding: 2px 0 0 4px;
 }
 
 .person-controls {
@@ -669,10 +669,13 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
 .person-task-list {
   flex: 1;
   min-height: 0;
-  width: min(900px, 100%);
+  width: 100%;
   overflow-y: auto;
   padding-right: 3px;
 }
+
+.person-task-list > .task-list-group,
+.person-task-list > .task-list-tail { max-width: 900px; width: 100%; }
 
 .archive-panel {
   flex: 1;

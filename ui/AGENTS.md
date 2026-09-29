@@ -22,4 +22,8 @@
 
 - Up/Down navigation must never create tasks or cross Dashboard columns. At editor boundaries, Down enters the first subcontent paragraph at its end; Up from its first visual line returns to the title end. Leave wrapped-line navigation, selections and modified arrows native. The whole insertion tail darkens slightly on hover.
 
-- Cross-task Up/Down preserve beginning/end caret intent; an empty source counts as beginning. Middle positions preserve screen X as closely as possible on the destination visual line. Helper windows use a lightly blue top bar and compact Helper badge; keep task surfaces and typography unchanged.
+- Cross-task Up/Down preserve beginning/end caret intent; an empty source counts as beginning. Middle positions preserve screen X as closely as possible on the destination visual line. Helper windows use a lightly blue top bar and plain Helper window label without a border or background; keep task surfaces and typography unchanged.
+
+- Enter at the end of a title with existing subcontent prepends an empty bullet and focuses it. Preserve title-only task creation and middle-title splitting. People scrollbars belong at the window edge; the task content can retain a narrower readable width. Use the single shared ProseMirror typography rule for plain titles and subcontent.
+
+- This week must expose today through Sunday even when empty, retaining past groups only with visible tasks. Never automatically redate unfinished tasks. Use the shared currentWeekDays helper for the Move picker and day targets; disable past assignments, stop day-drop propagation, and preserve Undo and task focus.

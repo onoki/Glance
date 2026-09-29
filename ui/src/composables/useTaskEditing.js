@@ -20,6 +20,7 @@ export const useTaskEditing = (options) => {
 
   let pendingCreateTimer = null;
   let creatingBelow = null;
+  let pendingSubcontentFocus = false;
 
   onBeforeUnmount(() => {
     if (pendingCreateTimer) {
@@ -220,6 +221,10 @@ export const useTaskEditing = (options) => {
         return join(event, () => props.onMergeToPrevious(currentTaskSnapshot()));
       }
     }
+    if (event.key === "Tab" && pendingSubcontentFocus) {
+      event.preventDefault();
+      return true; // The new first bullet has no preceding sibling to indent beneath.
+    }
     if (event.key === "Tab") {
       event.preventDefault();
       if (pendingCreateTimer || creatingBelow) {
@@ -301,6 +306,21 @@ export const useTaskEditing = (options) => {
             return true;
           }
         }
+      }
+      if (editor && editor.state.selection.empty && isSelectionAtEnd(editor) && hasSubcontent.value) {
+        event.preventDefault();
+        const content = JSON.parse(JSON.stringify(normalizeContent(contentRef.value)));
+        content.content[0].content.unshift({ type: "listItem", content: [{ type: "paragraph" }] });
+        contentRef.value = content;
+        pendingSubcontentFocus = true;
+        options.onContentChanged?.();
+        void nextTick().then(() => {
+          contentEditorRef.value?.focusListItem(0, "start");
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => { pendingSubcontentFocus = false; });
+          else pendingSubcontentFocus = false;
+          void saveNow(true);
+        });
+        return true;
       }
       saveNow();
       pendingCreateTimer = setTimeout(() => {
