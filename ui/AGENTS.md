@@ -27,3 +27,7 @@
 - Enter at the end of a title with existing subcontent prepends an empty bullet and focuses it. Preserve title-only task creation and middle-title splitting. People scrollbars belong at the window edge; the task content can retain a narrower readable width. Use the single shared ProseMirror typography rule for plain titles and subcontent.
 
 - This week must expose today through Sunday even when empty, retaining past groups only with visible tasks. Never automatically redate unfinished tasks. Use the shared currentWeekDays helper for the Move picker and day targets; disable past assignments, stop day-drop propagation, and preserve Undo and task focus.
+
+- Empty nested-list deletion must use scoped ProseMirror transactions, never whole-document setContent based on a local list child count. Only the sole outer list can qualify as the entire subcontent. Preserve parents, siblings, rich marks and populated descendants; use a resolved text selection and retain native Undo/Redo. Enter may exit only the final outer list. Keep nestedListSafety.test.js and task-key-handler regressions covering these boundaries.
+
+- Keep the compact Mo-Su picker immediately below This week without a duplicate heading. Creating an adjacent task via Enter, title split, or subcontent promotion inherits the source scheduled date; explicit moves and independent additions retain their own scheduling rules.

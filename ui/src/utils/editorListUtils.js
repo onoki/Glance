@@ -191,11 +191,30 @@ export const blockNonEmptyListItemBackspace = (editor) => {
   return true;
 };
 
+// Delete only the selected empty item (or its now-empty list wrapper).
+// A nested list containing one item is never the whole editor document.
+export const removeEmptyListItem = (editor, bias = -1) => {
+  if (!editor?.state.selection.empty) return false;
+  const { state, view } = editor;
+  const depth = getListItemDepth(editor);
+  if (!depth) return false;
+  const { $from } = state.selection;
+  const list = $from.node(depth - 1);
+  if (!isListTypeName(list.type.name) || !isListItemEmpty($from.node(depth))) return false;
+  const removeDepth = list.childCount === 1 ? depth - 1 : depth;
+  const from = $from.before(removeDepth);
+  const tr = state.tr.delete(from, $from.after(removeDepth));
+  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(from, tr.doc.content.size)), bias));
+  view.dispatch(tr);
+  editor.commands?.focus?.();
+  return true;
+};
+
 export const handleEmptyListItemBackspace = (editor) => {
   if (!editor) {
     return false;
   }
-  const { state, view } = editor;
+  const { state } = editor;
   const { selection } = state;
   if (!selection.empty) {
     return false;
@@ -222,41 +241,7 @@ export const handleEmptyListItemBackspace = (editor) => {
     return false;
   }
 
-  if (listIndex <= 0) {
-    if (listNode.childCount <= 1) {
-      editor.commands.setContent({
-        type: "doc",
-        content: [{ type: "paragraph" }]
-      });
-      return true;
-    }
-    const from = $from.before(listItemDepth);
-    const to = $from.after(listItemDepth);
-    const tr = state.tr.delete(from, to);
-    const resolved = tr.doc.resolve(Math.min(from, tr.doc.content.size));
-    tr.setSelection(TextSelection.near(resolved, 1));
-    view.dispatch(tr);
-    editor.commands.focus();
-    return true;
-  }
-
-  const listStart = $from.before(listDepth) + 1;
-  let prevEnd = listStart + listNode.child(0).nodeSize - 2;
-  let pos = listStart;
-  for (let i = 0; i < listIndex; i += 1) {
-    const child = listNode.child(i);
-    if (i === listIndex - 1) {
-      prevEnd = pos + child.nodeSize - 2;
-      break;
-    }
-    pos += child.nodeSize;
-  }
-
-  const tr = state.tr.delete($from.before(listItemDepth), $from.after(listItemDepth));
-  tr.setSelection(TextSelection.create(tr.doc, Math.max(prevEnd, 1)));
-  view.dispatch(tr);
-  editor.commands.focus();
-  return true;
+  return removeEmptyListItem(editor, listIndex > 0 ? -1 : 1);
 };
 
 export const insertListItemAfterSelection = (editor) => {
@@ -309,8 +294,10 @@ export const appendListItem = (editor) => {
   }
   if (!listNode || !isListTypeName(listNode.type.name)) {
     const list = listType.create(null, newItem);
-    const tr = state.tr.replaceWith(0, doc.content.size, list);
-    const selectionPos = Math.min(tr.doc.content.size, 2);
+    const replaceEmpty = isDocEmptyParagraph(doc);
+    const insertPos = replaceEmpty ? 0 : doc.content.size;
+    const tr = replaceEmpty ? state.tr.replaceWith(0, doc.content.size, list) : state.tr.insert(insertPos, list);
+    const selectionPos = insertPos + 3;
     tr.setSelection(TextSelection.create(tr.doc, selectionPos));
     view.dispatch(tr);
     editor.commands.focus();

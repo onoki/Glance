@@ -71,28 +71,22 @@
             @click.stop
             :style="{ left: `${categoryMenuLeft}px`, top: `${categoryMenuTop}px` }"
           >
-            <button
-              v-for="option in categoryOptions"
-              :key="option.id"
-              type="button"
-              class="category-option"
-              @click="setCategory(option.id)"
-            >
-              {{ option.label }}
-            </button>
-            <div class="week-picker" aria-label="Schedule this week">
-              <span>This week</span>
-              <div class="week-picker-days">
+            <template v-for="option in categoryOptions" :key="option.id">
+              <button type="button" class="category-option" @click="setCategory(option.id)">
+                {{ option.label }}
+              </button>
+              <div v-if="option.id === 'this-week'" class="week-picker-days" aria-label="Schedule this week">
                 <button
-v-for="day in currentWeekDays()" :key="day.dateKey" type="button"
+                  v-for="day in currentWeekDays()" :key="day.dateKey" type="button"
                   :disabled="day.isPast" :aria-pressed="task.scheduledDate === day.dateKey"
+                  :aria-label="`Move to ${day.label} ${day.dateKey}`"
                   :title="day.isPast ? `${day.dateKey} has passed` : `Move to ${day.label} ${day.dateKey}`"
                   @click="setCategory(`day-${day.dateKey}`)"
->
-{{ day.label }}
-</button>
+                >
+                  {{ day.label.slice(0, 2) }}
+                </button>
               </div>
-            </div>
+            </template>
           </div>
         </div>
         <button

@@ -14,7 +14,7 @@ import {
   updateTask as updateTaskApi
 } from "../api/tasks.js";
 import { currentWeekDays, deriveCategories, groupTasksByWeekday, isThisWeekCategory } from "../utils/categoryUtils.js";
-import { formatDateKey, getDayKey, getWeekStart } from "../utils/dateUtils.js";
+import { formatDateKey, getDayKey, getWeekStart, parseDateKey } from "../utils/dateUtils.js";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
 import {
   emptyContentDoc,
@@ -436,6 +436,13 @@ export const useDashboardData = (options) => {
         recurrence = categoryUpdate.recurrence ?? null;
       }
     }
+    // Editing within an existing scheduled task keeps its date. Category moves
+    // and independent additions still use their usual default date.
+    const source = options.scheduleFrom;
+    if (page === DASHBOARD_MAIN_PAGE && source?.scheduledDate && !source.recurrence
+      && parseDateKey(source.scheduledDate) && (!categoryId || categoryId.startsWith("week-"))) {
+      scheduledDate = source.scheduledDate;
+    }
     const payload = {
       page,
       title: normalizeTitle(titleOverride ?? emptyTitleDoc()),
@@ -454,7 +461,7 @@ export const useDashboardData = (options) => {
     const position = next ? (task.position + next.position) / 2 : task.position + 1;
     const title = overrides?.title ?? emptyTitleDoc();
     const content = overrides?.content ?? emptyContentDoc();
-    const newId = await createTask(task.page, title, content, position, categoryId, options);
+    const newId = await createTask(task.page, title, content, position, categoryId, { ...options, scheduleFrom: options.inheritScheduledDate === false ? null : task });
     focusTaskId.value = newId;
     return newId;
   };
@@ -766,7 +773,7 @@ export const useDashboardData = (options) => {
       payload.content,
       position,
       categoryId,
-      { suppressUndo: true }
+      { suppressUndo: true, scheduleFrom: task }
     );
     focusTaskId.value = payload?.titleSelection
       ? { taskId: newId, selection: payload.titleSelection } : newId;
@@ -822,7 +829,7 @@ export const useDashboardData = (options) => {
       payload?.newContent ?? emptyContentDoc(),
       position,
       categoryId,
-      { suppressUndo: true }
+      { suppressUndo: true, scheduleFrom: task }
     );
     focusTaskId.value = newId;
 

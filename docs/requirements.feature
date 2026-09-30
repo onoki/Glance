@@ -1113,3 +1113,40 @@ Feature: Whole-task selection and clipboard
     And the drop does not also run the surrounding column handler
     And past days are unavailable for new assignments
     And This week remains available when all its tasks have been removed
+
+Feature: Nested subcontent deletion safety
+
+  Scenario: Removing a nested empty bullet without losing surrounding content
+    Given a task has a title and nested subcontent with parents and siblings
+    When I select a nested line's text and delete it
+    And I press Backspace again in its empty bullet
+    Then only that empty item and its now-empty list wrapper are removed
+    And the title, parent text, siblings, descendants outside that item, and rich marks remain
+    And the change is saved and can be undone and redone
+    And the behavior is the same in Dashboard and People
+
+  Scenario: Empty nested lists do not trigger whole-task content clearing
+    Given an empty item is the only child of a nested list
+    When I press Backspace, Delete, or Enter there
+    Then content outside that nested item is preserved
+    And nested Enter does not trigger creation of a separate task
+    And clearing a parent line does not remove its populated descendants
+
+  Scenario: Noncanonical content is preserved when appending a list
+    Given imported or pasted subcontent starts with plain paragraphs instead of a list
+    When Enter appends a new list item
+    Then all existing blocks remain intact
+
+  Scenario: Compact weekday choices within the category menu
+    When I open the task Move menu
+    Then Mo Tu We Th Fr Sa Su appear directly below This week and before Next week
+    And the day row has no separate heading
+    And tooltips and accessible labels identify full weekdays and dates
+
+  Scenario: Creating an adjacent task retains its scheduled date
+    Given I edit a task assigned to a specific day
+    When Enter creates a new task below it
+    Then the new task is assigned to the same day and receives focus
+    And splitting a title or promoting subcontent also retains that date
+    And Undo and Redo retain the assigned date
+    And independent additions and explicit category moves keep their existing date defaults

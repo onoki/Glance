@@ -209,7 +209,7 @@ const appendTask = async (tasks, categoryId) => {
     const last = tasks[tasks.length - 1];
     if (!last && categoryId !== "new") await props.onCreateDayTask(new Date());
     else if (!last) await props.onCreateNewTask();
-    else await props.getTaskItemBindings(last, tasks, { categoryId }).onCreateBelow(last, categoryId);
+    else await props.getTaskItemBindings(last, tasks, { categoryId }).onCreateBelow(last, categoryId, null, { inheritScheduledDate: false });
   } finally { appending = false; }
 };
 const resizing = ref(null);

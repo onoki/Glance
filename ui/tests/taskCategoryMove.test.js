@@ -400,3 +400,33 @@ for (const mode of ['end','middle','readOnly']) {
   harness.unmount();
 }
 console.log('Title-end Enter prepends subcontent while middle-title splitting remains intact');
+
+// Reproduce the nested-empty-item data loss through the actual task key handler.
+const { handleEmptyListItemBackspace } = await import('../src/utils/editorListUtils.js');
+for (const key of ['Backspace', 'Delete', 'Enter']) {
+  let handlers;
+  const nested = {type:'doc',content:[{type:'bulletList',content:[
+    {type:'listItem',content:[{type:'paragraph',content:[{type:'text',text:'Parent KEEP'}]},
+      {type:'bulletList',content:[itemDoc('erase me')]}]}, itemDoc('Sibling KEEP')]}]};
+  let doc = boundarySchema.nodeFromJSON(nested), start;
+  doc.descendants((n,p)=>{if(n.type.name==='paragraph' && n.textContent==='erase me') start=p+1;});
+  const editor = {state:EditorState.create({schema:boundarySchema,doc,selection:TextSelection.create(doc,start,start+8)})};
+  editor.view={dispatch:tr=>{editor.state=editor.state.apply(tr);}};
+  editor.commands={focus(){},setContent(json){editor.state=EditorState.create({schema:boundarySchema,doc:boundarySchema.nodeFromJSON(json)});}};
+  const harness=renderer.createApp({setup(){
+    handlers=useTaskEditing({props:{task:{id:'nested'},isLastInCategory:true,onCreateBelow(){}},
+      titleRef:ref(boundaryTitle),contentRef:ref(nested),hasSubcontent:ref(true),saveNow:async()=>true,
+      titleEditorRef:ref({focus(){}}),contentEditorRef:ref(null)});
+    return ()=>h('test');
+  }});harness.mount(node('root'));
+  editor.view.dispatch(editor.state.tr.deleteSelection());
+  handlers.handleContentKeydown({key,preventDefault(){}},editor);
+  assert.ok(editor.state.doc.textContent.includes('Parent KEEP'),`${key}: nested empty item must not erase parent`);
+  assert.ok(editor.state.doc.textContent.includes('Sibling KEEP'),`${key}: nested empty item must not erase sibling`);
+  if(key==='Backspace') {
+    handleEmptyListItemBackspace(editor);
+    assert.ok(editor.state.doc.textContent.includes('Parent KEEP'),'editor fallback must preserve parent');
+    assert.ok(editor.state.doc.textContent.includes('Sibling KEEP'),'editor fallback must preserve sibling');
+  }
+  harness.unmount();
+}

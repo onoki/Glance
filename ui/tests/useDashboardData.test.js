@@ -39,8 +39,9 @@ globalThis.fetch = async (path,request) => {
   }
   if (path === '/api/tasks' && request.method === 'POST') {
     const payload = JSON.parse(request.body);
-    rows.push({ ...payload, id: 'created-day', updatedAt: 1, completedAt: null });
-    return {ok:true,json:async()=>({taskId:'created-day',updatedAt:1})};
+    const id = `created-${rows.length}`;
+    rows.push({ ...payload, id, updatedAt: 1, completedAt: null });
+    return {ok:true,json:async()=>({taskId:id,updatedAt:1})};
   }
   const row=rows.find(row=>path.split('?')[0]===`/api/tasks/${row.id}`);
   assert.ok(row, `unexpected request: ${path}`);
@@ -115,6 +116,31 @@ try {
   await dashboard.applyTaskMove(newTask, `week-${sunday}`, 21, sunday);
   assert.equal(rows.find(row => row.id === movable.id).page, 'dashboard:main');
   assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+
+  const { formatDateKey, getWeekStart } = await import('../src/utils/dateUtils.js');
+  for (const offset of [1, 3, -1, 8]) {
+    const date = new Date(); date.setDate(date.getDate() + offset);
+    const dateKey = formatDateKey(date);
+    const category = `week-${formatDateKey(getWeekStart(date))}`;
+    const sourceId = await dashboard.createTask('dashboard:main', doc('Source'), emptyDoc, 50 + offset, category);
+    const source = rows.find(row => row.id === sourceId);
+    source.scheduledDate = dateKey;
+    await dashboard.loadDashboard();
+    const childId = await dashboard.createTaskBelow(source, category);
+    assert.equal(rows.find(row => row.id === childId).scheduledDate, dateKey, 'Enter inherits the source date');
+    assert.equal(dashboard.focusTaskId.value, childId);
+    await dashboard.undo();
+    assert.equal(rows.some(row => row.id === childId), false);
+    await dashboard.redo();
+    assert.equal(rows.find(row => row.id === childId).scheduledDate, dateKey, 'Redo retains the inherited date');
+    const independentId = await dashboard.createTaskBelow(source, category, null, {inheritScheduledDate:false});
+    const expectedDefault = category === `week-${formatDateKey(getWeekStart(new Date()))}` ? formatDateKey(new Date()) : formatDateKey(getWeekStart(date));
+    assert.equal(rows.find(row => row.id === independentId).scheduledDate, expectedDefault, 'column tail retains its independent date default');
+    await dashboard.splitTitleToNewTask(source, category, { newTitle: doc('Split'), newContent: emptyDoc });
+    assert.equal(rows.find(row => row.id === dashboard.focusTaskId.value).scheduledDate, dateKey);
+    await dashboard.splitSubcontentToNewTask(source, {categoryId:category,title:doc('Outdent'),content:emptyDoc});
+    assert.equal(rows.find(row => row.id === dashboard.focusTaskId.value).scheduledDate, dateKey);
+  }
 
 } finally {
   globalThis.fetch = originalFetch;

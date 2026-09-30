@@ -1,9 +1,8 @@
 import { atVerticalDocumentEdge, verticalCaretIntent } from "../utils/taskNavigation.js";
 import { isAtDocumentEdge, joinFirstContentLine, lastParagraph } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
-import { TextSelection } from "prosemirror-state";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
-import { getListItemDepth, isListNodeName } from "../utils/editorListUtils.js";
+import { getListItemDepth, isListNodeName, removeEmptyListItem } from "../utils/editorListUtils.js";
 import { splitTitleDocAtOffsets } from "../utils/titleSplitUtils.js";
 import { emptyContentDoc, normalizeContent } from "../utils/taskUtils.js";
 
@@ -76,7 +75,7 @@ export const useTaskEditing = (options) => {
     if (!editor) {
       return false;
     }
-    const { state, view } = editor;
+    const { state } = editor;
     const { selection } = state;
     if (!selection.empty) {
       return false;
@@ -87,6 +86,7 @@ export const useTaskEditing = (options) => {
       return false;
     }
     const listDepth = listItemDepth - 1;
+    if (listDepth !== 1 || $from.index(0) !== state.doc.childCount - 1) return false;
     const listNode = $from.node(listDepth);
     if (!listNode || !isListNodeName(listNode.type.name)) {
       return false;
@@ -99,22 +99,7 @@ export const useTaskEditing = (options) => {
     if (!isListItemEmpty(listItem)) {
       return false;
     }
-    if (listNode.childCount === 1) {
-      editor.commands.setContent({
-        type: "doc",
-        content: [{ type: "paragraph" }]
-      });
-      return true;
-    }
-
-    const from = $from.before(listItemDepth);
-    const to = $from.after(listItemDepth);
-    const tr = state.tr.delete(from, to);
-    const nextPos = Math.max(from - 1, 1);
-    tr.setSelection(TextSelection.create(tr.doc, nextPos));
-    view.dispatch(tr);
-    editor.commands.focus();
-    return true;
+    return removeEmptyListItem(editor);
   };
 
   const removeSingleEmptyList = (editor) => {
@@ -132,6 +117,7 @@ export const useTaskEditing = (options) => {
       return false;
     }
     const listDepth = listItemDepth - 1;
+    if (listDepth !== 1 || state.doc.childCount !== 1) return false;
     const listNode = $from.node(listDepth);
     if (!listNode || !isListNodeName(listNode.type.name) || listNode.childCount !== 1) {
       return false;
@@ -140,11 +126,7 @@ export const useTaskEditing = (options) => {
     if (!isListItemEmpty(listItem)) {
       return false;
     }
-    editor.commands.setContent({
-      type: "doc",
-      content: [{ type: "paragraph" }]
-    });
-    return true;
+    return removeEmptyListItem(editor);
   };
 
   let joining = false;
