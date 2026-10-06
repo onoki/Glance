@@ -1,4 +1,4 @@
-import { emptyContentDoc, mergeTitleDocs, normalizeContent, titleJoinPosition } from './taskUtils.js';
+import { emptyContentDoc, mergeTitleDocs, normalizeContent, titleDocToListItem, titleJoinPosition } from './taskUtils.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 export const nodeSize = node => node.type === 'text' ? node.text.length
@@ -62,4 +62,26 @@ export function joinFirstContentLine(title, rawContent) {
   }
   const position = titleJoinPosition(title);
   return { title:mergeTitleDocs(title,{type:'doc',content:[{type:'paragraph',content:consumed}]}), content:list.content.length ? content : emptyContentDoc(), selection:{from:position,to:position} };
+}
+
+// Tab demotes a whole task, preserving intentional blank bullets on both sides.
+export function indentTaskDocuments(previous, current) {
+  const previousList = normalizeContent(previous.content).content[0];
+  const currentList = normalizeContent(current.content).content[0];
+  const previousItems = previousList?.type === 'bulletList' ? previousList.content : [];
+  const currentItems = currentList?.type === 'bulletList' ? currentList.content : [];
+  return {
+    content: { type: 'doc', content: [{ type: 'bulletList', content: clone([...previousItems, titleDocToListItem(current.title), ...currentItems]) }] },
+    listIndex: previousItems.length
+  };
+}
+
+// Share one queue between Tab restructuring and its Undo/Redo history.
+export function createTaskActionQueue() {
+  let pending = Promise.resolve();
+  return action => (...args) => {
+    const next = pending.then(() => action(...args));
+    pending = next.catch(() => {});
+    return next;
+  };
 }

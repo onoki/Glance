@@ -15,6 +15,10 @@ export const useDashboardDrag = (options) => {
   const dashboardDragState = ref({ active: false, startX: 0, startScrollLeft: 0, pointerId: null });
 
   const setDragOver = (taskId, position) => {
+    if (!dragState.value || dragState.value.taskId === taskId) {
+      dragOver.value = { id: null, position: "before" };
+      return;
+    }
     dragOver.value = { id: taskId, position: position || "before" };
   };
 
@@ -26,7 +30,7 @@ export const useDashboardDrag = (options) => {
 
   const startDrag = (task, event) => {
     dragState.value = { taskId: task.id, page: task.page };
-    dragOver.value = { id: task.id, position: "before" };
+    dragOver.value = { id: null, position: "before" };
     if (event?.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
@@ -48,7 +52,7 @@ export const useDashboardDrag = (options) => {
     if (day?.isPast && dragged.scheduledDate !== targetTask.scheduledDate) return;
 
     const list = getCategoryTasks?.(targetTask.page, categoryId);
-    const filtered = list.filter((item) => item.id !== dragged.id);
+    const filtered = list.filter((item) => item.id !== dragged.id && (!categoryId?.startsWith("week-") || item.scheduledDate === targetTask.scheduledDate));
     const targetIndex = filtered.findIndex((item) => item.id === targetTask.id);
     if (targetIndex < 0) {
       return;
@@ -93,7 +97,7 @@ export const useDashboardDrag = (options) => {
       return;
     }
     const target = event.target;
-    if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button")) {
+    if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button, label, summary, a, .task-meta, .floating-menu")) {
       return;
     }
     if (target?.closest?.(".drag-handle")) {

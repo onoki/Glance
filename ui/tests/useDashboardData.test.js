@@ -142,6 +142,26 @@ try {
     assert.equal(rows.find(row => row.id === dashboard.focusTaskId.value).scheduledDate, dateKey);
   }
 
+  const tabContent={type:'doc',content:[{type:'bulletList',content:[{type:'listItem',content:[{type:'paragraph'}]},{type:'listItem',content:doc('Keep notes').content},{type:'listItem',content:[{type:'paragraph'}]}]}]};
+  rows.push({id:'tab-upper',page:'dashboard:main',title:doc('Tab parent'),content:tabContent,position:100,updatedAt:1,completedAt:null,recurrence:{type:'notes'}},
+    {id:'tab-other',page:'dashboard:main',title:doc('Other category'),content:emptyDoc,position:101,updatedAt:1,completedAt:null},
+    {id:'tab-source',page:'dashboard:main',title:emptyDoc,content:emptyDoc,position:102,updatedAt:1,completedAt:null,recurrence:{type:'notes'}});
+  await dashboard.loadDashboard();
+  const otherBefore=structuredClone(rows.find(r=>r.id==='tab-other'));
+  assert.equal(await dashboard.moveTaskToPrevious(dashboard.mainTasks.value.find(r=>r.id==='tab-source')),true);
+  assert.deepEqual(rows.find(r=>r.id==='tab-other'),otherBefore,'Tab stays in its visible category');
+  assert.deepEqual(rows.find(r=>r.id==='tab-upper').content.content[0].content.slice(0,3),tabContent.content[0].content);
+  const tabMerged=structuredClone(rows.find(r=>r.id==='tab-upper').content);
+  await dashboard.undo();
+  assert.deepEqual(rows.find(r=>r.id==='tab-upper').content,tabContent);
+  assert.equal(rows.find(r=>r.id==='tab-source').page,'dashboard:main');
+  await dashboard.redo();
+  assert.deepEqual(rows.find(r=>r.id==='tab-upper').content,tabMerged);
+
+  dashboard.maximizedCategoryId.value='notes';
+  assert.equal(await dashboard.navigateToTask('other-column'),true);
+  assert.equal(dashboard.maximizedCategoryId.value,null,'opening a source in another column cannot leave it hidden behind maximization');
+
 } finally {
   globalThis.fetch = originalFetch;
   globalThis.document = originalDocument;

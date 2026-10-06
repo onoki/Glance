@@ -6,7 +6,7 @@ The reported selection-delete / Backspace sequence was reproduced with real Pros
 
 Three handlers confused a nested list containing one empty item with an entirely empty subcontent document: task-level Backspace/Delete cleanup, last-item Enter, and the editor Backspace fallback. They called whole-document setContent. Besides discarding unrelated nodes, that path bypassed normal transaction-based editing updates.
 
-Empty-item removal now deletes only the selected item, or its list wrapper if it was the final child, through a regular transaction. The caret resolves to a valid nearby text position. Whole-subcontent cleanup requires the sole outer list; Enter-to-new-task applies only at the final outer list. A cleared parent with populated children is not empty.
+Empty-item removal now deletes only the selected item, or its list wrapper if it was the final child, through a regular transaction. Backspace resolves the caret backward to the end of the preceding text line, including a parent or nested sibling; it falls forward only when there is no preceding line. Whole-subcontent cleanup requires the sole outer list; Enter-to-new-task applies only at the final outer list. A cleared parent with populated children is not empty.
 
 An adjacent regression also showed that appending a list to a non-list document replaced existing paragraphs. The fallback now appends without replacing populated blocks.
 

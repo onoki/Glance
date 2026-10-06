@@ -42,13 +42,13 @@ Useful editor shortcuts include Ctrl+B/Ctrl+I for formatting, Ctrl+K for web or 
 
 In Dashboard and People, the narrow dotted handle beside a task's checkbox selects its title and all subtasks. Drag that same handle to reorder the task. Ctrl-click adds/removes tasks; Shift-click selects a range. Ctrl+C/Ctrl+X copies/cuts whole selected tasks and Ctrl+V pastes below the focused task. Ctrl+Shift+Space selects a task from its editor, and Escape returns to text editing. Each task-group cut or paste has one Undo step. See [whole-task clipboard](docs/task-clipboard-proposal.md) for attachment and destination behavior.
 
-Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights, and Ctrl+7 marks Dashboard or History lines for status input. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized. People tabs wrap and use colored dots and a shared legend to show assigned tags.
+Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights, and Ctrl+7 marks Dashboard or History lines for status input. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized or maximized below the top navigation. Restoring keeps the normal column widths. Images fit the column but never grow beyond their original dimensions. People tabs wrap and use colored dots and a shared legend to show assigned tags.
 
 ### Compact editing and navigation
 
 Task columns include blank space below the last row: click it to append a task. Typing near an edge keeps the caret visible. Delete, like Backspace, removes an entirely empty task; Backspace at the start of a subsequent task joins it to the previous one and keeps the caret at the join.
 
-Category menus open by clicking their button (or keyboard activation). Moves provide a short Undo notification when still applicable; copies are explicitly labelled as copies. The selected person's name appears beside their controls, and shared tag editing is separated from personal tag assignment. Search shows source context; History activity charts, restore controls, and technical Status Updates details use compact disclosures.
+Category menus open by clicking their button (or keyboard activation). Moves provide a short Undo notification when still applicable; copies are explicitly labelled as copies. The selected person's name appears beside their controls, and shared tag editing is separated from personal tag assignment. Search shows source context; History activity starts expanded and remembers your show/hide choice; restore controls and technical Status Updates details use compact disclosures. Send and person-tag menus support multiple label/checkbox selections and close on an outside click or Escape.
 
 BigBlue remains 8 CSS pixels. Editor and navigation text origins are aligned to the physical pixel grid to reduce uneven smoothing at 150% scaling. UI controls retain their compact sizes; task bold and italic formatting remains supported.
 
@@ -58,4 +58,4 @@ Delete at the end of a title joins its first subcontent line, or the following t
 
 Windows taskbar pinning, portable shortcuts, and main/helper closing behavior: [Windows integration](docs/windows-integration.md).
 
-This week supports Mon-Sun scheduling through the Move menu, day-header drops, and small per-day + buttons. Empty current/upcoming days stay visible; empty past days disappear without rescheduling unfinished tasks. See [weekday assignment](docs/weekday-assignment-proposal.md).
+This week uses full Monday-Sunday column headings and supports Mon-Sun scheduling through the Move menu, day-header drops, and small per-day + buttons. Empty current/upcoming days stay visible; empty past days disappear without rescheduling unfinished tasks. See [weekday assignment](docs/weekday-assignment-proposal.md). History’s Move completed button includes completed notes from both Dashboard and People, retaining person attribution.

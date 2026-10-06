@@ -12,7 +12,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   background: transparent; border: 0; color: var(--text-muted); cursor: text;
 }
 .task-list-tail span { opacity: 0; }
-.task-list-tail:hover span, .task-list-tail:focus-visible span { opacity: 1; }
+.task-list-tail:not(:disabled):hover span, .task-list-tail:focus-visible span { opacity: 1; }
 .dashboard-column .task-list { flex: 1 0 auto; overflow: visible; }
 .workspace-feedback {
   position: fixed; bottom: 4px; left: 4px; z-index: 1200;
@@ -48,7 +48,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   box-shadow: none;
   cursor: pointer;
 }
-#app :is(button, .tag-summary):hover { background: var(--bg-tab-active); }
+#app :is(button, .tag-summary):not(:disabled):hover { background: var(--bg-tab-active); }
 #app :is(button, summary, input, select, textarea):focus-visible {
   outline: 2px solid var(--focus-outline); outline-offset: 1px;
 }
@@ -81,7 +81,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   border: 0; border-radius: 0;
   background: repeating-linear-gradient(to bottom, var(--text-muted) 0 2px, transparent 2px 4px) center / 2px 12px no-repeat;
 }
-#app .task-select-handle:hover, #app .task-select-handle[aria-pressed="true"] {
+#app .task-select-handle:not(:disabled):hover, #app .task-select-handle[aria-pressed="true"] {
   background-color: var(--bg-tab-active);
 }
 #app .task-select-handle[draggable="true"] { cursor: grab; }
@@ -101,7 +101,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
    Keep the focused row in viewport coordinates during list rearrangement. */
 #app .task-item:focus-within { transform: none !important; }
 
-#app button.task-list-tail:hover, #app button.task-list-tail:focus-visible {
+#app button.task-list-tail:not(:disabled):hover, #app button.task-list-tail:focus-visible {
   background: color-mix(in srgb, var(--bg-app), black 6%);
 }
 

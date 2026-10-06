@@ -1,6 +1,12 @@
 import { NodeSelection } from "prosemirror-state";
 import Image from "@tiptap/extension-image";
 
+export const boundedImageWidth = (requestedWidth, naturalWidth) => {
+  if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return null;
+  const width = Number.isFinite(requestedWidth) ? requestedWidth : naturalWidth;
+  return Math.min(naturalWidth, Math.max(1, Math.round(width)));
+};
+
 const ResizableImage = Image.extend({
   addAttributes() {
     return {
@@ -46,9 +52,14 @@ const ResizableImage = Image.extend({
       if (node.attrs.title) {
         img.title = node.attrs.title;
       }
-      if (node.attrs.width) {
-        wrapper.style.width = `${node.attrs.width}px`;
-      }
+      const applyWidth = () => {
+        const width = boundedImageWidth(node.attrs.width, img.naturalWidth);
+        // Before load, use intrinsic sizing rather than stretching an unknown image.
+        wrapper.style.width = width === null ? "" : `${width}px`;
+        img.style.width = width === null ? "auto" : "100%";
+      };
+      img.addEventListener("load", applyWidth);
+      applyWidth();
 
       const handle = document.createElement("span");
       handle.className = "image-resize-handle";
@@ -74,16 +85,19 @@ const ResizableImage = Image.extend({
       handle.addEventListener("click", selectNode);
       editor.on("selectionUpdate", onSelectionUpdate);
 
+      let stopResize = null;
       const onPointerDown = (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (!img.naturalWidth) return;
+        stopResize?.();
         selectNode();
         const startX = event.clientX;
         const startWidth = wrapper.getBoundingClientRect().width || img.getBoundingClientRect().width;
 
         const onPointerMove = (moveEvent) => {
           const delta = moveEvent.clientX - startX;
-          const nextWidth = Math.max(60, Math.round(startWidth + delta));
+          const nextWidth = boundedImageWidth(startWidth + delta, img.naturalWidth);
           wrapper.style.width = `${nextWidth}px`;
           if (typeof getPos === "function") {
             editor.commands.command(({ tr }) => {
@@ -100,10 +114,19 @@ const ResizableImage = Image.extend({
           }
           document.removeEventListener("pointermove", onPointerMove);
           document.removeEventListener("pointerup", onPointerUp);
+          document.removeEventListener("pointercancel", onPointerUp);
+          stopResize = null;
+        };
+
+        stopResize = () => {
+          document.removeEventListener("pointermove", onPointerMove);
+          document.removeEventListener("pointerup", onPointerUp);
+          document.removeEventListener("pointercancel", onPointerUp);
         };
 
         document.addEventListener("pointermove", onPointerMove);
         document.addEventListener("pointerup", onPointerUp);
+        document.addEventListener("pointercancel", onPointerUp);
       };
 
       handle.addEventListener("pointerdown", onPointerDown);
@@ -117,15 +140,17 @@ const ResizableImage = Image.extend({
           if (updatedNode.type.name !== node.type.name) {
             return false;
           }
-          img.src = updatedNode.attrs.src;
+          if (img.getAttribute("src") !== updatedNode.attrs.src) img.src = updatedNode.attrs.src;
           img.alt = updatedNode.attrs.alt || "";
           img.title = updatedNode.attrs.title || "";
-          wrapper.style.width = updatedNode.attrs.width ? `${updatedNode.attrs.width}px` : "";
           node = updatedNode;
+          applyWidth();
           updateSelected();
           return true;
         },
         destroy: () => {
+          stopResize?.();
+          img.removeEventListener("load", applyWidth);
           handle.removeEventListener("pointerdown", onPointerDown);
           img.removeEventListener("click", selectNode);
           handle.removeEventListener("click", selectNode);

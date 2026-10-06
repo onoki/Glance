@@ -1,7 +1,7 @@
 import { horizontalTaskTarget } from "../utils/taskNavigation.js";
-import { joinTaskDocuments } from "../utils/taskJoin.js";
+import { indentTaskDocuments, joinTaskDocuments, createTaskActionQueue } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import {
   completeTask as completeTaskApi,
   createTask as createTaskApi,
@@ -10,15 +10,13 @@ import {
   updateTask as updateTaskApi
 } from "../api/tasks.js";
 import { fetchPersonTasks as fetchPersonTasksApi } from "../api/people.js";
-import { isDocEmptyJson } from "../utils/taskDocUtils.js";
 import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
 import {
   emptyContentDoc,
   emptyTitleDoc,
   normalizeContent,
   normalizeTask,
-  normalizeTitle,
-  titleDocToListItem
+  normalizeTitle
 } from "../utils/taskUtils.js";
 
 const PEOPLE_PAGE = "people:main";
@@ -35,6 +33,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   const focusContentTarget = ref(null);
   const dragOver = ref({ id: null, position: "before" });
   const undoSignal = ref(0);
+  const queueTaskAction = createTaskActionQueue();
   const dirtySnapshots = new Map();
   const persistedTasks = new Map();
   const undoStack = history.undo;
@@ -154,6 +153,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     });
     const task = tasks.value.find((item) => item.id === payload.id);
     if (task) Object.assign(task, { title, content, updatedAt: response.updatedAt });
+    const dirtySnapshot = dirtySnapshots.get(payload.id);
+    if (dirtySnapshot) dirtySnapshot.updatedAt = response.updatedAt;
     if (task) persistedTasks.set(task.id, cloneTask(task));
     if (before && !payload.suppressUndo && (JSON.stringify(before.title) !== JSON.stringify(title) || JSON.stringify(before.content) !== JSON.stringify(content))) {
       undoStack.push({ type: "edit", task: before, after: cloneTask({ ...before, title, content, updatedAt: response.updatedAt }) });
@@ -180,7 +181,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     onHistoryChange?.();
   };
 
-  const undo = async () => {
+  const undo = queueTaskAction(async () => {
     const entry = undoStack.pop();
     if (!entry) return false;
     try {
@@ -228,9 +229,9 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       undoStack.push(entry);
       throw error;
     }
-  };
+  });
 
-  const redo = async () => {
+  const redo = queueTaskAction(async () => {
     const entry = redoStack.pop();
     if (!entry) return false;
     try {
@@ -272,7 +273,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       redoStack.push(entry);
       throw error;
     }
-  };
+  });
 
   const applyEditHistory = async (snapshot, expected) => {
     const response = await fetchPersonTasks(snapshot.ownerPersonId);
@@ -314,24 +315,13 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     onHistoryChange?.();
   };
 
-  const moveTaskToPrevious = async (task) => {
+  const moveTaskToPrevious = queueTaskAction(async (task) => {
+    if (!(await saveCoordinator.flushAll()).ok) return null;
     const index = tasks.value.findIndex((item) => item.id === task.id);
     if (index <= 0) return false;
     const previous = cloneTask(resolveTask(tasks.value[index - 1]));
-    const current = cloneTask(resolveTask(task));
-    const previousContent = normalizeContent(previous.content);
-    const currentContent = normalizeContent(current.content);
-    const previousItems = previousContent.content?.[0]?.content || [];
-    const currentItems = currentContent.content?.[0]?.content || [];
-    const keptPrevious = previousItems.filter((item) => !isDocEmptyJson(item));
-    const keptCurrent = currentItems.filter((item) => !isDocEmptyJson(item));
-    const content = {
-      type: "doc",
-      content: [{
-        type: "bulletList",
-        content: [...keptPrevious, titleDocToListItem(current.title), ...keptCurrent]
-      }]
-    };
+    const current = cloneTask(resolveTask(tasks.value[index]));
+    const { content, listIndex } = indentTaskDocuments(previous, current);
     await saveTask({
       id: previous.id,
       title: previous.title,
@@ -339,7 +329,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       baseUpdatedAt: previous.updatedAt,
       suppressUndo: true
     });
-    await deleteTask(current.id);
+    await deleteTask(current.id, current.updatedAt);
     saveCoordinator.forget(current.id);
     undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
     if (undoStack.length > undoLimit) undoStack.shift();
@@ -348,12 +338,12 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
     focusContentTarget.value = {
       taskId: previous.id,
-      listIndex: keptPrevious.length,
+      listIndex,
       atEnd: true
     };
     if (current.completedAt) onHistoryChange?.();
     return true;
-  };
+  });
 
   const navigateHorizontal = (task, direction, vertical = null) => {
     const list = tasks.value;
@@ -414,7 +404,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
 
   const startDrag = (task, event) => {
     dragTaskId = task.id;
-    dragOver.value = { id: task.id, position: "before" };
+    dragOver.value = { id: null, position: "before" };
     if (event?.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
@@ -427,6 +417,10 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   };
 
   const setDragOver = (id, position) => {
+    if (!dragTaskId || dragTaskId === id) {
+      dragOver.value = { id: null, position: "before" };
+      return;
+    }
     dragOver.value = {
       id,
       position: position || (dragOver.value.id === id ? dragOver.value.position : "before")
@@ -439,6 +433,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
 
   const dropOnTask = async (target, _categoryId, event) => {
     const id = dragTaskId || event?.dataTransfer?.getData("text/plain");
+    const after = dragOver.value.id === target.id && dragOver.value.position === "after";
+    if (!(await saveCoordinator.flushAll()).ok) { endDrag(); return; }
     const dragged = tasks.value.find((task) => task.id === id);
     if (!dragged || dragged.id === target.id) {
       endDrag();
@@ -450,7 +446,6 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       endDrag();
       return;
     }
-    const after = dragOver.value.id === target.id && dragOver.value.position === "after";
     const previous = after ? list[targetIndex] : list[targetIndex - 1] || null;
     const next = after ? list[targetIndex + 1] || null : list[targetIndex];
     const position = previous && next
@@ -464,8 +459,11 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     });
     dragged.position = position;
     dragged.updatedAt = response.updatedAt;
+    persistedTasks.set(dragged.id, cloneTask(dragged));
     sortTasks();
     endDrag();
+    // Let the editor acknowledge the metadata revision before another edit.
+    await nextTick();
   };
 
   return {

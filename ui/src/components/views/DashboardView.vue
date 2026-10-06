@@ -3,7 +3,7 @@
     <div
       ref="columnsRef"
       class="dashboard-columns"
-      :class="{ 'expanded-new': expandedNew, 'dragging-dashboard': isDashboardDragging }"
+      :class="{ 'maximized-column': maximizedCategoryId, 'dragging-dashboard': isDashboardDragging }"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"
       @pointerup="handlePointerUp"
@@ -11,8 +11,8 @@
     >
       <div
         class="dashboard-column new-column"
-        :style="expandedNew ? null : getColumnStyle('new')"
-        :class="{ expanded: expandedNew, empty: newTasks.length === 0 && !expandedNew }"
+        :style="maximizedCategoryId === 'new' ? null : getColumnStyle('new')"
+        :class="{ expanded: maximizedCategoryId === 'new', empty: newTasks.length === 0 && maximizedCategoryId !== 'new' }"
         data-category-id="new"
       >
         <section class="list-card" data-category-id="new">
@@ -21,9 +21,7 @@
               <h3 class="category-title">New tasks</h3>
             </div>
             <div class="header-actions">
-              <button class="ghost" @click="onToggleExpand">
-                {{ expandedNew ? "Restore view" : "Expand" }}
-              </button>
+              <ColumnViewButton label="New tasks" :maximized="maximizedCategoryId === 'new'" @click="onToggleMaximize('new')" />
             </div>
           </header>
 
@@ -51,14 +49,15 @@
             <button class="task-list-tail" type="button" aria-label="Add task to New tasks" @click="appendTask(newTasks, 'new')"><span>+ Add task</span></button>
           </div>
         </section>
-        <div v-if="!expandedNew" class="column-resizer" @pointerdown="startResize('new', $event)"></div>
+        <div v-if="!maximizedCategoryId" class="column-resizer" @pointerdown="startResize('new', $event)"></div>
       </div>
 
       <template v-for="category in mainCategories" :key="category.id">
         <div
           v-if="category.tasks.length || isThisWeekCategory(category)"
           class="dashboard-column"
-          :style="getColumnStyle(category.id)"
+          :style="maximizedCategoryId === category.id ? null : getColumnStyle(category.id)"
+          :class="{ expanded: maximizedCategoryId === category.id }"
           :data-category-id="category.id"
           @dragover.prevent
           @drop.prevent="onDropOnCategory(category.id, $event)"
@@ -66,6 +65,7 @@
           <section class="list-card" :data-category-id="category.id">
             <header class="column-header">
               <h3 class="category-title">{{ category.label }}</h3>
+              <ColumnViewButton :label="category.label" :maximized="maximizedCategoryId === category.id" @click="onToggleMaximize(category.id)" />
             </header>
 
             <div class="task-list">
@@ -117,6 +117,7 @@ v-if="!group.isPast" type="button" class="weekday-add"
             </div>
           </section>
           <div
+            v-if="!maximizedCategoryId"
             class="column-resizer"
             @pointerdown="startResize(category.id, $event)"
           ></div>
@@ -127,8 +128,9 @@ v-if="!group.isPast" type="button" class="weekday-add"
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
+import ColumnViewButton from "../ColumnViewButton.vue";
 import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
 
 const props = defineProps({
@@ -140,9 +142,9 @@ const props = defineProps({
     type: Array,
     required: true
   },
-  expandedNew: {
-    type: Boolean,
-    required: true
+  maximizedCategoryId: {
+    type: String,
+    default: null
   },
   isDashboardDragging: {
     type: Boolean,
@@ -168,7 +170,7 @@ const props = defineProps({
     type: Function,
     required: true
   },
-  onToggleExpand: {
+  onToggleMaximize: {
     type: Function,
     required: true
   },
@@ -214,6 +216,29 @@ const appendTask = async (tasks, categoryId) => {
 };
 const resizing = ref(null);
 const MIN_COLUMN_WIDTH = 200;
+const viewportKey = 'glance:dashboard-scroll-before-maximize';
+let normalScrollLeft = (() => {
+  try {
+    const saved = Number(sessionStorage.getItem(viewportKey));
+    return Number.isFinite(saved) ? Math.max(0, saved) : 0;
+  }
+  catch { return 0; }
+})();
+watch(() => props.maximizedCategoryId, async (id, previous) => {
+  if (id && !previous) {
+    normalScrollLeft = columnsRef.value?.scrollLeft || 0;
+    try { sessionStorage.setItem(viewportKey, String(normalScrollLeft)); }
+    catch { /* Keep the in-memory viewport when storage is unavailable. */ }
+  }
+  await nextTick();
+  if (columnsRef.value) columnsRef.value.scrollLeft = id ? 0 : normalScrollLeft;
+});
+watch(() => props.mainCategories, categories => {
+  const id = props.maximizedCategoryId;
+  if (id && id !== 'new' && !categories.some(category => category.id === id && (category.tasks.length || props.isThisWeekCategory(category)))) {
+    props.onToggleMaximize(id);
+  }
+}, { immediate: true });
 
 watch(columnsRef, (value) => {
   emit("update:dashboardColumnsRef", value);

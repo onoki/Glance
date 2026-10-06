@@ -1,5 +1,5 @@
 import { horizontalTaskTarget } from "../utils/taskNavigation.js";
-import { joinTaskDocuments } from "../utils/taskJoin.js";
+import { indentTaskDocuments, joinTaskDocuments, createTaskActionQueue } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { announceAction } from "../services/actionFeedback.js";
 import { computed, nextTick, ref } from "vue";
@@ -21,11 +21,9 @@ import {
   emptyTitleDoc,
   normalizeContent,
   normalizeTask,
-  normalizeTitle,
-  titleDocToListItem
+  normalizeTitle
 } from "../utils/taskUtils.js";
 import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
-import { isDocEmptyJson } from "../utils/taskDocUtils.js";
 import { runDailyMaintenance as runDailyMaintenanceApi } from "../api/maintenance.js";
 
 export const useDashboardData = (options) => {
@@ -37,7 +35,7 @@ export const useDashboardData = (options) => {
 
   const newTasks = ref([]);
   const mainTasks = ref([]);
-  const expandedNew = ref(false);
+  const maximizedCategoryId = ref(null);
   const lastChangeId = ref(0);
   const focusTaskId = ref(null);
   const focusContentTarget = ref(null);
@@ -58,6 +56,7 @@ export const useDashboardData = (options) => {
   let isApplyingUndo = false;
   let suppressUndoCount = 0;
   const undoSignal = ref(0);
+  const queueTaskAction = createTaskActionQueue();
   const logicalToActual = new Map();
   const actualToLogical = new Map();
 
@@ -200,10 +199,11 @@ export const useDashboardData = (options) => {
       creatingDefaultNew.value = false;
     }
     if (scrollTargetId.value) {
-      await nextTick();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
       const target = scrollTargetId.value;
       const targetCategoryId = findCategoryIdForTask(target);
+      if (maximizedCategoryId.value && targetCategoryId && maximizedCategoryId.value !== targetCategoryId) maximizedCategoryId.value = null;
+      await nextTick();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
       const columnSelector = targetCategoryId
         ? `.dashboard-column[data-category-id="${targetCategoryId}"]`
         : null;
@@ -508,6 +508,10 @@ export const useDashboardData = (options) => {
       page
     });
     updateTaskLocal(id, { title: normalizedTitle, content: normalizedContent, updatedAt: response.updatedAt });
+    // The refresh below keeps dirty editor snapshots. Advance only their revision
+    // after our acknowledged write, so structural edits cannot reuse the old one.
+    const dirtySnapshot = dirtySnapshots.get(id);
+    if (dirtySnapshot) dirtySnapshot.task.updatedAt = response.updatedAt;
     await loadDashboard();
     return response;
   };
@@ -598,44 +602,30 @@ export const useDashboardData = (options) => {
     return mainTasks.value;
   };
 
-  const moveTaskToPrevious = async (task) => {
-    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value : mainTasks.value;
+  const taskEditingList = (task) => {
+    const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
+    return task.page === DASHBOARD_NEW_PAGE ? newTasks.value
+      : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
+  };
+
+  const moveTaskToPrevious = queueTaskAction(async (task) => {
+    if (!(await saveCoordinator.flushAll()).ok) return null;
+    const list = taskEditingList(task);
     const index = list.findIndex((item) => item.id === task.id);
     if (index <= 0) {
       return false;
     }
 
     const previous = resolveTaskSnapshot(list[index - 1]);
-    const current = resolveTaskSnapshot(task);
-    const prevContent = normalizeContent(previous.content);
-    const prevList = prevContent.content?.[0]?.content ?? [];
-    const currentContent = normalizeContent(current.content);
-    const currentList = currentContent.content?.[0]?.content ?? [];
-    const titleItem = titleDocToListItem(current.title);
-    const filteredPrevList = prevList.filter((item) => !isDocEmptyJson(item));
-    const filteredCurrentList = currentList.filter((item) => !isDocEmptyJson(item));
-
-    const merged = {
-      type: "doc",
-      content: [
-        {
-          type: "bulletList",
-          content: [...filteredPrevList, titleItem, ...filteredCurrentList]
-        }
-      ]
-    };
+    const current = resolveTaskSnapshot(list[index]);
+    const { content: merged, listIndex } = indentTaskDocuments(previous, current);
 
     const prevLogicalId = resolveLogicalId(previous.id);
     const currentLogicalId = resolveLogicalId(current.id);
     const beforePrevSnapshot = snapshotTask(previous);
     const beforeCurrentSnapshot = snapshotTask(current);
     const afterPrevSnapshot = { ...beforePrevSnapshot, content: merged };
-    const afterCurrentSnapshot = {
-      ...beforeCurrentSnapshot,
-      page: "dashboard:hidden",
-      content: currentContent,
-      title: current.title || "Untitled"
-    };
+    const afterCurrentSnapshot = null;
 
     await saveTask({
       id: previous.id,
@@ -646,18 +636,12 @@ export const useDashboardData = (options) => {
       suppressUndo: true
     });
 
-    await saveTask({
-      id: current.id,
-      title: current.title || "Untitled",
-      content: currentContent,
-      baseUpdatedAt: current.updatedAt,
-      page: "dashboard:hidden",
-      suppressUndo: true
-    });
+    await deleteTaskApi(current.id, current.updatedAt);
+    saveCoordinator.forget(current.id);
 
     focusContentTarget.value = {
       taskId: previous.id,
-      listIndex: filteredPrevList.length,
+      listIndex,
       atEnd: true
     };
 
@@ -673,12 +657,10 @@ export const useDashboardData = (options) => {
     });
 
     return true;
-  };
+  });
 
   const navigateHorizontal = (task, direction, vertical = null) => {
-    const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
-    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value
-      : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
+    const list = taskEditingList(task);
     const target = horizontalTaskTarget(list.map(resolveTaskSnapshot), task, direction);
     if (!target) return;
     if (vertical) target.vertical = { ...vertical, direction };
@@ -692,9 +674,7 @@ export const useDashboardData = (options) => {
     if (!(await saveCoordinator.flushAll()).ok) return false;
     // Backspace joins visual neighbours in one column, not neighbours in the
     // server's interleaved list of every dashboard category.
-    const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
-    const list = task.page === DASHBOARD_NEW_PAGE ? newTasks.value
-      : category ? (isThisWeekCategory(category) ? groupTasksByWeekday(category.tasks).flatMap(group => group.tasks) : category.tasks) : [];
+    const list = taskEditingList(task);
     const index = list.findIndex((item) => item.id === task.id) + (forward ? 1 : 0);
     if (index <= 0 || index >= list.length) {
       return false;
@@ -874,6 +854,7 @@ export const useDashboardData = (options) => {
     if (!entry?.diffs?.length) {
       return false;
     }
+    if (!(await saveCoordinator.flushAll()).ok) return false;
     const targetKey = direction === "undo" ? "before" : "after";
     isApplyingUndo = true;
     try {
@@ -977,7 +958,7 @@ export const useDashboardData = (options) => {
     }
   };
 
-  const undo = async () => {
+  const undo = queueTaskAction(async () => {
     if (undoStack.value.length === 0) {
       return false;
     }
@@ -991,9 +972,9 @@ export const useDashboardData = (options) => {
       redoStack.value = [...redoStack.value, entry];
     }
     return applied;
-  };
+  });
 
-  const redo = async () => {
+  const redo = queueTaskAction(async () => {
     if (redoStack.value.length === 0) {
       return false;
     }
@@ -1007,7 +988,7 @@ export const useDashboardData = (options) => {
       undoStack.value = [...undoStack.value, entry];
     }
     return applied;
-  };
+  });
 
   const runRecurrenceGeneration = async () => {
     try {
@@ -1131,6 +1112,9 @@ export const useDashboardData = (options) => {
   };
 
   const applyTaskMove = async (task, categoryId, position, scheduledDateOverride = null) => {
+    if (!(await saveCoordinator.flushAll()).ok) return;
+    task = getStoredTaskById(task.id);
+    if (!task) return;
     const snapshot = resolveTaskSnapshot(task);
     const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
     const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
@@ -1226,7 +1210,7 @@ export const useDashboardData = (options) => {
     recordClipboard: (clipboard) => pushUndoEntry({ clipboard }),
     newTasks,
     mainTasks,
-    expandedNew,
+    maximizedCategoryId,
     focusTaskId,
     focusContentTarget,
     highlightTaskId,

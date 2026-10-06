@@ -42,13 +42,13 @@
         v-model:dashboard-columns-ref="dashboardColumnsRef"
         :new-tasks="newTasks"
         :main-categories="mainCategories"
-        :expanded-new="expandedNew"
+        :maximized-category-id="maximizedCategoryId"
         :is-dashboard-dragging="isDashboardDragging"
         :get-task-item-bindings="getTaskItemBindings"
         :group-tasks-by-weekday="groupTasksByWeekday"
         :is-this-week-category="isThisWeekCategory"
         :on-move-new-to-main="moveNewToMain"
-        :on-toggle-expand="toggleExpandNew"
+        :on-toggle-maximize="toggleMaximizeColumn"
         :on-drop-on-category="dropOnCategoryFromView"
         :on-drop-on-weekday="dropOnWeekdayFromView"
         :on-create-day-task="createDayTask"
@@ -142,7 +142,7 @@ const { isHelperWindow } = useWindowRole();
 import ZoomControls from "./components/ZoomControls.vue";
 import { taskClipboard } from './services/taskClipboard.js';
 import { actionFeedback, dismissAction } from './services/actionFeedback.js';
-import { subscribeToSaveSummary } from './services/saveCoordinator.js';
+import { flushAllSaves, subscribeToSaveSummary } from './services/saveCoordinator.js';
 import { createTaskClipboardAdapter } from './services/taskClipboardAdapter.js';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
@@ -305,7 +305,7 @@ const {
   newTasks,
   mainTasks,
   recordClipboard,
-  expandedNew,
+  maximizedCategoryId,
   focusTaskId,
   focusContentTarget,
   highlightTaskId,
@@ -555,8 +555,8 @@ const dismissSendMarker = async (task) => {
   return response;
 };
 
-const toggleExpandNew = () => {
-  expandedNew.value = !expandedNew.value;
+const toggleMaximizeColumn = (categoryId) => {
+  maximizedCategoryId.value = maximizedCategoryId.value === categoryId ? null : categoryId;
 };
 
 const createDayTask = async (date) => {
@@ -577,6 +577,7 @@ const createNewTaskFromEmpty = async (initialText = "") => {
 };
 
 const moveCompletedToHistory = async () => {
+  if (!(await flushAllSaves()).ok) return;
   await apiMoveCompletedToHistory();
   await loadDashboard();
   if (activeTab.value === "History") {

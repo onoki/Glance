@@ -53,7 +53,7 @@
   transition: background 0.2s ease;
 }
 
-.tab:hover {
+.tab:not(:disabled):hover {
   background: var(--bg-tab-hover, rgba(249, 244, 238, 0.2));
 }
 
@@ -150,7 +150,7 @@
   position: relative;
 }
 
-.dashboard-column.new-column.expanded {
+.dashboard-column.expanded {
   flex: 1 1 100%;
   width: 100%;
   max-width: 100%;
@@ -163,7 +163,7 @@
   max-width: 120px;
 }
 
-.dashboard-columns.expanded-new .dashboard-column:not(.new-column) {
+.dashboard-columns.maximized-column .dashboard-column:not(.expanded) {
   display: none;
 }
 
@@ -276,6 +276,10 @@
 }
 
 .column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
   position: sticky;
   top: 0;
   z-index: 2;

@@ -28,10 +28,19 @@ for(const kind of ['bulletList','taskList']) for(const depth of [1,2,3,4,5]) {
     for(let level=1;level<depth;level++) list=schema.node(kind,null,[item([p(`Parent ${level} KEEP`),list]),item([p(`Sibling ${level} KEEP`)])]);
     const doc=schema.node('doc',null,extraBlock?[p('Outside KEEP'),list,p('Tail KEEP')]:[list]);
     let pos;doc.descendants((n,at)=>{if(n.type.name==='paragraph' && !n.content.size) pos=at+1;});
+    let precedingEnd = null;
+    doc.descendants((n, at) => {
+      if (n.isTextblock && at + 1 < pos) precedingEnd = at + 1 + n.content.size;
+    });
     const editor=editorFor(doc,pos);
     assert.equal(handleEmptyListItemBackspace(editor),true);
     assert.equal(editor.state.doc.textContent,doc.textContent,`${kind}/${depth}/${slot}: unrelated text must survive`);
     assert.ok(editor.state.selection.$from.parent.isTextblock,'caret must resolve inside text');
+    if (precedingEnd !== null) {
+      assert.equal(editor.state.selection.from, precedingEnd, `${kind}/${depth}/${slot}: Backspace returns to preceding line end`);
+    } else {
+      assert.equal(editor.state.selection.$from.parentOffset, 0, 'without a preceding line, use the first remaining line start');
+    }
     const after=editor.state.doc.toJSON();
     assert.equal(undo(editor.state,editor.view.dispatch),true);
     assert.deepEqual(editor.state.doc.toJSON(),doc.toJSON(),'Undo restores complete hierarchy and marks');

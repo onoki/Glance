@@ -159,22 +159,7 @@ const editorRef = useEditor({
         }
         return false;
       },
-      blur(view) {
-        if (!isTitle.value) {
-          const doc = view.state.doc;
-          const listNode = doc.childCount > 0 ? doc.child(0) : null;
-          if (listNode && (listNode.type.name === "bulletList" || listNode.type.name === "taskList")) {
-            const hasItems = listNode.childCount > 0;
-            const hasContent = hasItems && Array.from({ length: listNode.childCount })
-              .some((_, index) => !isListItemEmpty(listNode.child(index)));
-            if (!hasContent) {
-              editorRef.value?.commands.setContent({
-                type: "doc",
-                content: [{ type: "paragraph" }]
-              });
-            }
-          }
-        }
+      blur() {
         if (props.onBlur) {
           props.onBlur();
         }

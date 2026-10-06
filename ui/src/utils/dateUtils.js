@@ -25,6 +25,7 @@ export const parseDateKey = (dateKey) => {
 };
 
 export const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const weekdayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export const toWeekdayNumber = (date) => {
   const day = date.getDay();

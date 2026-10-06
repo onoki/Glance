@@ -3,7 +3,7 @@
     <div class="history-toolbar">
       <button class="ghost" @click="onMoveCompletedToHistory">Move completed to history</button>
     </div>
-    <details v-if="historyBars.some(day => day.count > 0)" class="history-activity">
+    <details v-if="historyBars.some(day => day.count > 0)" class="history-activity" :open="activityExpanded" @toggle="rememberActivity">
       <summary>Activity over time</summary>
     <div class="history-chart">
       <div class="chart-area">
@@ -113,6 +113,16 @@ const props = defineProps({
 });
 
 const historyRoot = ref(null);
+const activityKey = "glance:history-activity-expanded";
+const activityExpanded = ref((() => {
+  try { return localStorage.getItem(activityKey) !== "false"; }
+  catch { return true; }
+})());
+const rememberActivity = (event) => {
+  activityExpanded.value = event.currentTarget.open;
+  try { localStorage.setItem(activityKey, String(activityExpanded.value)); }
+  catch { /* The chart remains usable when storage is unavailable. */ }
+};
 
 const scrollToNavigationTarget = async (target) => {
   if (!target?.taskId) return;

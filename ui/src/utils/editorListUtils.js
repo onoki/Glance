@@ -1,5 +1,4 @@
 import { TextSelection } from "prosemirror-state";
-import { isDocEmptyJson } from "./taskDocUtils.js";
 
 const LIST_TYPES = new Set(["bulletList", "taskList"]);
 const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
@@ -235,13 +234,12 @@ export const handleEmptyListItemBackspace = (editor) => {
   if (!listNode || !isListTypeName(listNode.type.name)) {
     return false;
   }
-  const listIndex = $from.index(listDepth);
   const listItem = $from.node(listItemDepth);
   if (!isListItemEmpty(listItem)) {
     return false;
   }
 
-  return removeEmptyListItem(editor, listIndex > 0 ? -1 : 1);
+  return removeEmptyListItem(editor, -1);
 };
 
 export const insertListItemAfterSelection = (editor) => {
@@ -368,10 +366,9 @@ export const splitAtSelection = (editor) => {
   if (listIndex < 0 || listIndex >= listContent.length) {
     return null;
   }
-  const removeEmptyItems = (items) => items.filter((item) => !isDocEmptyJson(item));
-  const before = removeEmptyItems(listContent.slice(0, listIndex));
+  const before = listContent.slice(0, listIndex);
   const current = listContent[listIndex];
-  const after = removeEmptyItems(listContent.slice(listIndex + 1));
+  const after = listContent.slice(listIndex + 1);
   const titleDoc = listItemToTitleDoc(current);
   // Flattening paragraph boundaries into hard breaks changes document positions.
   // Count inline node sizes, not text lengths, so images and breaks also retain

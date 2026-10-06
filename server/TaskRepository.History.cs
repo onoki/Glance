@@ -18,11 +18,12 @@ public sealed partial class TaskRepository
                 WHERE completed_at IS NOT NULL
                   AND deleted_at IS NULL
                   AND completed_at >= $startOfToday
-                  AND page IN ($newPage, $mainPage);
+                  AND page IN ($newPage, $mainPage, $peoplePage);
                 """;
             select.Parameters.AddWithValue("$startOfToday", startOfToday);
             select.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
             select.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
+            select.Parameters.AddWithValue("$peoplePage", TaskPages.PeopleMain);
             await using var reader = await select.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -49,13 +50,14 @@ public sealed partial class TaskRepository
                 WHERE completed_at IS NOT NULL
                   AND deleted_at IS NULL
                   AND completed_at >= $startOfToday
-                  AND page IN ($newPage, $mainPage);
+                  AND page IN ($newPage, $mainPage, $peoplePage);
                 """;
             update.Parameters.AddWithValue("$completedAt", movedTo);
             update.Parameters.AddWithValue("$updatedAt", now);
             update.Parameters.AddWithValue("$startOfToday", startOfToday);
             update.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
             update.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
+            update.Parameters.AddWithValue("$peoplePage", TaskPages.PeopleMain);
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
 

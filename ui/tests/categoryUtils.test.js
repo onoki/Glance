@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { deriveCategories, groupTasksByWeekday } from "../src/utils/categoryUtils.js";
+import { currentWeekDays, deriveCategories, groupTasksByWeekday } from "../src/utils/categoryUtils.js";
 import { formatDateKey, getWeekStart } from "../src/utils/dateUtils.js";
 
 const makeTask = (overrides = {}) => ({
@@ -45,9 +45,10 @@ assert.deepEqual(futureCategories[0].tasks, []);
 const wednesday = new Date(2026, 8, 30);
 const overdue = makeTask({ id: "overdue", scheduledDate: "2026-09-28" });
 const days = groupTasksByWeekday([overdue], wednesday);
-assert.deepEqual(days.map(day => day.label), ["Mon", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+assert.deepEqual(days.map(day => day.label), ["Monday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
 assert.equal(days[0].isPast, true);
 assert.equal(days[0].tasks[0].scheduledDate, "2026-09-28");
 assert.equal(days.at(-1).dateKey, "2026-10-04");
-assert.deepEqual(groupTasksByWeekday([], new Date(2026, 9, 4)).map(day => day.label), ["Sun"]);
+assert.deepEqual(groupTasksByWeekday([], new Date(2026, 9, 4)).map(day => day.label), ["Sunday"]);
+assert.deepEqual(currentWeekDays(wednesday).map(day => day.label), ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "the compact Move picker keeps abbreviated labels");
 assert.equal(groupTasksByWeekday([], new Date(2026, 9, 5)).length, 7);

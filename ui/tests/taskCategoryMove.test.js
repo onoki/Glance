@@ -137,10 +137,14 @@ TaskItem.render = () => {
   return h('task');
 };
 const dragged = [];
+const hovered = [];
+const dropped = [];
+const left = [];
 const actionFocus = ref(null);
 const actionApp = renderer.createApp({ render: () => h(TaskItem, {
   ...bindings, task, focusTitleId: actionFocus.value, draggable: true, onSave: async () => ({ updatedAt: 2 }),
-  onDragStart: (item) => dragged.push(item.id)
+  onDragStart: (item) => dragged.push(item.id),
+  onDragOver: (...args) => hovered.push(args), onDrop: item => dropped.push(item.id), onDragLeave: id => left.push(id)
 }) });
 actionApp.mount(node('root'));
 actionState.sendOpen = true;
@@ -178,6 +182,39 @@ assert.equal(dragged.length, 1);
 assert.equal(actionState.dragging,true);
 actionState.handleDragEnd();
 assert.equal(actionState.dragging,false);
+// Whole-task drags intercept the editor at capture phase, keeping drop cursors
+// outside subcontent. Nested dragenter/leaves cannot reset an after marker.
+const { TASK_DRAG_TYPE } = await import('../src/utils/taskDrag.js');
+const rect = { top: 100, left: 0, right: 300, bottom: 300, height: 200 };
+const child = {};
+const dropRoot = { getBoundingClientRect: () => rect, contains: element => element === child };
+const dragEvents = [];
+const dragEvent = (y, types = [TASK_DRAG_TYPE]) => ({
+  currentTarget: dropRoot, clientX: 50, clientY: y, relatedTarget: child,
+  dataTransfer: { types }, preventDefault: () => dragEvents.push('prevent'), stopPropagation: () => dragEvents.push('stop')
+});
+actionState.handleDragOver(dragEvent(199));
+actionState.handleDragOver(dragEvent(200));
+actionState.handleDragOver(dragEvent(275));
+assert.deepEqual(hovered.map(args => args[1]), ['before', 'after', 'after']);
+actionState.handleDragLeave(dragEvent(250));
+actionState.handleDragLeave({ ...dragEvent(250), relatedTarget: null });
+assert.equal(left.length, 0, 'crossing paragraphs retains the whole-task target');
+actionState.handleDragLeave({ ...dragEvent(301), relatedTarget: null });
+assert.deepEqual(left, [task.id]);
+actionState.handleDrop(dragEvent(299));
+assert.deepEqual(dropped, [task.id]);
+assert.equal(hovered.at(-1)[1], 'after', 'dropping resolves the whole task midpoint again');
+const handledCount = dragEvents.length;
+actionState.handleDragOver(dragEvent(250, ['text/plain']));
+actionState.handleDrop(dragEvent(250, ['Files']));
+assert.equal(dragEvents.length, handledCount, 'native text/image drags remain separate');
+actionState.sendPickerRef = { contains: target => target === child };
+actionState.sendOpen = true;
+actionState.closeTaskMenus({ type: 'click', target: child });
+assert.equal(actionState.sendOpen, true, 'selection clicks inside Send keep it open');
+actionState.closeTaskMenus({ type: 'click', target: {} });
+assert.equal(actionState.sendOpen, false, 'outside clicks dismiss Send');
 // A Delete/merge focus request must resume the destination's dismissed controls.
 windowListeners.get('blur')();
 assert.equal(actionState.actionsDismissed,true);
@@ -430,3 +467,19 @@ for (const key of ['Backspace', 'Delete', 'Enter']) {
   }
   harness.unmount();
 }
+
+// Repeated Tab while a save/merge is in flight cannot start duplicate writes.
+let tabHandlers, finishTabSave, tabMoves=0, fallbackCalls=0;
+const tabHarness=renderer.createApp({setup(){
+  tabHandlers=useTaskEditing({props:{task:{id:'tab-repeat'},onTabToPrevious:async()=>{tabMoves++;return null;}},
+    titleRef:ref(titleDoc),contentRef:ref({type:'doc',content:[{type:'paragraph'}]}),hasSubcontent:ref(false),
+    titleEditorRef:ref(null),contentEditorRef:ref({insertParagraphIfEmpty(){fallbackCalls++;}}),
+    saveNow:()=>new Promise(resolve=>{finishTabSave=resolve;})});
+  return ()=>h('test');
+}});tabHarness.mount(node('root'));
+for(let i=0;i<5;i++)tabHandlers.handleTitleKeydown({key:'Tab',preventDefault(){}},{});
+finishTabSave(true);await nextTick();await nextTick();
+assert.equal(tabMoves,1);
+assert.equal(fallbackCalls,0,'a blocked structural edit must not create fallback content');
+tabHarness.unmount();
+console.log('Repeated Tab is guarded and blocked merges cannot create fallback edits');

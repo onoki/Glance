@@ -1,4 +1,4 @@
-import { formatDateKey, getWeekStart, parseDateKey, toWeekdayNumber, weekdayLabels } from "./dateUtils.js";
+import { formatDateKey, getWeekStart, parseDateKey, toWeekdayNumber, weekdayLabels, weekdayNames } from "./dateUtils.js";
 
 export const currentWeekDays = (today = new Date()) => {
   const start = getWeekStart(today);
@@ -23,7 +23,7 @@ export const groupTasksByWeekday = (tasks, today = new Date()) => {
   });
 
   return currentWeekDays(today)
-    .map((day, index) => ({ ...day, tasks: groups.get(index + 1) || [] }))
+    .map((day, index) => ({ ...day, label: weekdayNames[index], tasks: groups.get(index + 1) || [] }))
     .filter((group) => !group.isPast || group.tasks.length > 0);
 };
 

@@ -75,7 +75,7 @@
     <div v-else-if="selectedPerson" class="person-panel">
       <header class="person-controls">
         <h2 class="selected-person-name">{{ selectedPerson.displayName }}</h2>
-        <details class="person-tags-menu">
+        <details ref="personTagsMenu" class="person-tags-menu" @keydown.esc="closeTagsMenu">
           <summary class="ghost tag-summary">
             Tags<span v-if="selectedTagNames.length">: {{ selectedTagNames.join(", ") }}</span>
           </summary>
@@ -195,6 +195,14 @@ watch(selectedId, (id) => {
   else sessionStorage.removeItem("glance.selectedPerson");
 });
 const viewMode = ref("person");
+const personTagsMenu = ref(null);
+const closeTagsMenu = (event) => {
+  const menu = personTagsMenu.value;
+  if (!menu || (event?.type !== 'keydown' && menu.contains(event?.target))) return;
+  menu.open = false;
+  if (event?.key === 'Escape') menu.querySelector('summary')?.focus();
+};
+watch(selectedId, () => closeTagsMenu());
 let appending = false;
 const appendPersonTask = async () => {
   if (appending || !tasks.value.length) return;
@@ -496,6 +504,7 @@ const poll = async () => {
 };
 
 onMounted(async () => {
+  document.addEventListener("click", closeTagsMenu);
   await loadDirectory();
   await loadTasks();
   viewReady = true;
@@ -521,6 +530,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  document.removeEventListener("click", closeTagsMenu);
   if (pollTimer) window.clearInterval(pollTimer);
 });
 

@@ -180,6 +180,57 @@ public sealed class RepositoryTests
     }
 
     [Fact]
+    public async Task History_MoveCompleted_IncludesPeopleAndPreservesOwnershipAndOpenNotes()
+    {
+        await using var app = TestAppFixture.Create();
+        var person = await app.People.CreatePersonAsync("History person", CancellationToken.None);
+        var records = new List<(TaskCreateResponse Created, string Page, long? Completed, bool Deleted)>();
+        var startOfToday = GetStartOfToday();
+        foreach (var page in new[] { TaskPages.DashboardNew, TaskPages.DashboardMain, TaskPages.PeopleMain })
+        {
+            foreach (var (completed, deleted) in new (long?, bool)[]
+                { (startOfToday + 1000, false), (startOfToday - 1000, false), (null, false), (startOfToday + 2000, true) })
+            {
+                var created = await app.Tasks.CreateTaskAsync(new TaskCreateRequest(
+                    page, TestAppFixture.CreateTitle("History fixture"), TestAppFixture.CreateContent("Preserve details"),
+                    records.Count + 1, null, null, page == TaskPages.PeopleMain ? person.Id : null), CancellationToken.None);
+                records.Add((created, page, completed, deleted));
+                await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(app.Paths.ConnectionString);
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE tasks SET completed_at = $completed WHERE id = $id;";
+                command.Parameters.AddWithValue("$completed", completed is null ? DBNull.Value : completed.Value);
+                command.Parameters.AddWithValue("$id", created.TaskId);
+                await command.ExecuteNonQueryAsync();
+                if (deleted) await app.Tasks.DeleteTaskAsync(created.TaskId, CancellationToken.None);
+            }
+        }
+
+        Assert.Equal(3, await app.Tasks.MoveCompletedToHistoryAsync(startOfToday, CancellationToken.None));
+        Assert.Equal(0, await app.Tasks.MoveCompletedToHistoryAsync(startOfToday, CancellationToken.None));
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(app.Paths.ConnectionString))
+        {
+            await connection.OpenAsync();
+            foreach (var record in records)
+            {
+                var expected = !record.Deleted && record.Completed >= startOfToday ? startOfToday - 1 : record.Completed;
+                Assert.Equal(expected, await GetCompletedAt(connection, record.Created.TaskId));
+            }
+        }
+        var history = await app.Tasks.GetHistoryTasksAsync(CancellationToken.None);
+        var peopleToday = records.Single(record => record.Page == TaskPages.PeopleMain && record.Completed == startOfToday + 1000);
+        var movedPersonNote = Assert.Single(history, task => task.Id == peopleToday.Created.TaskId);
+        Assert.Equal(person.Id, movedPersonNote.OwnerPersonId);
+        Assert.Equal("History person", movedPersonNote.OwnerPersonName);
+        Assert.Equal(TestAppFixture.CreateContent("Preserve details").GetRawText(), movedPersonNote.Content.GetRawText());
+        var personTasks = await app.Tasks.GetPersonTasksAsync(person.Id, startOfToday, CancellationToken.None);
+        Assert.Single(personTasks);
+        Assert.Null(personTasks[0].CompletedAt);
+        await app.Tasks.SetCompletionAsync(peopleToday.Created.TaskId, false, CancellationToken.None);
+        Assert.Contains(await app.Tasks.GetPersonTasksAsync(person.Id, startOfToday, CancellationToken.None), task => task.Id == peopleToday.Created.TaskId);
+    }
+
+    [Fact]
     public async Task Dashboard_HidesCompletedTasksFromPreviousDays()
     {
         await using var app = TestAppFixture.Create();

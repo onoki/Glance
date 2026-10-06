@@ -209,6 +209,7 @@ export const useTaskEditing = (options) => {
     }
     if (event.key === "Tab") {
       event.preventDefault();
+      if (joining) return true;
       if (pendingCreateTimer || creatingBelow) {
         if (pendingCreateTimer) {
           clearTimeout(pendingCreateTimer);
@@ -216,26 +217,22 @@ export const useTaskEditing = (options) => {
           options.revealContent?.();
           const current = normalizeContent(contentRef.value);
           const items = current?.content?.[0]?.type === "bulletList" ? current.content[0].content : [];
-          const nonempty = items.filter((item) => !isDocEmptyJson(item));
-          contentRef.value = { type: "doc", content: [{ type: "bulletList", content: [...nonempty, { type: "listItem", content: [{ type: "paragraph" }] }] }] };
+          contentRef.value = { type: "doc", content: [{ type: "bulletList", content: [...items, { type: "listItem", content: [{ type: "paragraph" }] }] }] };
           options.onContentChanged?.();
-          void nextTick().then(() => { contentEditorRef.value?.focusListItem(nonempty.length); void saveNow(true); });
+          void nextTick().then(() => { contentEditorRef.value?.focusListItem(items.length); void saveNow(true); });
         } else {
-          void creatingBelow.then((newId) => {
-            if (newId) props.onTabToPrevious({ ...props.task, id: newId, title: { type: "doc", content: [{ type: "paragraph" }] }, content: emptyContentDoc() });
+          const creation = creatingBelow;
+          return join(event, async () => {
+            const newId = await creation;
+            if (newId) await props.onTabToPrevious({ ...props.task, id: newId, title: { type: "doc", content: [{ type: "paragraph" }] }, content: emptyContentDoc() });
           });
         }
         return true;
       }
-      void saveNow().then((saved) => {
-        if (saved === false) return;
-        props.onTabToPrevious(currentTaskSnapshot()).then((moved) => {
-          if (!moved) {
-            contentEditorRef.value?.insertParagraphIfEmpty();
-          }
-        });
+      return join(event, async () => {
+        const moved = await props.onTabToPrevious(currentTaskSnapshot());
+        if (moved === false) contentEditorRef.value?.insertParagraphIfEmpty();
       });
-      return true;
     }
 
     if (isPlainArrow(event) && event.key === "ArrowDown" && atVerticalDocumentEdge(editor, "down")) {

@@ -14,7 +14,8 @@ Feature: Main application layout
     And the gap between Settings and New window matches the shared 1px gap between navigation buttons
     And I see an editable rich text task list for new tasks in the middle
     And next to the title of the new tasks view I see a button to move all new tasks to "Uncategorized"
-    And next to the title of the new tasks view I see a button to expand and restore the new tasks view to full screen
+    And every Dashboard column has a compact maximize and restore control beside its title
+    And maximizing a column fills the content area while keeping the top navigation available
     And I see an editable rich text main task list below
 
 
@@ -125,15 +126,17 @@ Feature: History view
   Scenario: Viewing task completion history
     Given I navigate to the history tab
     Then I see a list of completed tasks grouped by completion date
-    And a collapsed activity chart is available when it contains completions from the last 180 days
-    And expanding Activity over time shows daily completion counts
+    And an expanded activity chart shows daily completion counts from the last 180 days when there are completions
+    And my Activity over time expand or collapse choice is remembered across restarts on this PC
 
   Scenario: Moving completed tasks to history
     Given I am on the history tab
     And completed tasks exist for today
     When I click the Move completed to history button
-    Then the completed tasks are removed from the dashboard
+    Then today's completed tasks are removed from Dashboard and People lists
     And the tasks appear in the history list
+    And People notes retain their person attribution and can be restored to that person's list
+    And open notes, earlier completions, and deleted notes are unchanged
 
   Scenario: Restoring a completed task from history
     Given I am on the history tab
@@ -251,7 +254,7 @@ Feature: Task restructuring via Tab
     When I press Tab in the task title
     Then the task becomes subcontent of the previous task
     And any existing subcontent is moved under the previous task
-    And hidden empty subcontent lines are removed before the moved task
+    And existing empty subcontent lines are preserved before and after the moved task
 
   Scenario: Tab on an empty new task creates editable subcontent
     Given a task has no subcontent
@@ -379,6 +382,9 @@ Feature: Attachments
     When I select the image
     Then a resize handle appears
     And the resized width is preserved
+    And the image never displays wider than its intrinsic width, even with an old oversized saved width
+    And large images fit the available column width with their aspect ratio preserved
+    And the handle allows smaller widths but cannot enlarge an image beyond its intrinsic width
 
   Scenario: Removing an attachment
     Given an image is selected in the editor
@@ -392,6 +398,12 @@ Feature: Drag and drop ordering
     Given a category has multiple tasks
     When I drag a task within the category
     Then the task order is updated
+    And the whole target task is a drop area, using its vertical midpoint for before or after
+    And an insertion marker appears only at whole-task boundaries, never inside subcontent
+    And crossing paragraphs inside the target does not reset the marker
+    And the dragged source has no insertion marker
+    And dropping preserves title, subcontent, nesting, and attachments
+    And This week calculates ordering among neighbours on the target scheduled day
 
   Scenario: Moving tasks across categories
     Given tasks exist in multiple categories
@@ -667,7 +679,8 @@ Feature: Compact task lists and long links
     Given I am on Dashboard
     Then every category including New tasks can be resized with the mouse
     And category widths are remembered
-    And expanding and restoring New tasks preserves its custom width
+    And maximizing and restoring any column preserves custom widths and the normal horizontal viewport
+    And a disappearing maximized category restores the regular view
     And task text stays aligned at the left of each category
     And long text and URLs wrap even without spaces
     And horizontal dashboard navigation across categories remains available
@@ -907,7 +920,7 @@ Feature: Whole-task selection and clipboard
   Scenario: Compact secondary views
     Then Search results show source context with Open source beside copy controls
     And Up and Down navigate Open source buttons and Enter opens the source
-    And History omits an empty chart and collapses populated charts behind Activity over time
+    And History omits an empty chart and shows populated charts by default with a remembered Activity over time disclosure
     And Settings keeps group indentation and collapses restore controls unless recovery requires them
     And Status Updates explains the next step with technical details in a disclosure
 
@@ -1150,3 +1163,62 @@ Feature: Nested subcontent deletion safety
     And splitting a title or promoting subcontent also retains that date
     And Undo and Redo retain the assigned date
     And independent additions and explicit category moves keep their existing date defaults
+
+  Scenario: Backspace removes an empty bullet and focuses backward
+    Given an empty nested subcontent bullet has a preceding line
+    When I remove that bullet with Backspace
+    Then the caret is at the end of the preceding line, including a parent or nested sibling
+    And unrelated content is preserved
+    And if no preceding line exists the caret uses the first remaining text position
+
+  Scenario: Disabled buttons do not respond visually to hover
+    Given any app button is disabled, including a past weekday in the Move menu
+    When I hover over it
+    Then its background and other hover styling remain unchanged
+    And its disabled appearance and tooltip remain available
+
+Feature: Safe repeated Tab restructuring
+
+  Scenario: Tab merges use acknowledged saves from the current window
+    Given a task contains leading and trailing blank bullets around populated subcontent
+    And it is followed by several empty tasks
+    And an editor autosave is pending or in progress
+    When I repeatedly press Tab in the following empty task titles
+    Then the tasks become new blank subcontent lines in order
+    And existing blank lines and populated content remain intact
+    And the caret focuses each newly appended line
+    And no conflict is generated by an older revision from this same window
+    And the behavior is identical in Dashboard and People
+
+  Scenario: Adjacent restructuring preserves structure and task identity
+    When Tab requests arrive before an earlier Tab merge completes
+    Then they are processed sequentially using current visible neighbours
+    And Tab cannot merge across Dashboard columns
+    And Undo restores the original tasks without recreating duplicates
+    And Redo restores the merged content including blank lines
+    And Shift+Tab preserves blank siblings before and after a promoted item
+    And focusing elsewhere does not delete blank-only subcontent
+
+  Scenario: Real external conflicts still preserve local edits
+    Given another writer has saved a newer revision
+    When my pending edit cannot be saved
+    Then Tab restructuring stops without modifying either saved task
+    And my local text remains available with the conflict notice
+    And no fallback blank subcontent is created for a blocked merge
+
+
+Feature: Compact column and selection controls
+
+  Scenario: Readable weekday headings
+    Given I am viewing This week in Dashboard
+    Then its day headings use Monday through Sunday in full
+    And the Move picker keeps compact Mo through Su buttons
+
+  Scenario: Multi-selection menus
+    Given I open a task's Send to people menu or a person's Tags menu
+    When I click an option's name or checkbox
+    Then only that checkbox is toggled
+    And the menu stays open for additional selections
+    When I click outside the menu or press Escape
+    Then the menu closes
+    And Dashboard background panning never captures clicks inside task menus

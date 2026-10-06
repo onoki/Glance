@@ -10,10 +10,10 @@
     :draggable="false"
     :data-task-id="task.id"
     @dragstart="handleDragStart"
-    @dragover.prevent="handleDragOver"
-    @dragenter.prevent="handleDragEnter"
+    @dragover.capture="handleDragOver"
+    @dragenter.capture="handleDragOver"
     @dragleave="handleDragLeave"
-    @drop.prevent="handleDrop"
+    @drop.capture="handleDrop"
     @dragend="handleDragEnd"
   >
     <div
@@ -111,8 +111,8 @@
             @click.stop
           >
             <strong class="task-popover-title">Send to people</strong>
-            <label v-for="person in sendPeople" :key="person.id" class="task-menu-option"><input v-model="selectedPeople" type="checkbox" :value="person.id" /> {{ person.displayName }}</label>
-            <label v-for="tag in sendTags" :key="tag.id" class="task-menu-option"><input v-model="selectedTags" type="checkbox" :value="tag.id" /> Everyone tagged {{ tag.name }}</label>
+            <label v-for="person in sendPeople" :key="person.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedPeople" type="checkbox" :value="person.id" /> {{ person.displayName }}</label>
+            <label v-for="tag in sendTags" :key="tag.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedTags" type="checkbox" :value="tag.id" /> Everyone tagged {{ tag.name }}</label>
             <span v-if="!sendPeople.length" class="task-context">Add people in the People tab first.</span>
             <button type="button" class="category-option" :disabled="sending || (!selectedPeople.length && !selectedTags.length)" @click="sendToPeople">Send</button>
           </div>
@@ -225,6 +225,7 @@
 import { taskClipboard } from "../services/taskClipboard.js";
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
 import { currentWeekDays } from "../utils/categoryUtils.js";
+import { isTaskDrag, TASK_DRAG_TYPE, taskDropPosition } from "../utils/taskDrag.js";
 import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
 import { announceAction } from "../services/actionFeedback.js";
 import RichTextEditor from "./RichTextEditor.vue";
@@ -584,6 +585,8 @@ function updateOpenMenuPositions() {
 }
 
 function closeTaskMenus(event) {
+  if (event?.type === 'click' && [categoryPickerRef.value, sendPickerRef.value, eventsPickerRef.value]
+    .some(picker => picker?.contains(event.target))) return;
   if (event?.key === 'Escape') {
     const picker = categoryOpen.value ? categoryPickerRef.value : sendOpen.value ? sendPickerRef.value : eventsOpen.value ? eventsPickerRef.value : null;
     picker?.querySelector('button')?.focus();
@@ -803,37 +806,40 @@ const handleDragStart = (event) => {
     return;
   }
   dragging.value = true;
+  event.dataTransfer?.setData(TASK_DRAG_TYPE, props.task.id);
   closeTaskMenus();
   props.onDragStart(props.task, event);
 };
 
 const handleDragOver = (event) => {
-  if (!event) {
-    return;
-  }
+  if (!isTaskDrag(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (dragging.value) return;
   const rect = event.currentTarget?.getBoundingClientRect();
   if (!rect) {
     return;
   }
-  const midpoint = rect.top + rect.height / 2;
-  const position = event.clientY >= midpoint ? "after" : "before";
+  const position = taskDropPosition(rect, event.clientY);
   props.onDragOver?.(props.task.id, position);
 };
 
-const handleDragEnter = () => {
-  props.onDragOver?.(props.task.id);
-};
-
-const handleDragLeave = () => {
+const handleDragLeave = (event) => {
+  // Moving between editor paragraphs/children is still inside the same task.
+  if (event.currentTarget?.contains(event.relatedTarget)) return;
+  const rect = event.currentTarget?.getBoundingClientRect();
+  if (rect && event.clientX >= rect.left && event.clientX < rect.right && event.clientY >= rect.top && event.clientY < rect.bottom) return;
   props.onDragLeave?.(props.task.id);
 };
 
-const handleDrop = (event) => {
-  if (!props.onDrop) {
-    return;
-  }
+const handleDrop = async (event) => {
+  if (!isTaskDrag(event) || !props.onDrop) return;
+  handleDragOver(event);
+  event.preventDefault();
   event.stopPropagation();
-  props.onDrop(props.task, props.dragCategoryId, event);
+  try { await props.onDrop(props.task, props.dragCategoryId, event); }
+  catch (error) { window.alert(error?.message || "Could not reorder the task."); }
+  finally { props.onDragEnd?.(); }
 };
 
 const handleDragEnd = () => {

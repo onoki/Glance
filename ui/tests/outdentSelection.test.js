@@ -68,3 +68,13 @@ for (const first of [true, false]) {
   assert.equal(changed, !first);
   assert.equal(state.doc.textContent, multiline.textContent, 'indent never removes later lines');
 }
+
+// Outdenting one populated item cannot silently remove blank siblings.
+const spacedDoc=schema.node('doc',null,[schema.node('bulletList',null,[
+  item([paragraph([])]),item([paragraph([schema.text('Keep before')])]),item([paragraph([])]),
+  item([paragraph([schema.text('Promote')])]),item([paragraph([])]),item([paragraph([schema.text('Keep after')])]),item([paragraph([])])
+])]);
+let promotePos;spacedDoc.descendants((n,pos)=>{if(n.type.name==='paragraph' && n.textContent==='Promote')promotePos=pos+1;});
+const spacedSplit=splitAtSelection({state:EditorState.create({schema,doc:spacedDoc,selection:TextSelection.create(spacedDoc,promotePos) }),getJSON:()=>spacedDoc.toJSON()});
+assert.deepEqual(spacedSplit.remainingContent.content[0].content,spacedDoc.toJSON().content[0].content.slice(0,3));
+assert.deepEqual(spacedSplit.newTaskContent.content[0].content,spacedDoc.toJSON().content[0].content.slice(4));
