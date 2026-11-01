@@ -17,7 +17,9 @@ public sealed record TaskItem(
     string? OwnerPersonName,
     long? StatusInputAt,
     string? OriginLabel,
-    bool SendMarkerVisible
+    bool SendMarkerVisible,
+    bool IsPrivate = false,
+    long? HistoryArchivedAt = null
 );
 
 public sealed record TaskCreateRequest(
@@ -28,7 +30,8 @@ public sealed record TaskCreateRequest(
     JsonElement? ScheduledDate,
     JsonElement? Recurrence,
     string? OwnerPersonId = null,
-    string? OriginLabel = null
+    string? OriginLabel = null,
+    bool IsPrivate = false
 );
 
 public sealed record TaskCreateResponse(
@@ -43,7 +46,8 @@ public sealed record TaskUpdateRequest(
     string? Page,
     double? Position,
     [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? ScheduledDate,
-    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? Recurrence
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? Recurrence,
+    bool? IsPrivate = null
 );
 
 public sealed record TaskUpdateResponse(
@@ -74,17 +78,6 @@ public sealed record TaskCompleteResponse(
 
 public sealed record TaskRestoreResponse(
     long UpdatedAt
-);
-
-public sealed record TaskStatusMarkersRequest(
-    long BaseUpdatedAt,
-    JsonElement Title,
-    JsonElement Content
-);
-
-public sealed record TaskStatusMarkersResponse(
-    long UpdatedAt,
-    long? StatusInputAt
 );
 
 public sealed record DashboardResponse(

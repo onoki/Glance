@@ -9,6 +9,7 @@ public sealed record StatusMarkedSection(
     long RaisedAt
 );
 
+// Legacy-data compatibility for saved notes and copies; no reporting feature remains.
 public static class StatusMarkerExtractor
 {
     public static IReadOnlyList<StatusMarkedSection> Extract(JsonElement title, JsonElement content)

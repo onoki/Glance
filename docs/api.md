@@ -28,11 +28,16 @@ TASK MODEL (API REPRESENTATION)
   "position": 1234.5,
   "createdAt": 1710000000000,
   "updatedAt": 1710000005000,
-  "completedAt": null
+  "completedAt": null,
+  "historyArchivedAt": null,
+  "isPrivate": false
 }
 
 NOTES
 - content may include inline checkbox or star markers (☐/☑/⭐) as plain text
+- isPrivate defaults to false on creation; an omitted isPrivate on update preserves the saved flag
+- privacy conceals subcontent in the UI; the local API still returns the complete documents
+- historyArchivedAt is server-managed and never substitutes for completedAt
 
 ==================================================
 CREATE TASK
@@ -127,7 +132,8 @@ RESPONSE
 
 RULES
 - Applies only to the task (not subcontent)
-- Setting completed=false clears completedAt
+- Setting completed=false clears completedAt and historyArchivedAt
+- Setting completed=true on an already completed task retains its original completion timestamp and archive state
 
 ==================================================
 DASHBOARD QUERY
@@ -218,69 +224,26 @@ PEOPLE AND TASK COPIES
 - `GET/POST /api/people`; `PUT /api/people/{id}` (rename/archive/restore)
 - `PUT /api/people/{id}/tags`; CRUD under `/api/people/tags`
 - `GET /api/people/{id}/tasks`
-- `POST /api/tasks/{id}/send-to-people` with `personIds` and/or `tagIds`
+- `POST /api/tasks/{id}/send-to-people` with `personIds`, `tagIds`, and optional `includeDashboard` (default false). People sources may select Dashboard alongside people/tag recipients in one transaction. Dashboard sources ignore includeDashboard.
 - `POST /api/tasks/{id}/send-to-dashboard`
 - `GET /api/tasks/{id}/send-events`
 - `POST /api/tasks/{id}/send-marker/dismiss`
 
-Sends create independent copies and retain only a small source-side event. Dismissing `↗` hides the marker without deleting its event history.
+Sends create independent copies, preserve isPrivate, and retain only a small source-side event. Dismissing `↗` hides the marker without deleting its event history.
 
 ==================================================
-STATUS UPDATES
+RETIRED STATUS UPDATES
 ==================================================
 
-- `PUT /api/tasks/{id}/status-markers` persists structured status metadata shown as `📝` in the UI.
-- `GET /api/status-updates` returns configuration and latest daily-run state.
-- `POST /api/status-updates/authenticate` starts/tests the configured Microsoft sign-in without exposing tokens.
-- `POST /api/status-updates/collect` creates/replaces today's input revision.
-- `GET /api/status-updates/json` and `/schema` download the handoff files.
-- `POST /api/status-updates/import` accepts multipart field `summary` and strictly validates it.
-- `GET /api/status-updates/excel` and `/powerpoint` generate Office output after a valid completed import.
-
-Status collection/import endpoints that mutate retained packages are local-only.
+The Status Updates endpoints and marker controls have been removed. Previously saved database and report data remain supported by backup/restore/export.
 
 ==================================================
-VERIFIED BACKUPS AND RESTORE
+HISTORY ARCHIVING
 ==================================================
 
-- `GET /api/backups` lists real restore points by internal backup ID, including timestamps,
-  verification state, content counts, reason, size, and local/second-location availability.
-- `POST /api/backups` creates a new verified snapshot. The desktop UI flushes every open window
-  before calling this endpoint.
-- `POST /api/backups/{backupId}/verify` rechecks the selected ZIP, manifest hashes, archived
-  SQLite database, rich-note JSON, attachments, and retained status JSON.
-- `GET/PUT /api/data-safety/settings` reads or changes hourly-backup and optional second-location
-  settings.
-- `POST /api/data-safety/test-location` accepts `{ "location": "..." }` and reports whether the
-  directory is currently available and writable.
-- `GET /api/data-safety/startup` reports normal or recovery-mode startup state and whether a
-  verified restore is currently staged in `pendingRestore`.
-- `POST /api/data-safety/restore` accepts `{ "backupId": "..." }`, verifies and stages that exact
-  restore point, and returns `restartRequired: true` after creating a verified emergency backup.
-
-RULES
-- A restore is selected from the backup catalog; arbitrary filenames and filesystem paths are
-  not accepted.
-- The staged state is installed before migrations on the next start and checked again. Failure
-  restores the pre-restore rescue state and quarantines the failed plan instead of retrying it.
-- In recovery mode, note-mutating APIs are blocked while backup, verification, restore, and
-  diagnostic endpoints remain available.
-
-==================================================
-PORTABLE EXPORT
-==================================================
-
-GET /api/export/portable
-
-RESPONSE
-- `application/zip`
-- filename `GlanceExport-v1-<timestamp>.zip`
-
-RULES
-- Local-only endpoint
-- Reads a consistent SQLite snapshot
-- Contains lossless JSON, readable HTML, media, status JSON, and a SHA-256 manifest
-- Returns HTTP 409 if a durable database table or column has not been classified for export
-- The versioned JSON contract is `schema/glance-export-v1.schema.json`
-
-Task updates distinguish omitted `scheduledDate` / `recurrence` (preserve existing values) from explicit JSON `null` (clear the value). Setting a date while omitting recurrence continues to clear prior recurrence. Category moves send both fields explicitly.
+- `POST /api/history/move-completed-to-history` archives nondeleted Dashboard/People completions since local midnight.
+- `POST /api/history/archive-previous-days` archives nondeleted Dashboard/People completions before local midnight.
+- Both endpoints require a loopback request and return `{ "moved": count }`.
+- Each archive transaction sets history_archived_at once, advances the revision, and emits an archive change per task. Repeated calls return zero for already archived tasks.
+- Neither endpoint alters completed_at, content, privacy, ownership or scheduled dates. Open/deleted tasks are untouched.
+- History lists and activity include all completed, nondeleted tasks. Activity groups by completed_at in the current local timezone, regardless of archive status.

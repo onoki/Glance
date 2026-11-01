@@ -8,6 +8,20 @@ internal static class WindowsShellIdentity
     public const string AppId = "Glance.Desktop";
     public static void Register() => Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(AppId));
 
+    // Match the shortcut even if a window host supplies its own window-level ID.
+    public static void ApplyToWindow(IntPtr window) => SetWindowIdentity(window, AppId);
+    public static void ClearWindow(IntPtr window) => SetWindowIdentity(window, null);
+
+    private static void SetWindowIdentity(IntPtr window, string? id)
+    {
+        var iid = typeof(IPropertyStore).GUID;
+        Marshal.ThrowExceptionForHR(SHGetPropertyStoreForWindow(window, ref iid, out var store));
+        var key = new PropertyKey { Format = new("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), Id = 5 };
+        var value = id is null ? new PropVariant() : new PropVariant { Type = 31, Pointer = Marshal.StringToCoTaskMemUni(id) };
+        try { Marshal.ThrowExceptionForHR(store.SetValue(ref key, ref value)); }
+        finally { PropVariantClear(ref value); Marshal.FinalReleaseComObject(store); }
+    }
+
     // A portable shortcut must be created on the destination PC, not on the build PC.
     public static void CreateShortcut(string executable)
     {
@@ -60,5 +74,6 @@ internal static class WindowsShellIdentity
     }
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SHGetPropertyStoreFromParsingName(string path, IntPtr binding, uint flags, ref Guid iid, out IPropertyStore store);
+    [DllImport("shell32.dll")] private static extern int SHGetPropertyStoreForWindow(IntPtr window, ref Guid iid, out IPropertyStore store);
     [DllImport("ole32.dll")] private static extern int PropVariantClear(ref PropVariant value);
 }

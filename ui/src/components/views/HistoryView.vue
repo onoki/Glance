@@ -12,6 +12,7 @@
             v-for="day in historyBars"
             :key="day.date"
             class="chart-bar"
+            :class="{ 'has-completions': day.count > 0 }"
             :style="{ height: `${day.height}%` }"
             :title="`${day.date}: ${day.count}`"
           ></div>
@@ -52,9 +53,6 @@
               :on-focus-prev-task-from-title="noop"
               :on-focus-next-task-from-content="noop"
               :on-delete="onDelete"
-              :allow-status-markers="true"
-              :show-status-marker-button="true"
-              :on-status-markers="onStatusMarkers"
               :on-load-send-events="onLoadSendEvents"
               :on-dismiss-send-marker="onDismissSendMarker"
             />
@@ -106,7 +104,6 @@ const props = defineProps({
     type: Function,
     required: true
   },
-  onStatusMarkers: { type: Function, required: true },
   onLoadSendEvents: { type: Function, required: true },
   onDismissSendMarker: { type: Function, required: true },
   navigationTarget: { type: Object, default: null }

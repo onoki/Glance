@@ -2,9 +2,9 @@ import { atVerticalDocumentEdge, verticalCaretIntent } from "../utils/taskNaviga
 import { isAtDocumentEdge, joinFirstContentLine, lastParagraph } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
 import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
-import { getListItemDepth, isListNodeName, removeEmptyListItem } from "../utils/editorListUtils.js";
+import { getListItemDepth, isListNodeName, removeEmptyListItem, removeBlankBulletBoundary } from "../utils/editorListUtils.js";
 import { splitTitleDocAtOffsets } from "../utils/titleSplitUtils.js";
-import { emptyContentDoc, normalizeContent } from "../utils/taskUtils.js";
+import { emptyContentDoc, mergeTitleDocs, normalizeContent } from "../utils/taskUtils.js";
 
 export const useTaskEditing = (options) => {
   const {
@@ -32,7 +32,7 @@ export const useTaskEditing = (options) => {
     if (!editor) {
       return isDocEmptyJson(titleRef.value);
     }
-    return editor.state.doc.textContent.trim().length === 0;
+    return isDocEmptyJson(editor.getJSON?.() || editor.state.doc.toJSON?.() || titleRef.value);
   };
 
   const isContentEmpty = (editor) => {
@@ -255,34 +255,63 @@ export const useTaskEditing = (options) => {
         const { selection } = editor.state;
         const inParagraph = selection.$from?.parent?.type?.name === "paragraph"
           && selection.$from.parent === selection.$to.parent;
+        // At the start, insert a blank row rather than clearing this note and
+        // copying its entire document into a second, fallible create request.
+        if (inParagraph && selection.empty && selection.from === 1 && !isTitleEmpty(editor)) {
+          return join(event, () => props.onCreateBelow(currentTaskSnapshot(), props.categoryId, null, { before: true }));
+        }
         if (inParagraph && (!selection.empty || !isSelectionAtEnd(editor))) {
           const fromOffset = selection.$from.parentOffset;
           const toOffset = selection.$to.parentOffset;
           const currentDoc = editor.getJSON();
+          const sourceTitleSnapshot = JSON.stringify(titleRef.value);
           const split = splitTitleDocAtOffsets(currentDoc, fromOffset, toOffset);
           if (!isDocEmptyJson(split.after)) {
-            const remainingContent = contentRef.value;
+            const remainingContent = JSON.parse(JSON.stringify(contentRef.value));
             const clearedContent = emptyContentDoc();
-            titleRef.value = split.before;
-            contentRef.value = clearedContent;
-            editor.commands.setContent(split.before);
-            saveNow(true, { suppressUndo: true });
-            if (props.onSplitTitleToNewTask) {
-              props.onSplitTitleToNewTask(props.task, props.categoryId, {
+            return join(event, async () => {
+              const commitSource = async () => {
+                // The destination must already be durable before clearing the
+                // suffix. Do not overwrite typing made during a slow creation.
+                if (JSON.stringify(titleRef.value) !== sourceTitleSnapshot
+                  || JSON.stringify(contentRef.value) !== JSON.stringify(remainingContent)) {
+                  throw new Error('The title changed while splitting. Both notes have been kept; review the new copy.');
+                }
+                titleRef.value = split.before;
+                contentRef.value = clearedContent;
+                editor.commands.setContent(split.before);
+                const shortenedTitleSnapshot = JSON.stringify(titleRef.value);
+                const saved = await saveNow(true, { suppressUndo: true });
+                if (saved === false) {
+                  // Undo of the partial operation removes only its copy. Restore
+                  // a complete local source first, so a later retry cannot save
+                  // the shortened source and then discard the only suffix copy.
+                  titleRef.value = JSON.stringify(titleRef.value) === shortenedTitleSnapshot
+                    ? JSON.parse(sourceTitleSnapshot) : mergeTitleDocs(titleRef.value, split.after);
+                  if (JSON.stringify(contentRef.value) === JSON.stringify(clearedContent)) contentRef.value = remainingContent;
+                  else {
+                    const items = doc => normalizeContent(doc).content[0].type === 'bulletList' ? normalizeContent(doc).content[0].content : [];
+                    contentRef.value = normalizeContent({ type: 'doc', content: [{ type: 'bulletList', content: [...items(contentRef.value), ...items(remainingContent)] }] });
+                  }
+                  editor.commands.setContent(titleRef.value);
+                  options.onContentChanged?.();
+                }
+                return saved;
+              };
+              if (props.onSplitTitleToNewTask) await props.onSplitTitleToNewTask(currentTaskSnapshot(), props.categoryId, {
                 beforeTitle: currentDoc,
                 beforeContent: remainingContent,
                 afterTitle: split.before,
                 afterContent: clearedContent,
                 newTitle: split.after,
-                newContent: remainingContent
+                newContent: remainingContent,
+                commitSource
               });
-            } else {
-              props.onCreateBelow(props.task, props.categoryId, {
-                title: split.after,
-                content: remainingContent
-              });
-            }
-            return true;
+              else {
+                const newId = await props.onCreateBelow(currentTaskSnapshot(), props.categoryId, { title: split.after, content: remainingContent });
+                if (newId && await commitSource() === false) throw new Error('The new note is saved, but the original could not be updated. Both versions have been kept.');
+              }
+            });
           }
         }
       }
@@ -317,6 +346,10 @@ export const useTaskEditing = (options) => {
     if (handleHorizontalArrow(event, editor, "content")) return true;
     if (props.readOnly) {
       return false;
+    }
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && removeBlankBulletBoundary(editor, event.key)) {
+      event.preventDefault();
+      return true;
     }
     if (event.key === "Delete" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
       && isAtDocumentEdge(editor, true) && props.onMergeWithNext

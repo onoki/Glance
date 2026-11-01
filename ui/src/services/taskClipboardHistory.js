@@ -5,7 +5,7 @@ import { saveCoordinator } from './saveCoordinator.js';
 const canonical = value => JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const contentOf = task => [task.title, task.content, task.page, task.ownerPersonId ?? null,
-  task.scheduledDate ?? null, task.recurrence ?? null, task.completedAt ?? null];
+  task.scheduledDate ?? null, task.recurrence ?? null, task.completedAt ?? null, !!task.isPrivate, task.historyArchivedAt ?? null];
 export const sameClipboardTask = (left, right) => canonical(contentOf(left)) === canonical(contentOf(right));
 
 export function createClipboardHistory(records, kind, refresh, api = taskApi, fetchTasks = async task => {

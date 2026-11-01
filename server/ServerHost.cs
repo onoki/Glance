@@ -2,10 +2,6 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.StaticFiles;
-using Glance.Server.Integrations.AzureDevOps;
-using Glance.Server.Integrations.Microsoft;
-using Glance.Server.Integrations.Outlook;
-using Glance.Server.StatusUpdates;
 using Glance.Server.Portability;
 
 namespace Glance.Server;
@@ -42,7 +38,6 @@ public static class ServerHost
         {
             options.MultipartBodyLengthLimit = 1024L * 1024 * 1024;
         });
-        builder.Services.Configure<StatusIntegrationOptions>(builder.Configuration.GetSection(StatusIntegrationOptions.SectionName));
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.Limits.MaxRequestBodySize = 1024L * 1024 * 1024;
@@ -61,11 +56,6 @@ public static class ServerHost
         builder.Services.AddSingleton<DatabaseInitializer>();
         builder.Services.AddSingleton<TaskRepository>();
         builder.Services.AddSingleton<PeopleRepository>();
-        builder.Services.AddSingleton<IMicrosoftTokenProvider, MicrosoftTokenProvider>();
-        builder.Services.AddHttpClient<IAzureDevOpsStatusReader, AzureDevOpsStatusReader>(client => client.Timeout = TimeSpan.FromSeconds(60));
-        builder.Services.AddHttpClient<IOutlookStatusReader, OutlookStatusReader>(client => client.Timeout = TimeSpan.FromSeconds(60));
-        builder.Services.AddSingleton<StatusSummaryService>();
-        builder.Services.AddSingleton<StatusOfficeExporter>();
         builder.Services.AddSingleton<PortableExportService>();
         builder.Services.AddSingleton<ChangeLogRepository>();
         builder.Services.AddSingleton<MaintenanceStateStore>();
@@ -171,7 +161,6 @@ public static class ServerHost
         TaskEndpoints.Map(app);
         TaskSendEndpoints.Map(app);
         PeopleEndpoints.Map(app);
-        StatusUpdateEndpoints.Map(app);
         ChangesEndpoints.Map(app);
         SearchEndpoints.Map(app);
         MaintenanceEndpoints.Map(app);

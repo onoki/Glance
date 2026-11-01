@@ -1,19 +1,19 @@
 <template>
   <div class="zoom-controls" role="group" aria-label="Zoom">
     <button type="button" aria-label="Zoom out" title="Zoom out (Ctrl+−)" :disabled="percent <= MIN_ZOOM" @click="step(-1)">−</button>
-    <button type="button" :title="tooltip" aria-label="Reset zoom to 100%" @click="setZoom(100)">{{ percent }}%{{ crisp ? '*' : '' }}</button>
+    <button type="button" :title="tooltip" aria-label="Reset zoom to 100%" @click="setZoom(100)">{{ percent }}%{{ aligned ? '*' : '' }}</button>
     <button type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)" :disabled="percent >= MAX_ZOOM" @click="step(1)">+</button>
   </div>
 </template>
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { isDesktopBridgeAvailable, registerDesktopMessageHandler, sendDesktopMessage } from '../utils/desktopBridge.js';
-import { MIN_ZOOM, MAX_ZOOM, isCrispZoom, zoomStep } from '../utils/zoom.js';
+import { MIN_ZOOM, MAX_ZOOM, isPixelAlignedZoom, zoomStep } from '../utils/zoom.js';
 const percent = ref(100);
 const scale = ref(window.devicePixelRatio || 1);
 const desktop = isDesktopBridgeAvailable();
-const crisp = computed(() => isCrispZoom(percent.value, scale.value));
-const tooltip = computed(() => `${percent.value}% — click to reset to 100% (Ctrl+0). * means the font size is near a whole multiple of BigBlue’s native pixel grid on this monitor; it is likely to look sharper, but is not a guarantee. Intermediate zoom levels are allowed. Windows display scaling is preserved.`);
+const aligned = computed(() => isPixelAlignedZoom(percent.value, scale.value));
+const tooltip = computed(() => `${percent.value}% — click to reset to 100% (Ctrl+0). * means the 7px IBM Plex Sans text size maps close to whole device pixels on this monitor. This is only an alignment hint: outline glyphs still use antialiasing, and sharpness is not guaranteed. Intermediate zoom levels are allowed. Windows display scaling is preserved.`);
 function setZoom(value) {
   percent.value = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
   if (desktop) sendDesktopMessage({ type: 'setZoom', percent: percent.value });

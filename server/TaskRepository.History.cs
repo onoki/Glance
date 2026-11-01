@@ -4,70 +4,44 @@ namespace Glance.Server;
 
 public sealed partial class TaskRepository
 {
-    public async Task<int> MoveCompletedToHistoryAsync(long startOfToday, CancellationToken cancellationToken)
+    public Task<int> MoveCompletedToHistoryAsync(long startOfToday, CancellationToken cancellationToken) =>
+        ArchiveCompletedAsync(startOfToday, previousDays: false, cancellationToken);
+
+    public Task<int> ArchivePreviousCompletionsAsync(long startOfToday, CancellationToken cancellationToken) =>
+        ArchiveCompletedAsync(startOfToday, previousDays: true, cancellationToken);
+
+    private async Task<int> ArchiveCompletedAsync(long cutoff, bool previousDays, CancellationToken token)
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        var taskIds = new List<string>();
-        await using (var select = connection.CreateCommand())
-        {
-            select.CommandText = """
-                SELECT id
-                FROM tasks
-                WHERE completed_at IS NOT NULL
-                  AND deleted_at IS NULL
-                  AND completed_at >= $startOfToday
-                  AND page IN ($newPage, $mainPage, $peoplePage);
-                """;
-            select.Parameters.AddWithValue("$startOfToday", startOfToday);
-            select.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
-            select.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
-            select.Parameters.AddWithValue("$peoplePage", TaskPages.PeopleMain);
-            await using var reader = await select.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                taskIds.Add(reader.GetString(0));
-            }
-        }
-
-        if (taskIds.Count == 0)
-        {
-            return 0;
-        }
-
+        await connection.OpenAsync(token);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var movedTo = startOfToday - 1;
-
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var ids = new List<string>();
         await using (var update = connection.CreateCommand())
         {
             update.Transaction = transaction;
-            update.CommandText = """
+            update.CommandText = $"""
                 UPDATE tasks
-                SET completed_at = $completedAt,
-                    updated_at = $updatedAt
+                SET history_archived_at = $now,
+                    updated_at = MAX(updated_at + 1, $now)
                 WHERE completed_at IS NOT NULL
+                  AND completed_at {(previousDays ? "<" : ">=")} $cutoff
+                  AND history_archived_at IS NULL
                   AND deleted_at IS NULL
-                  AND completed_at >= $startOfToday
-                  AND page IN ($newPage, $mainPage, $peoplePage);
+                  AND page IN ($newPage, $mainPage, $peoplePage)
+                RETURNING id;
                 """;
-            update.Parameters.AddWithValue("$completedAt", movedTo);
-            update.Parameters.AddWithValue("$updatedAt", now);
-            update.Parameters.AddWithValue("$startOfToday", startOfToday);
+            update.Parameters.AddWithValue("$now", now);
+            update.Parameters.AddWithValue("$cutoff", cutoff);
             update.Parameters.AddWithValue("$newPage", TaskPages.DashboardNew);
             update.Parameters.AddWithValue("$mainPage", TaskPages.DashboardMain);
             update.Parameters.AddWithValue("$peoplePage", TaskPages.PeopleMain);
-            await update.ExecuteNonQueryAsync(cancellationToken);
+            await using var reader = await update.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token)) ids.Add(reader.GetString(0));
         }
-
-        foreach (var taskId in taskIds)
-        {
-            await InsertChangeAsync(connection, transaction, taskId, "complete", now);
-        }
-
-        await transaction.CommitAsync(cancellationToken);
-        return taskIds.Count;
+        foreach (var id in ids) await InsertChangeAsync(connection, transaction, id, "archive", now);
+        await transaction.CommitAsync(token);
+        return ids.Count;
     }
 
     public async Task<IReadOnlyList<HistoryDayStat>> GetHistoryStatsAsync(long startOfWindow, CancellationToken cancellationToken)
@@ -75,7 +49,6 @@ public sealed partial class TaskRepository
         var stats = new List<HistoryDayStat>();
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
-
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT date(completed_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS count
@@ -87,15 +60,8 @@ public sealed partial class TaskRepository
             ORDER BY day ASC;
             """;
         command.Parameters.AddWithValue("$start", startOfWindow);
-
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            var day = reader.GetString(0);
-            var count = reader.GetInt32(1);
-            stats.Add(new HistoryDayStat(day, count));
-        }
-
+        while (await reader.ReadAsync(cancellationToken)) stats.Add(new HistoryDayStat(reader.GetString(0), reader.GetInt32(1)));
         return stats;
     }
 }

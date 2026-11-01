@@ -64,14 +64,16 @@ export function joinFirstContentLine(title, rawContent) {
   return { title:mergeTitleDocs(title,{type:'doc',content:[{type:'paragraph',content:consumed}]}), content:list.content.length ? content : emptyContentDoc(), selection:{from:position,to:position} };
 }
 
-// Tab demotes a whole task, preserving intentional blank bullets on both sides.
+// Tab demotes the title and its entire subtree by one level.
 export function indentTaskDocuments(previous, current) {
   const previousList = normalizeContent(previous.content).content[0];
   const currentList = normalizeContent(current.content).content[0];
   const previousItems = previousList?.type === 'bulletList' ? previousList.content : [];
   const currentItems = currentList?.type === 'bulletList' ? currentList.content : [];
+  const demoted = titleDocToListItem(current.title);
+  if (currentItems.length) demoted.content.push({ type: 'bulletList', content: currentItems });
   return {
-    content: { type: 'doc', content: [{ type: 'bulletList', content: clone([...previousItems, titleDocToListItem(current.title), ...currentItems]) }] },
+    content: { type: 'doc', content: [{ type: 'bulletList', content: clone([...previousItems, demoted]) }] },
     listIndex: previousItems.length
   };
 }

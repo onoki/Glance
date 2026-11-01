@@ -45,7 +45,7 @@ export function taskDocText(node, depth = 0) {
 }
 
 export function encodeTaskClipboard(tasks, scope) {
-  const data = JSON.parse(JSON.stringify({ format: 'glance-tasks', version: 1, scope, tasks: tasks.map(({ title, content }) => ({ title, content })) }));
+  const data = JSON.parse(JSON.stringify({ format: 'glance-tasks', version: 1, scope, tasks: tasks.map(({ title, content, isPrivate }) => ({ title, content, isPrivate: !!isPrivate })) }));
   const normalizeImages = node => {
     if (node.type === 'image' && /^https?:/.test(node.attrs?.src || '')) {
       const url = new URL(node.attrs.src);
@@ -71,6 +71,7 @@ export function decodeTaskClipboard(html) {
   const data = JSON.parse(decodeURIComponent(match[1]));
   if (data.format !== 'glance-tasks' || data.version !== 1 || !Array.isArray(data.tasks) || !data.tasks.length || data.tasks.length > 200) throw new Error('Unsupported task clipboard version.');
   for (const task of data.tasks) {
+    if (task.isPrivate !== undefined && typeof task.isPrivate !== 'boolean') throw new Error('Invalid task privacy flag.');
     if (task.title?.type !== 'doc' || task.content?.type !== 'doc') throw new Error('Invalid task clipboard document.');
     validateClipboardDoc(task.title); validateClipboardDoc(task.content);
   }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Schema } from "prosemirror-model";
 import { EditorState, TextSelection, AllSelection } from "prosemirror-state";
 import { history, undo, redo } from "prosemirror-history";
-import { handleEmptyListItemBackspace, appendListItem } from "../src/utils/editorListUtils.js";
+import { handleEmptyListItemBackspace, appendListItem, removeBlankBulletBoundary } from "../src/utils/editorListUtils.js";
 const schema = new Schema({nodes:{
   doc:{content:'block+'},paragraph:{group:'block',content:'inline*'},
   bulletList:{group:'block',content:'listItem+'},listItem:{content:'paragraph block*'},
@@ -65,3 +65,30 @@ const editor=editorFor(mixed,1);
 appendListItem(editor);
 assert.equal(editor.state.doc.textContent,mixed.textContent,'appending a list must retain non-list blocks');
 console.log(`Nested-list safety: ${cases} depth/sibling/list-type cases, selections, images, mixed blocks, Undo/Redo`);
+
+for (const kind of ['bulletList', 'taskList']) for (const depth of [1, 2, 4]) for (const key of ['Delete', 'Backspace']) {
+  const itemType = kind === 'bulletList' ? 'listItem' : 'taskItem';
+  const item = children => schema.node(itemType, null, children);
+  const nested = schema.node(kind, null, [item([p('Descendant KEEP')])]);
+  let list = schema.node(kind, null, [item([p('')]), item([p('Following KEEP'), nested]), item([p('Tail KEEP')])]);
+  for (let n = 1; n < depth; n++) list = schema.node(kind, null, [item([p('Parent KEEP'), list])]);
+  const doc = schema.node('doc', null, [list]);
+  let emptyPos, followingPos;
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'paragraph' && !node.content.size) emptyPos = pos + 1;
+    if (node.type.name === 'paragraph' && node.textContent === 'Following KEEP') followingPos = pos + 1;
+  });
+  const editor = editorFor(doc, key === 'Delete' ? emptyPos : followingPos);
+  assert.equal(removeBlankBulletBoundary(editor, key), true, `${kind}/${depth}/${key}`);
+  assert.equal(editor.state.doc.textContent, doc.textContent);
+  assert.equal(editor.state.selection.$from.parent.textContent, 'Following KEEP');
+  assert.equal(editor.state.selection.$from.parentOffset, 0);
+  let emptyCount = 0;
+  editor.state.doc.descendants(node => { if (node.type.name === 'paragraph' && !node.content.size) emptyCount++; });
+  assert.equal(emptyCount, 0, 'the leading blank bullet is removed');
+  assert.equal(undo(editor.state, editor.view.dispatch), true);
+  assert.deepEqual(editor.state.doc.toJSON(), doc.toJSON());
+  assert.equal(redo(editor.state, editor.view.dispatch), true);
+}
+assert.equal(removeBlankBulletBoundary(editorFor(parentDoc, 3), 'Delete'), false, 'a blank parent with descendants is not disposable');
+console.log('Leading blank bullets: Delete/Backspace preserve nested neighbours, caret and Undo/Redo');

@@ -46,7 +46,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onMounted, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
 
 const props = defineProps({
@@ -71,7 +71,7 @@ const props = defineProps({
     required: true
   },
   searchInputRef: {
-    type: Object,
+    type: Function,
     default: null
   },
   noop: {
@@ -95,6 +95,10 @@ const props = defineProps({
 defineEmits(["update:searchQuery"]);
 
 const searchRoot = ref(null);
+onMounted(async () => {
+  await nextTick();
+  searchRoot.value?.querySelector('input[type="search"]')?.focus();
+});
 const focusResult = (id, step) => {
   const index = props.searchResults.findIndex(result => result.task.id === id);
   const buttons = searchRoot.value?.querySelectorAll('.search-open-source');

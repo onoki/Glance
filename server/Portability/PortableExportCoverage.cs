@@ -16,7 +16,7 @@ internal static class PortableExportCoverage
                 "id", "page", "title", "title_json", "content_json", "position",
                 "created_at", "updated_at", "completed_at", "scheduled_date",
                 "recurrence_json", "owner_person_id", "status_input_at", "origin_label",
-                "send_marker_dismissed_at", "deleted_at"),
+                "send_marker_dismissed_at", "deleted_at", "history_archived_at", "is_private"),
             ["people"] = Columns("id", "display_name", "position", "created_at", "updated_at", "archived_at"),
             ["person_tags"] = Columns("id", "name", "position", "created_at", "updated_at"),
             ["person_tag_members"] = Columns("person_id", "tag_id"),

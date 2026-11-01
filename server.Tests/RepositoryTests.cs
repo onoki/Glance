@@ -174,7 +174,7 @@ public sealed class RepositoryTests
         await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(app.Paths.ConnectionString))
         {
             await connection.OpenAsync();
-            Assert.Equal(startOfToday - 1, await GetCompletedAt(connection, todayTask.TaskId));
+            Assert.Equal(todayCompletedAt, await GetCompletedAt(connection, todayTask.TaskId));
             Assert.Equal(yesterdayCompletedAt, await GetCompletedAt(connection, yesterdayTask.TaskId));
         }
     }
@@ -213,8 +213,7 @@ public sealed class RepositoryTests
             await connection.OpenAsync();
             foreach (var record in records)
             {
-                var expected = !record.Deleted && record.Completed >= startOfToday ? startOfToday - 1 : record.Completed;
-                Assert.Equal(expected, await GetCompletedAt(connection, record.Created.TaskId));
+                Assert.Equal(record.Completed, await GetCompletedAt(connection, record.Created.TaskId));
             }
         }
         var history = await app.Tasks.GetHistoryTasksAsync(CancellationToken.None);

@@ -8,6 +8,8 @@
           class="tab"
           :class="{ active: activeTab === tab }"
           :disabled="startupSafety.recoveryMode && tab !== 'Settings'"
+          :title="`${tab} (Alt+${tabs.indexOf(tab) + 1})`"
+          :aria-keyshortcuts="`Alt+${tabs.indexOf(tab) + 1}`"
           @click="selectTab(tab)"
         >
           <span class="pixel-text">{{ tab }}</span>
@@ -17,6 +19,14 @@
         <span v-if="isHelperWindow" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper window</span>
         <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
         <ZoomControls />
+        <button
+          class="tab header-icon-button" type="button" :class="{ active: privacyMode }" :aria-pressed="privacyMode"
+          :aria-label="privacyMode ? 'Turn privacy off' : 'Turn privacy on'"
+          :title="privacyMode ? 'Privacy on: private subcontent stays hidden unless its task is focused. Click to reveal all.' : 'Privacy off: all subcontent is visible. Click to protect private tasks.'"
+          @click="privacyMode = !privacyMode"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1" /><path :d="privacyMode ? 'M5 7V4a3 3 0 0 1 6 0v3' : 'M5 7V4a3 3 0 0 1 6 0'" /></svg>
+        </button>
         <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 3 1-2h4l1 2 2 1 2-1 3 3-1 2 1 2 2 1v4l-2 1-1 2 1 2-3 3-2-1-2 1-1 2h-4l-1-2-2-1-2 1-3-3 1-2-1-2-2-1v-4l2-1 1-2-1-2 3-3 2 1z" transform="translate(1 0) scale(.9)" /><circle cx="12" cy="12" r="3" /></svg>
         </button>
@@ -45,12 +55,15 @@
         :maximized-category-id="maximizedCategoryId"
         :is-dashboard-dragging="isDashboardDragging"
         :get-task-item-bindings="getTaskItemBindings"
-        :group-tasks-by-weekday="groupTasksByWeekday"
-        :is-this-week-category="isThisWeekCategory"
+        :category-week-groups="categoryWeekGroups"
+        :is-planning-week-category="isPlanningWeekCategory"
         :on-move-new-to-main="moveNewToMain"
         :on-toggle-maximize="toggleMaximizeColumn"
         :on-drop-on-category="dropOnCategoryFromView"
         :on-drop-on-weekday="dropOnWeekdayFromView"
+        :drag-over-day="dragOverDay"
+        :on-drag-over-weekday="setWeekdayDragOver"
+        :on-drag-leave-weekday="clearWeekdayDragOver"
         :on-create-day-task="createDayTask"
         :on-pointer-down="handleDashboardPointerDown"
         :on-pointer-move="handleDashboardPointerMove"
@@ -69,7 +82,6 @@
         :on-delete="deleteTask"
         :noop="noop"
         :noop-async="noopAsync"
-        :on-status-markers="updateStatusMarkers"
         :on-load-send-events="loadTaskSendEvents"
         :on-dismiss-send-marker="dismissSendMarker"
         :navigation-target="historyNavigationTarget"
@@ -84,8 +96,6 @@
         @history-change="loadHistory"
       />
 
-      <StatusUpdatesView v-else-if="activeTab === 'Status Updates'" />
-
       <SearchView
         v-else-if="activeTab === 'Search'"
         v-model:search-query="searchQuery"
@@ -93,7 +103,7 @@
         :has-searched="hasSearched"
         :is-searching="isSearching"
         :on-search-tasks="searchTasks"
-        :search-input-ref="searchInputRef"
+        :search-input-ref="element => searchInputRef = element"
         :noop="noop"
         :noop-async="noopAsync"
         :on-open-source="openSearchSource"
@@ -136,6 +146,9 @@
 </template>
 
 <script setup>
+import { installExternalLinkActivation } from "./utils/externalLinkActivation.js";
+import { installDayRollover } from "./utils/dayRollover.js";
+import { installPrivacy, privacyMode, revealPrivateTask } from "./composables/usePrivacy.js";
 import { formatDateKey } from "./utils/dateUtils.js";
 import { useWindowRole } from "./composables/useWindowRole.js";
 const { isHelperWindow } = useWindowRole();
@@ -151,10 +164,9 @@ import HistoryView from "./components/views/HistoryView.vue";
 import SearchView from "./components/views/SearchView.vue";
 import SettingsView from "./components/views/SettingsView.vue";
 import PeopleView from "./components/views/PeopleView.vue";
-import StatusUpdatesView from "./components/views/StatusUpdatesView.vue";
 import { fetchPeople } from "./api/people.js";
-import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople, setStatusMarkers } from "./api/taskSend.js";
-import { groupTasksByWeekday, isThisWeekCategory } from "./utils/categoryUtils.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople } from "./api/taskSend.js";
+import { categoryWeekGroups, isPlanningWeekCategory } from "./utils/categoryUtils.js";
 import { emptyContentDoc, emptyTitleDoc } from "./utils/taskUtils.js";
 import { DASHBOARD_NEW_PAGE } from "./utils/pageConstants.js";
 import { useHistory } from "./composables/useHistory.js";
@@ -173,7 +185,7 @@ import {
   restartForPendingRestore
 } from "./services/desktopLifecycle.js";
 
-const tabs = ["Dashboard", "People", "Status Updates", "History", "Search"];
+const tabs = ["Dashboard", "People", "Search", "History"];
 const activeTab = ref("Dashboard");
 const peopleDirectory = ref({ people: [], tags: [] });
 const searchReturnContext = ref(null);
@@ -224,6 +236,9 @@ const {
 } = useMaintenance();
 
 let removeTaskClipboard;
+let removeExternalLinks;
+let removePrivacy;
+let removeDayRollover;
 const peopleTaskHistory = { undo: [], redo: [] };
 const saveSummary = ref({ dirty: 0, saving: 0, failures: [] });
 const unsubscribeSaves = subscribeToSaveSummary(value => { saveSummary.value = value; });
@@ -238,6 +253,8 @@ const noopAsync = async () => false;
 
 onMounted(async () => {
   removeDesktopLifecycle = installDesktopLifecycle();
+  removeExternalLinks = installExternalLinkActivation();
+  removePrivacy = installPrivacy();
   removeTaskClipboard = taskClipboard.install(() => activeTab.value === 'Dashboard'
     ? { adapter: dashboardClipboard, snapshot: () => ({ page: 'dashboard:new', position: 0 }) }
     : activeTab.value === 'People' ? peopleViewRef.value?.clipboardTarget?.() : null);
@@ -264,7 +281,7 @@ onMounted(async () => {
   if (!startupSafety.value.recoveryMode) {
     initDayKey();
     pollTimer = setInterval(pollChanges, 750);
-    dayTimer = setInterval(handleDayTick, 60000);
+    removeDayRollover = installDayRollover(handleDayTick);
   }
 
   window.addEventListener("keydown", handleGlobalShortcut, true);
@@ -277,13 +294,13 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unsubscribeSaves();
   removeTaskClipboard?.();
+  removeExternalLinks?.();
+  removePrivacy?.();
+  removeDayRollover?.();
   removeDesktopLifecycle?.();
   removeDesktopLifecycle = null;
   if (pollTimer) {
     clearInterval(pollTimer);
-  }
-  if (dayTimer) {
-    clearInterval(dayTimer);
   }
   if (maintenanceTimer) {
     clearTimeout(maintenanceTimer);
@@ -296,6 +313,7 @@ onBeforeUnmount(() => {
 });
 
 watch(activeTab, (tab) => {
+  revealPrivateTask(null); // a task in the previous tab no longer owns focus
   if (tab === "History") {
     loadHistory();
   }
@@ -361,6 +379,7 @@ const selectTab = (tab) => {
   }
   clearSourceNavigation();
   activeTab.value = tab;
+  if (tab === "Search") nextTick(() => searchInputRef.value?.focus());
 };
 
 const openNewWindow = () => {
@@ -438,6 +457,9 @@ watch(focusContentTarget, (target) => {
 
 const {
   dragOver,
+  dragOverDay,
+  setWeekdayDragOver,
+  clearWeekdayDragOver,
   isDashboardDragging,
   startDrag,
   endDrag,
@@ -469,12 +491,12 @@ const { handleDashboardWheel, handleGlobalShortcut } = useKeyboardShortcuts({
   searchInputRef,
   dashboardColumnsRef,
   onOpenSearch: () => selectTab("Search"),
+  onSelectTab: selectTab,
   onUndo: () => activeTab.value === "People" ? peopleViewRef.value?.undo?.() : dashboardHistory(undo),
   onRedo: () => activeTab.value === "People" ? peopleViewRef.value?.redo?.() : dashboardHistory(redo)
 });
 
 let pollTimer = null;
-let dayTimer = null;
 let maintenanceTimer = null;
 const wheelOptions = { passive: false, capture: true };
 
@@ -520,8 +542,6 @@ const getTaskItemBindings = (task, list, options) => ({
   onFocusPrevTaskFromTitle: focusPrevTaskFromTitle,
   onFocusNextTaskFromContent: focusNextTaskFromContent,
   onDelete: deleteTask,
-  allowStatusMarkers: true,
-  onStatusMarkers: updateStatusMarkers,
   sendPeople: peopleDirectory.value.people.filter((person) => !person.archivedAt),
   sendTags: peopleDirectory.value.tags,
   onSendToPeople: sendToPeople,
@@ -534,18 +554,9 @@ const loadPeopleDirectory = async () => {
   catch { peopleDirectory.value = { people: [], tags: [] }; }
 };
 
-const updateStatusMarkers = async (task, title, content) => {
-  const response = await setStatusMarkers(task.id, { baseUpdatedAt: task.updatedAt, title, content });
-  task.title = title;
-  task.content = content;
-  task.updatedAt = response.updatedAt;
-  task.statusInputAt = response.statusInputAt;
-  return response;
-};
-
 const sendToPeople = async (task, personIds, tagIds) => {
   const response = await sendTaskToPeople(task.id, personIds, tagIds);
-  task.sendMarkerVisible = true;
+  if (response.created > 0) task.sendMarkerVisible = true;
   return response;
 };
 const loadTaskSendEvents = (task) => fetchTaskSendEvents(task.id);
@@ -588,6 +599,7 @@ const moveCompletedToHistory = async () => {
 
 <style src="./styles/app.css"></style>
 <style src="./styles/controls.css"></style>
+<style src="./styles/surfaces.css"></style>
 
 
 

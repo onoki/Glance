@@ -31,7 +31,7 @@ public sealed partial class TaskRepository
         await connection.OpenAsync(cancellationToken);
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now, scheduledDate, recurrenceJson, request.OwnerPersonId, statusInputAt, request.OriginLabel);
+        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now, scheduledDate, recurrenceJson, request.OwnerPersonId, statusInputAt, request.OriginLabel, request.IsPrivate);
         await UpdateSearchAsync(connection, transaction, taskId, request.Title, request.Content, cancellationToken);
         await InsertChangeAsync(connection, transaction, taskId, "create", now);
         await transaction.CommitAsync(cancellationToken);
@@ -89,7 +89,7 @@ public sealed partial class TaskRepository
         var updated = await UpdateTaskAsync(
             connection, transaction, taskId, newPage, newTitleText, newTitleJson.GetRawText(),
             newContentJson, newPosition, now, newScheduledDate, newRecurrenceJson,
-            newStatusInputAt, request.BaseUpdatedAt);
+            newStatusInputAt, request.BaseUpdatedAt, request.IsPrivate ?? existing.IsPrivate);
         if (updated == 0)
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -123,8 +123,9 @@ public sealed partial class TaskRepository
             command.Transaction = transaction;
             command.CommandText = """
                 UPDATE tasks
-                SET completed_at = $completedAt,
-                    updated_at = $updatedAt
+                SET completed_at = CASE WHEN $completedAt IS NULL THEN NULL ELSE COALESCE(completed_at, $completedAt) END,
+                    history_archived_at = CASE WHEN $completedAt IS NULL THEN NULL ELSE history_archived_at END,
+                    updated_at = MAX(updated_at + 1, $updatedAt)
                 WHERE id = $id
                   AND deleted_at IS NULL;
                 """;
@@ -132,6 +133,9 @@ public sealed partial class TaskRepository
             command.Parameters.AddWithValue("$updatedAt", now);
             command.Parameters.AddWithValue("$id", taskId);
             await command.ExecuteNonQueryAsync(cancellationToken);
+            command.CommandText = "SELECT completed_at FROM tasks WHERE id = $id AND deleted_at IS NULL;";
+            var retainedTimestamp = await command.ExecuteScalarAsync(cancellationToken);
+            completedAt = retainedTimestamp is long timestamp ? timestamp : null;
         }
 
         await InsertChangeAsync(connection, transaction, taskId, "complete", now);
@@ -349,12 +353,12 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0))
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.page = $page
               AND t.deleted_at IS NULL
-              AND (t.completed_at IS NULL OR t.completed_at >= $startOfToday)
+              AND (t.completed_at IS NULL OR (t.completed_at >= $startOfToday AND t.history_archived_at IS NULL))
             ORDER BY t.position ASC;
             """;
         command.Parameters.AddWithValue("$page", page);
@@ -379,12 +383,12 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0))
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.page = $page
               AND t.deleted_at IS NULL
-              AND (t.completed_at IS NULL OR t.completed_at >= $startOfToday)
+              AND (t.completed_at IS NULL OR (t.completed_at >= $startOfToday AND t.history_archived_at IS NULL))
             ORDER BY t.position ASC;
             """;
         command.Parameters.AddWithValue("$page", TaskPages.DashboardMain);
@@ -409,7 +413,7 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0))
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.completed_at IS NOT NULL

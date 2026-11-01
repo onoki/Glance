@@ -1,3 +1,4 @@
+import { applyTaskHistory, taskRevision } from "../utils/taskHistory.js";
 import { horizontalTaskTarget } from "../utils/taskNavigation.js";
 import { indentTaskDocuments, joinTaskDocuments, createTaskActionQueue } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
@@ -66,25 +67,28 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   const mergeDirtyTasks = (incoming) => incoming.map((task) => dirtySnapshots.get(task.id) || task);
   const resolveTask = (task) => dirtySnapshots.get(task.id) || task;
 
-  const positionAfter = (task) => {
+  const positionAfter = (task, before = false) => {
     const index = task ? tasks.value.findIndex((item) => item.id === task.id) : tasks.value.length - 1;
     const previous = index >= 0 ? tasks.value[index] : null;
-    const next = index >= 0 ? tasks.value[index + 1] : null;
+    const next = index >= 0 ? tasks.value[index + (before ? -1 : 1)] : null;
     if (previous && next) return (previous.position + next.position) / 2;
-    if (previous) return previous.position + 1;
+    if (previous) return previous.position + (before ? -1 : 1);
     return Date.now();
   };
 
-  const createTaskBelow = async (sourceTask = null, ...args) => {
+  const createTaskBelowInternal = async (sourceTask = null, ...args) => {
     const overrides = args[1] || null;
+    const options = args[2] || {};
+    if (!(await saveCoordinator.flushAll()).ok) return null;
     const personId = selectedPersonId.value;
     if (!personId) return null;
     const payload = {
       page: PEOPLE_PAGE,
       title: normalizeTitle(overrides?.title ?? emptyTitleDoc()),
       content: normalizeContent(overrides?.content ?? emptyContentDoc()),
-      position: positionAfter(sourceTask),
-      ownerPersonId: personId
+      position: positionAfter(sourceTask, options.before),
+      ownerPersonId: personId,
+      isPrivate: !!sourceTask?.isPrivate
     };
     const response = await createTask(payload);
     if (selectedPersonId.value !== personId) return response.taskId;
@@ -97,10 +101,16 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     }));
     sortTasks();
     persistedTasks.set(response.taskId, cloneTask(tasks.value.find((task) => task.id === response.taskId)));
-    focusTaskId.value = overrides?.titleSelection
+    if (options.before) {
+      undoStack.push({ type: 'create', task: cloneTask(tasks.value.find(task => task.id === response.taskId)), sourceId: sourceTask.id });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    }
+    focusTaskId.value = options.before ? { taskId: sourceTask.id, selection: { from: 1, to: 1 } } : overrides?.titleSelection
       ? { taskId: response.taskId, selection: overrides.titleSelection } : response.taskId;
     return response.taskId;
   };
+  const createTaskBelow = queueTaskAction(createTaskBelowInternal);
 
   const ensureBlankTask = async (personId) => {
     if (!personId || selectedPersonId.value !== personId) return;
@@ -108,7 +118,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     if (creatingBlankFor === personId) return;
     creatingBlankFor = personId;
     try {
-      await createTaskBelow();
+      await createTaskBelowInternal();
     } finally {
       if (creatingBlankFor === personId) creatingBlankFor = null;
     }
@@ -145,19 +155,21 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     const before = stored ? cloneTask(stored) : null;
     const title = normalizeTitle(payload.title);
     const content = normalizeContent(payload.content);
+    const isPrivate = payload.isPrivate ?? stored?.isPrivate ?? false;
     const response = await updateTask(payload.id, {
       baseUpdatedAt: payload.baseUpdatedAt,
       title,
       content,
+      isPrivate,
       page: PEOPLE_PAGE
     });
     const task = tasks.value.find((item) => item.id === payload.id);
-    if (task) Object.assign(task, { title, content, updatedAt: response.updatedAt });
+    if (task) Object.assign(task, { title, content, isPrivate, updatedAt: response.updatedAt });
     const dirtySnapshot = dirtySnapshots.get(payload.id);
     if (dirtySnapshot) dirtySnapshot.updatedAt = response.updatedAt;
     if (task) persistedTasks.set(task.id, cloneTask(task));
-    if (before && !payload.suppressUndo && (JSON.stringify(before.title) !== JSON.stringify(title) || JSON.stringify(before.content) !== JSON.stringify(content))) {
-      undoStack.push({ type: "edit", task: before, after: cloneTask({ ...before, title, content, updatedAt: response.updatedAt }) });
+    if (before && !payload.suppressUndo && (JSON.stringify(before.title) !== JSON.stringify(title) || JSON.stringify(before.content) !== JSON.stringify(content) || !!before.isPrivate !== isPrivate)) {
+      undoStack.push({ type: "edit", task: before, after: cloneTask({ ...before, title, content, isPrivate, updatedAt: response.updatedAt }) });
       if (undoStack.length > undoLimit) undoStack.shift();
       redoStack.length = 0;
     }
@@ -165,12 +177,17 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return response;
   };
 
-  const removeTask = async (task, options = {}) => {
+  const removeTask = queueTaskAction(async (task, options = {}) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before deleting the note.");
     const current = resolveTask(task);
+    if (dirtySnapshots.has(task.id)) {
+      const saved = await saveTask({ ...current, baseUpdatedAt: taskRevision(current), suppressUndo: true });
+      current.updatedAt = saved.updatedAt;
+    }
     const index = tasks.value.findIndex((item) => item.id === task.id);
     const previous = index > 0 ? tasks.value[index - 1] : null;
     const next = tasks.value[index + 1];
-    await deleteTask(task.id);
+    await deleteTask(task.id, taskRevision(current));
     saveCoordinator.forget(task.id);
     if (options.recordUndo !== false) pushDeleteUndo(current);
     dirtySnapshots.delete(task.id);
@@ -179,119 +196,52 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       ? { taskId: next.id, selection: { from: 1, to: 1 } } : previous?.id || null;
     await ensureBlankTask(selectedPersonId.value);
     onHistoryChange?.();
+  });
+
+  const historyDiffs = entry => {
+    const diff = (before, after) => ({ id: (before || after).id, before, after });
+    if (entry.type === 'merge') return [diff(entry.task, entry.after), diff(entry.source, null)];
+    if (entry.type === 'split') return [diff(entry.source, entry.afterSource), diff(null, entry.task)];
+    if (entry.type === 'edit') return [diff(entry.task, entry.after)];
+    return entry.type === 'create' ? [diff(null, entry.task)] : [diff(entry.task, null)];
   };
 
-  const undo = queueTaskAction(async () => {
-    const entry = undoStack.pop();
-    if (!entry) return false;
+  const applyHistory = async (entry, direction) => {
+    if (!(await saveCoordinator.flushAll()).ok) return false;
+    selectedPersonId.value = entry.clipboard ? entry.personId : entry.task.ownerPersonId;
     try {
-      if (entry.clipboard) {
-        selectedPersonId.value = entry.personId;
-        await entry.clipboard.undo();
-        await loadTasks();
-        redoStack.push(entry);
-        return true;
-      }
-      selectedPersonId.value = entry.task.ownerPersonId;
-      if (entry.type === "merge") {
-        // Restore the source first: a later failed save must never discard text.
-        const restored = await restoreTask(entry.source.id);
-        await updateTask(entry.source.id, {
-          baseUpdatedAt: restored.updatedAt,
-          title: entry.source.title, content: entry.source.content, page: PEOPLE_PAGE,
-          position: entry.source.position
-        });
-        await applyEditHistory(entry.task, entry.after);
-        redoStack.push(entry);
-        return true;
-      }
-      if (entry.type === "edit") {
-        await applyEditHistory(entry.task, entry.after);
-        redoStack.push(entry);
-        return true;
-      }
-      const restored = await restoreTask(entry.task.id);
-      await updateTask(entry.task.id, {
-        baseUpdatedAt: restored.updatedAt,
-        title: normalizeTitle(entry.task.title),
-        content: normalizeContent(entry.task.content),
-        page: entry.task.page,
-        position: entry.task.position,
-        scheduledDate: entry.task.scheduledDate ?? null,
-        recurrence: entry.task.recurrence ?? null
+      if (entry.clipboard) return await entry.clipboard[direction]();
+      return await applyTaskHistory(historyDiffs(entry), direction, {
+        fetchTasks: async () => (await fetchPersonTasks(selectedPersonId.value)).tasks.map(normalizeTask),
+        resolveId: diff => diff.id, restoreTask, updateTask, deleteTask,
+        forget: id => saveCoordinator.forget(id)
       });
-      redoStack.push(entry);
+    } finally {
       await loadTasks();
-      focusTaskId.value = entry.task.id;
+      undoSignal.value += 1;
+      const focusId = entry.type === 'create' ? entry.sourceId
+        : entry.type === 'split' && direction === 'undo' ? entry.source.id : entry.task?.id;
+      focusTaskId.value = tasks.value.some(task => task.id === focusId)
+        ? entry.type === 'create' ? { taskId: focusId, selection: { from: 1, to: 1 } } : focusId : null;
       onHistoryChange?.();
-      return true;
-    } catch (error) {
-      undoStack.push(entry);
-      throw error;
     }
-  });
+  };
 
-  const redo = queueTaskAction(async () => {
-    const entry = redoStack.pop();
+  const changeHistory = (from, to, direction) => queueTaskAction(async () => {
+    const entry = from.pop();
     if (!entry) return false;
     try {
-      if (entry.clipboard) {
-        selectedPersonId.value = entry.personId;
-        await entry.clipboard.redo();
-        await loadTasks();
-        undoStack.push(entry);
-        return true;
-      }
-      selectedPersonId.value = entry.task.ownerPersonId;
-      if (entry.type === "merge") {
-        const response = await fetchPersonTasks(entry.source.ownerPersonId);
-        const source = response.tasks.find(task => task.id === entry.source.id);
-        if (!source || JSON.stringify(normalizeTitle(source.title)) !== JSON.stringify(entry.source.title) ||
-            JSON.stringify(normalizeContent(source.content)) !== JSON.stringify(entry.source.content)) {
-          throw new Error("The source note changed elsewhere. Redo was stopped to preserve its text.");
-        }
-        await applyEditHistory(entry.after, entry.task);
-        await deleteTask(entry.source.id);
-    saveCoordinator.forget(entry.source.id);
-        await loadTasks();
-        undoStack.push(entry);
-        return true;
-      }
-      if (entry.type === "edit") {
-        await applyEditHistory(entry.after, entry.task);
-        undoStack.push(entry);
-        return true;
-      }
-      await deleteTask(entry.task.id);
-    saveCoordinator.forget(entry.task.id);
-      dirtySnapshots.delete(entry.task.id);
-      undoStack.push(entry);
-      await loadTasks();
-      onHistoryChange?.();
-      return true;
+      const applied = await applyHistory(entry, direction);
+      if (applied) to.push(entry);
+      else from.push(entry);
+      return applied;
     } catch (error) {
-      redoStack.push(entry);
+      from.push(entry);
       throw error;
     }
   });
-
-  const applyEditHistory = async (snapshot, expected) => {
-    const response = await fetchPersonTasks(snapshot.ownerPersonId);
-    const current = response.tasks.find((task) => task.id === snapshot.id);
-    if (!current) throw new Error("This note is no longer available to undo or redo.");
-    if (JSON.stringify(normalizeTitle(current.title)) !== JSON.stringify(expected.title) ||
-        JSON.stringify(normalizeContent(current.content)) !== JSON.stringify(expected.content)) {
-      throw new Error("This note changed elsewhere. Undo or redo was stopped to preserve the newer text.");
-    }
-    await updateTask(snapshot.id, {
-      baseUpdatedAt: current.updatedAt,
-      title: normalizeTitle(snapshot.title), content: normalizeContent(snapshot.content), page: PEOPLE_PAGE
-    });
-    dirtySnapshots.delete(snapshot.id);
-    await loadTasks();
-    undoSignal.value += 1;
-    focusTaskId.value = snapshot.id;
-  };
+  const undo = changeHistory(undoStack, redoStack, 'undo');
+  const redo = changeHistory(redoStack, undoStack, 'redo');
 
   const toggleComplete = async (task) => {
     const current = resolveTask(task);
@@ -321,19 +271,24 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     if (index <= 0) return false;
     const previous = cloneTask(resolveTask(tasks.value[index - 1]));
     const current = cloneTask(resolveTask(tasks.value[index]));
+    if (dirtySnapshots.has(current.id)) {
+      const saved = await saveTask({ ...current, baseUpdatedAt: current.updatedAt, suppressUndo: true });
+      current.updatedAt = saved.updatedAt;
+    }
     const { content, listIndex } = indentTaskDocuments(previous, current);
     await saveTask({
       id: previous.id,
       title: previous.title,
       content,
+      isPrivate: !!(previous.isPrivate || current.isPrivate),
       baseUpdatedAt: previous.updatedAt,
       suppressUndo: true
     });
-    await deleteTask(current.id, current.updatedAt);
-    saveCoordinator.forget(current.id);
     undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
     if (undoStack.length > undoLimit) undoStack.shift();
     redoStack.length = 0;
+    await deleteTask(current.id, taskRevision(current));
+    saveCoordinator.forget(current.id);
     dirtySnapshots.delete(current.id);
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
     focusContentTarget.value = {
@@ -356,12 +311,16 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     else focusTaskId.value = target;
   };
 
-  const mergeTaskToPrevious = async (task, forward = false) => {
+  const mergeTaskToPrevious = queueTaskAction(async (task, forward = false) => {
     if (!(await saveCoordinator.flushAll()).ok) return false;
     const index = tasks.value.findIndex((item) => item.id === task.id) + (forward ? 1 : 0);
     if (index <= 0 || index >= tasks.value.length) return false;
     const previous = cloneTask(resolveTask(tasks.value[index - 1]));
     const current = cloneTask(resolveTask(tasks.value[index]));
+    if (dirtySnapshots.has(current.id)) {
+      const saved = await saveTask({ ...current, baseUpdatedAt: taskRevision(current), suppressUndo: true });
+      current.updatedAt = saved.updatedAt;
+    }
     const joined = joinTaskDocuments(previous, current);
     const mergedTitle = joined.title;
     const mergedContent = joined.content;
@@ -369,14 +328,15 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       id: previous.id,
       title: mergedTitle,
       content: mergedContent,
+      isPrivate: !!(previous.isPrivate || current.isPrivate),
       baseUpdatedAt: previous.updatedAt,
       suppressUndo: true
     });
-    await deleteTask(current.id);
-    saveCoordinator.forget(current.id);
     undoStack.push({ type: "merge", task: previous, source: current, after: cloneTask(persistedTasks.get(previous.id)) });
     if (undoStack.length > undoLimit) undoStack.shift();
     redoStack.length = 0;
+    await deleteTask(current.id, taskRevision(current));
+    saveCoordinator.forget(current.id);
     dirtySnapshots.delete(current.id);
     tasks.value = tasks.value.filter((item) => item.id !== current.id);
     focusTaskId.value = null;
@@ -385,21 +345,40 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     else focusTaskId.value = { taskId: previous.id, selection: joined.selection };
     if (current.completedAt) onHistoryChange?.();
     return true;
-  };
+  });
 
   const focusPreviousTask = (task, intent) => navigateHorizontal(task, -1, intent);
 
   const focusNextTask = (task, intent) => navigateHorizontal(task, 1, intent);
 
-  const splitSubcontentToNewTask = (task, payload) => createTaskBelow(task, null, {
-    title: payload?.title ?? emptyTitleDoc(),
-    titleSelection: payload?.titleSelection,
-    content: payload?.content ?? emptyContentDoc()
+  const splitSubcontentToNewTask = (task, payload) => splitTitleToNewTask(task, null, {
+    newTitle: payload?.title, newContent: payload?.content,
+    titleSelection: payload?.titleSelection, commitSource: payload?.commitSource
   });
 
-  const splitTitleToNewTask = (task, _categoryId, payload) => createTaskBelow(task, null, {
-    title: payload?.newTitle ?? emptyTitleDoc(),
-    content: payload?.newContent ?? emptyContentDoc()
+  const splitTitleToNewTask = queueTaskAction(async (task, _categoryId, payload) => {
+    if (!(await saveCoordinator.flushAll()).ok) return null;
+    const source = cloneTask(resolveTask(tasks.value.find(row => row.id === task.id) || task));
+    const newId = await createTaskBelowInternal(source, null, {
+      title: payload?.newTitle ?? emptyTitleDoc(), content: payload?.newContent ?? emptyContentDoc(), titleSelection: payload?.titleSelection
+    });
+    if (!newId) return null;
+    const created = cloneTask(persistedTasks.get(newId));
+    try {
+      if (payload?.commitSource && await payload.commitSource() === false) {
+        throw new Error('The new note is saved, but the original could not be updated. Both versions have been kept.');
+      }
+    } catch (error) {
+      undoStack.push({ type: 'create', task: created, sourceId: source.id });
+      redoStack.length = 0;
+      throw error;
+    }
+    if (payload?.commitSource) {
+      undoStack.push({ type: 'split', task: created, source, afterSource: cloneTask(persistedTasks.get(source.id)) });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    }
+    return newId;
   });
 
   const startDrag = (task, event) => {

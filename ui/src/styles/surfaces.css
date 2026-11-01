@@ -1,0 +1,110 @@
+/* Visual hierarchy from the font comparison, at Glance's existing density.
+   Decorations never add task borders/padding or change text during focus. */
+#app :is(h1, h2, h3, h4):not(.ProseMirror *) {
+  color: var(--text-title);
+  font-weight: var(--weight-heading);
+  font-style: normal;
+  font-size: var(--font-size-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#app .top-nav {
+  border-bottom: 1px solid var(--border-panel);
+  background: var(--bg-header);
+}
+#app .brand { font-weight: 400; letter-spacing: 0; text-transform: none; }
+#app .brand-version { font-weight: 400; }
+#app .top-nav .tab, #app .people-tabs .tab {
+  background: transparent;
+  border-color: transparent;
+}
+#app :is(.top-nav, .people-tabs) .tab:not(:disabled):hover {
+  background: var(--bg-tab-hover);
+}
+#app :is(.top-nav, .people-tabs) .tab.active {
+  background: var(--bg-tab-active);
+  box-shadow: inset 0 -2px var(--focus-outline);
+}
+/* Keep zoom a single compact group, with no extra gap or button dimensions. */
+#app .zoom-controls button { border-color: transparent; }
+#app .zoom-controls button:not(:first-child):not(:last-child) { border-radius: 0; }
+#app .zoom-controls button:first-child { border-radius: var(--radius-control) 0 0 var(--radius-control); }
+#app .zoom-controls button:last-child { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
+
+#app .dashboard .list-card, #app .person-panel,
+#app .search-view, #app .history-view { background: var(--bg-panel); }
+#app .dashboard-column:not(:first-child)::before { top: 0; bottom: 0; background: var(--border-soft); }
+#app .column-header {
+  background: var(--bg-panel);
+  box-shadow: inset 0 -1px var(--border-soft);
+}
+#app .column-header .task-icon-button, #app .weekday-add {
+  border-color: transparent;
+  background: transparent;
+}
+#app :is(.column-header .task-icon-button, .weekday-add):not(:disabled):hover {
+  background: var(--bg-tab-hover);
+}
+#app .weekday-header {
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* One task rhythm and indent in editable and read-only lists. This reduces
+   the former Search/History row padding and reclaims excess bullet indentation. */
+#app .task-item { padding: 1px 0; }
+#app .task-item .ProseMirror :is(ul, ol) { margin: 0; padding-left: 12px; }
+#app .task-check span { width: 10px; height: 10px; }
+#app .task-check span, #app .task-check input:checked + span::after { border-radius: 1px; }
+#app .task-check input:focus-visible + span { outline: 2px solid var(--focus-outline); outline-offset: 1px; }
+#app .task-item .ProseMirror a { color: var(--focus-outline); }
+#app .task-action-strip button { border-radius: var(--radius-small); }
+#app .task-action-strip button[aria-pressed="true"],
+#app .task-action-strip button[aria-expanded="true"] { background: var(--bg-tab-active); }
+#app .task-meta-labels > span { border-radius: var(--radius-small); }
+
+#app :is(.floating-menu, .tag-menu-panel) {
+  border-radius: var(--radius-control);
+  box-shadow: var(--menu-shadow);
+}
+#app strong.task-popover-title, #app .tag-menu-panel > strong {
+  font-weight: var(--weight-heading);
+  color: var(--text-title);
+}
+#app .floating-menu .category-option { border-color: transparent; text-align: left; }
+#app .send-confirm { background: var(--bg-tab-active); }
+#app .person-tags-menu[open] > .tag-summary { background: var(--bg-tab-active); }
+#app :is(.danger-button, .delete-task, button[title="Delete tag"]):not(:disabled):hover {
+  color: #a02020;
+  background: #fff0f0;
+}
+
+#app :is(input[type="text"], input[type="search"], input[type="number"], input[type="date"], select) {
+  min-height: 16px;
+  height: 16px;
+  line-height: 12px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--radius-small);
+  background: var(--bg-panel);
+  color: var(--text-main);
+}
+#app :is(.search-result, .settings-card, .settings-subsection + .settings-subsection) { border-color: var(--border-soft); }
+#app .settings-card { border-radius: var(--radius-control); }
+#app .settings-subsection h3 { font-weight: 500; }
+#app .settings-card h2 { border-color: var(--border-soft); }
+#app .history-activity > summary { color: var(--text-title); }
+#app .chart-bars { background: repeating-linear-gradient(to top, var(--border-soft) 0 1px, transparent 1px 25%); }
+#app .chart-bar { min-height: 0; border-radius: 1px 1px 0 0; }
+#app .chart-bar.has-completions { min-height: 2px; }
+#app .workspace-feedback { border-radius: var(--radius-control); box-shadow: var(--menu-shadow); }
+
+/* The legacy mobile rule added 20px around every view. Keep narrow windows
+   just as dense, and let existing wrapped navigation retain its 1px gaps. */
+@media (max-width: 700px) {
+  #app .content { padding: 0; }
+  #app .top-nav { gap: 2px; flex-direction: row; align-items: center; }
+}

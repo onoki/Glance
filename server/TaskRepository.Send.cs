@@ -42,6 +42,7 @@ public sealed partial class TaskRepository
         var recipients = new List<(string Id, string Name)>();
         foreach (var personId in personIds)
         {
+            if (personId == source.OwnerPersonId) continue;
             await using var person = connection.CreateCommand();
             person.CommandText = "SELECT display_name FROM people WHERE id = $id AND archived_at IS NULL;";
             person.Parameters.AddWithValue("$id", personId);
@@ -51,11 +52,22 @@ public sealed partial class TaskRepository
                 recipients.Add((personId, name));
             }
         }
-        if (recipients.Count == 0)
+        var includeDashboard = request.IncludeDashboard && source.OwnerPersonId is not null;
+        if (recipients.Count == 0 && !includeDashboard)
         {
             return new TaskSendResponse(0, Array.Empty<string>());
         }
 
+        var originLabel = "From Dashboard";
+        if (!string.IsNullOrWhiteSpace(source.OwnerPersonId))
+        {
+            await using var owner = connection.CreateCommand();
+            owner.CommandText = "SELECT display_name FROM people WHERE id = $id;";
+            owner.Parameters.AddWithValue("$id", source.OwnerPersonId);
+            var ownerName = await owner.ExecuteScalarAsync(token) as string ?? "People";
+            originLabel = $"From {ownerName}";
+        }
+        var direction = source.OwnerPersonId is null ? "dashboard-to-people" : "people-to-people";
         var title = StatusMarkerExtractor.RemoveMarkers(ParseTitleJson(source.TitleJson, source.TitleText));
         using var contentDocument = JsonDocument.Parse(source.ContentJson);
         var content = StatusMarkerExtractor.RemoveMarkers(contentDocument.RootElement);
@@ -94,14 +106,25 @@ public sealed partial class TaskRepository
                 null,
                 recipient.Id,
                 null,
-                "From Dashboard");
+                originLabel, source.IsPrivate);
             await UpdateSearchAsync(connection, transaction, taskId, title, content, token);
             await InsertChangeAsync(connection, transaction, taskId, "create", now);
             createdIds.Add(taskId);
         }
+        if (includeDashboard)
+        {
+            var taskId = Guid.NewGuid().ToString("D");
+            await InsertTaskAsync(connection, transaction, taskId, TaskPages.DashboardNew,
+                TaskTextExtractor.ExtractPlainText(title), title.GetRawText(), content.GetRawText(),
+                now + recipients.Count, now, null, null, null, null, originLabel, source.IsPrivate);
+            await UpdateSearchAsync(connection, transaction, taskId, title, content, token);
+            await InsertChangeAsync(connection, transaction, taskId, "create", now);
+            await InsertSendEventAsync(connection, transaction, sourceTaskId, "dashboard", null, "Dashboard", "people-to-dashboard", now);
+            createdIds.Add(taskId);
+        }
         foreach (var destination in auditDestinations)
         {
-            await InsertSendEventAsync(connection, transaction, sourceTaskId, destination.Kind, destination.Id, destination.Label, "dashboard-to-people", now);
+            await InsertSendEventAsync(connection, transaction, sourceTaskId, destination.Kind, destination.Id, destination.Label, direction, now);
         }
         await InsertChangeAsync(connection, transaction, sourceTaskId, "send", now);
         await transaction.CommitAsync(token);
@@ -147,7 +170,7 @@ public sealed partial class TaskRepository
             null,
             null,
             null,
-            $"From {sourceName}");
+            $"From {sourceName}", source.IsPrivate);
         await UpdateSearchAsync(connection, transaction, taskId, title, content, token);
         await InsertSendEventAsync(connection, transaction, sourceTaskId, "dashboard", null, "Dashboard", "people-to-dashboard", now);
         await InsertChangeAsync(connection, transaction, taskId, "create", now);

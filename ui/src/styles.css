@@ -5,6 +5,7 @@
   font-family: var(--font-ui);
   background: var(--bg-app);
   color: var(--text-main);
+  accent-color: var(--text-main);
 }
 
 * {
@@ -28,6 +29,11 @@ button,
 input,
 textarea {
   font-family: inherit;
+}
+
+a {
+  color: var(--focus-outline);
+  text-decoration: underline;
 }
 
 .rich-editor {
@@ -80,7 +86,7 @@ textarea {
 
 .rich-editor, .editor-surface { min-width: 0; max-width: 100%; }
 .ProseMirror:not(:focus) .compact-url { font-size: 0; }
-.ProseMirror:not(:focus) .compact-url::after { content: attr(data-short-label); font-size: var(--font-size-body, 11px); }
+.ProseMirror:not(:focus) .compact-url::after { content: attr(data-short-label); font-size: var(--font-size-body); }
 
 .ProseMirror p {
   margin: 0;

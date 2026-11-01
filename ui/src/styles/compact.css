@@ -1,50 +1,69 @@
 /* =========================
-   BigBlue TerminalPlus - Compact UI
+   IBM Plex Sans - Compact Notepad UI
    ========================= */
 
 /* 1) Font loading */
 @font-face {
-  font-family: "BigBlue TerminalPlus";
-  src: url("/assets/fonts/BigBlue_TerminalPlus.ttf") format("truetype");
-  font-weight: normal;
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+  font-weight: 100 700;
   font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/IBMPlexSans-Italic.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: italic;
+  font-display: swap;
 }
   
   /* 2) Global variables */
 :root {
-  --font-ui: "BigBlue TerminalPlus", sans-serif;
+  --font-ui: "IBM Plex Sans", sans-serif;
 
-  --font-size-body: 8px;
-  --font-size-meta: 8px;
-  --font-size-title: 8px;
+  --font-size-body: 7px;
+  --font-size-meta: 7px;
+  --font-size-title: 7px;
 
-  --line-height-body: 1.25;
+  --line-height-body: 1.35;
 
   --pad-xs: 1px;
   --pad-sm: 2px;
   --pad-md: 4px;
 
-  --bg-app: #f2f4f6;
-  --bg-panel: #eef1f4;
-  --bg-header: #e6ebf0;
-  --bg-tab-active: #ccd3da;
+  --bg-app: #fafafa;
+  --bg-panel: #ffffff;
+  --bg-header: #fafafa;
+  --bg-helper-header: #f0f0f0;
+  --bg-tab-active: #e5e5e5;
+  --bg-tab-hover: #ededed;
   --bg-warning: #efe3c8;
   --bg-warning-soft: #e7d5aa;
 
-  --text-main: #1a1d21;
-  --text-muted: #5b636b;
+  --text-main: #1a1a1a;
+  --text-muted: #5a5a5a;
   --text-title: var(--text-main);
-  --text-invert: #f7f8f9;
+  --text-invert: #fafafa;
   --text-warning: #574735;
 
-  --border-panel: #b7bec6;
+  --border-panel: #cccccc;
   --border-warning: #cbb688;
-  --focus-outline: #2b5d8a;
+  --focus-outline: #202020;
+  --border-soft: #e3e3e3;
+  --radius-control: 3px;
+  --radius-small: 2px;
+  --weight-heading: 600;
+  --menu-shadow: 0 2px 8px #00000014;
 }
   
   /* 3) Global application text */
 body {
   font-family: var(--font-ui);
+  font-size: var(--font-size-body);
+  font-weight: 400;
+  line-height: var(--line-height-body);
 }
 
 /* 4) Panels only (structure borders) */

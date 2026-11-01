@@ -1,35 +1,36 @@
-# Button inventory and harmonization proposal
+# Compact visual system
 
-Status: accepted and implemented via `ui/src/styles/controls.css`. The inventory below records the previous styles for reference.
-Inventory based on the Glance source, September 2026.
+The accepted style follows the IBM Plex Sans / Notepad font comparison. Glance uses visual hierarchy, restrained curves and thin separators while retaining its information density.
 
-## Current styles
+## Typography and surfaces
 
-- **Navigation tabs** (`.tab`, `.person-tab`): compact text, thin square border, transparent background; selected tabs have a pale filled background. Person tabs add a grip and tag dots. Base and compact styles both define these rules.
-- **Filled action buttons** (`.add-task`): dark fill, light text, no border, 3px × 6px padding, usually weight 600. Used for Search, backups, update installation, status downloads and adding a person. Settings reduces their size; People now uses the common app font at weight 400.
-- **Outlined text actions** (`.ghost`): square thin border, transparent fill, 12px text and 2px × 6px padding. Used for Expand, Rename, Archive, refresh and other secondary actions. Settings overrides them to 10px with 1px × 4px padding. The Tags disclosure has separate rules to imitate this style.
-- **Task icon buttons** (`.task-icon-button` / `.task-tool`): 18px squares, panel-colored fill, thin border, small muted icons. Status and sent indicators add their own active colors.
-- **Menu action buttons** (`.category-option`): panel fill, thin border, left-aligned 11.2px text, 2px × 6px padding. Used for category selection and send/history menu commands.
-- **Small borderless actions** (`.tiny-action`): 10px muted text with 1px × 2px padding, used for Rename/Delete inside the tag menu.
-- **Weekday toggles** (`.weekday-chip`): 11.2px text, panel fill, thin border, 2px × 6px padding. Selected days use dark fill and light text, unlike selected navigation tabs.
-- **Destructive action** (`.danger-button`): red text and border, transparent fill, 10px text with 1px × 4px padding; used for whole-state restore. Task deletion and tag deletion currently use different visual treatments.
-- **Warning/retry actions**: the warning-dismiss control is borderless and bold; task save/retry buttons have panel fill, a border and their own inherited 11.52px typography.
-- **Empty-list entry target** (`.empty-new`): dashed border, a larger click area and a text cursor. It looks like a button but acts as an empty editor, so its distinct appearance has a purpose.
+- Use IBM Plex Sans at 7 CSS px and 1.35 line height in all views. Plain task titles and subcontent share identical typography. Genuine rich-text bold/italic remains available; synthesis stays disabled.
+- Section, column, person and History date headings use the genuine 600 weight at the same size, with sentence case and normal letter spacing. Settings subsection headings use 500. Ordinary controls and navigation remain 400, including selected tabs, so selection cannot change text width or wrapping.
+- Retain the Notepad palette: #fafafa chrome, #ffffff task surfaces, #1a1a1a text, #5a5a5a secondary text, #cccccc control borders, #e5e5e5 selection and #202020 focus/link accents. Quieter structural separators use #e3e3e3. Semantic warning, danger, tag and rich-text highlight colors retain their meaning.
+- Use white task surfaces with subtle column/header separators. History uses quiet chart gridlines; zero-completion days have zero-height bars, while positive counts retain a visible minimum. Helper windows retain their slightly darker header and plain Helper window label.
 
-There are also dormant variants: the rich-text toolbar's `.tool` buttons (larger padding and inverted active state; toolbar is disabled by default), and the unreferenced `TaskItemActions.vue` component's older `.task-action` / drag-handle styles.
+## Shared controls
 
-## Recommended shared system
+Use the same base geometry with three variants:
 
-Use one base component/style with **three visual variants**:
+1. **Neutral** for ordinary commands, menus and task tools: a thin border and small 3px corner radius; task tools and text fields use 2px corners.
+2. **Emphasized** for main commands or selected controls. Main commands retain legible light text on a dark hover background. Selected navigation uses pale fill and an inset 2px bottom rule; inactive navigation drops its visible border without changing its dimensions.
+3. **Danger** for destructive actions: red text/border and a restrained pale-red hover, with the same confirmation rules.
 
-1. **Neutral** — the default for normal actions, tabs, menus and task tools. Thin square border, panel background, common app font, regular weight.
-2. **Emphasized** — a filled variation for a selected tab/toggle or an occasional main action. Keep the same font, border width and dimensions as neutral; do not use bold to convey selection.
-3. **Danger** — the same base geometry with red text/border for destructive or whole-state replacement actions. Keep the existing confirmation behavior.
+Keep 16px minimum command targets, existing 20px header icons, and existing button padding. Navigation and header tools retain 1px gaps. Zoom remains a single compact group. Text/search fields and selects align to the same 16px control height; the search field's former excess padding is reduced. All hover rules exclude disabled controls; keyboard focus remains explicit.
 
-Use one compact height (suggestion: 16px) and `--font-size-meta` for button text throughout, including Settings. An icon-only button is just a square shape option of the same base style, with an accessible name and tooltip. Menu entries can stretch horizontally without becoming another visual style. The Tags disclosure should use the same base rules as Rename and Archive.
+Menus use the same small radius and a subtle shadow. Menu headings use 600 weight; recipient and command labels stay regular. Send confirmation stays outside its scrolling recipient body. Keep the empty-editor insertion target distinct from commands and preserve its 64px hit area.
 
-Share hover, keyboard-focus, pressed, disabled and loading rules. Preserve clear selected/pressed semantics; remove the duplicated per-view font and padding overrides. Keep the empty-editor target distinct because it represents an insertion point, not a command. Retire unused button styles after checking their references.
+## Task ownership and density
 
-This would keep the compact appearance while eliminating accidental differences in weight, typography, spacing and active colors. The shared styles now use BigBlue TerminalPlus at 8 CSS px (12 device pixels at 150% scaling), regular UI weight, and 16px minimum control height.
+The focused task has a 2px left rail connected to its existing full-width 1px toolbar line. Both are decorations outside layout; focus, blur, dragging, pending saves and menu state must not change task width, height, wrapping or hit targets. The task bar still appears only for the focused task and still has backgrounds only behind its date and controls.
 
-The top bar includes compact − / percentage / + zoom controls between the version number and Settings. Percentage is also reset; its tooltip explains the `*` hint for near-native-grid sizes. Intermediate sizes remain available. Zoom does not change font family or introduce bold UI text.
+Task row padding is 1px vertically in Dashboard, People, Search and History. Read-only rows lose their former extra padding. Subcontent lists share a 12px indent per nesting level in every tab, reclaiming the former 27px Dashboard/People indent. Visible completion checkboxes are 10px within their unchanged 12px hit area, centered on the first title line. The narrow whole-task grip remains 8px.
+
+Do not add whitespace to achieve a modern appearance: preserve task gaps, line height, column widths, header heights and Settings group indentation. Narrow windows must not inherit the legacy 20px content padding or 12px navigation gap. Do not transform text or add text-origin correction.
+
+## Maintenance and verification
+
+`compact.css` owns font/palette tokens; `app.css` owns the existing layout; `controls.css` owns common geometry and interaction; `surfaces.css` owns the shared visual hierarchy. Put cross-view styling in these shared files rather than adding component-specific font families, extra padding or new button variants.
+
+For visual changes, verify the computed font, row/header dimensions, checkbox/title centers, focus decorations and all five views using isolated data. Include a narrow window, check that disabled controls do not highlight, and retain connected focus/blur/drag behavior. Avoid tests that merely repeat CSS declarations; use actual layout checks and existing interaction regressions.

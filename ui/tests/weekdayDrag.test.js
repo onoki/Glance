@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { useDashboardDrag } from "../src/composables/useDashboardDrag.js";
-import { currentWeekDays } from "../src/utils/categoryUtils.js";
+import { currentWeekDays, planningWeekDays } from "../src/utils/categoryUtils.js";
 import { ref } from "vue";
+import { TASK_DRAG_TYPE, weekdayDropTarget } from "../src/utils/taskDrag.js";
 const task = { id: "new", page: "dashboard:new" };
 const moves = [];
 const drag = useDashboardDrag({
@@ -47,3 +48,46 @@ assert.equal(captures,0,'menu labels must never start Dashboard background panni
 assert.equal(pans,0);
 pan.handleDashboardPointerDown({button:0,target:{closest:()=>null},clientX:10,pointerId:1,preventDefault:()=>pans++});
 assert.equal(captures,1,'background panning remains available');
+
+const nextSunday = planningWeekDays().at(-1).dateKey;
+await drag.dropOnWeekdayFromView('week-next', nextSunday, event);
+assert.equal(moves.at(-1)[3], nextSunday, 'all seven next-week day targets accept drops');
+rows[0].scheduledDate = nextSunday;
+rows[2].scheduledDate = nextSunday;
+rows[3].scheduledDate = nextSunday;
+reorder.startDrag(rows[0]);
+await reorder.dropOnWeekdayFromView('week-next', nextSunday, null);
+assert.equal(moves.at(-1)[2], 201, 'day background drops use the last task in the target day');
+
+const taskEvent = { dataTransfer: { types: [TASK_DRAG_TYPE] } };
+reorder.setWeekdayDragOver(nextSunday, taskEvent);
+assert.equal(reorder.dragOverDay.value, nextSunday, 'empty days have their own insertion target');
+reorder.clearWeekdayDragOver(nextSunday, { currentTarget: { contains: () => true }, relatedTarget: {} });
+assert.equal(reorder.dragOverDay.value, nextSunday, 'crossing header children retains the marker');
+reorder.clearWeekdayDragOver(nextSunday, { currentTarget: { contains: () => false, getBoundingClientRect: () => ({left:0,right:100,top:0,bottom:30}) }, clientX:20,clientY:15 });
+assert.equal(reorder.dragOverDay.value, nextSunday, 'missing relatedTarget inside the same header must not flicker');
+reorder.clearWeekdayDragOver(nextSunday, { currentTarget: { contains: () => false } });
+assert.equal(reorder.dragOverDay.value, null);
+reorder.setWeekdayDragOver('2000-01-01', taskEvent);
+assert.equal(reorder.dragOverDay.value, null, 'past days cannot show a drop marker');
+reorder.setWeekdayDragOver(nextSunday, { dataTransfer: { types: ['text/plain'] } });
+assert.equal(reorder.dragOverDay.value, null, 'text/image drags cannot create weekday markers');
+reorder.setWeekdayDragOver(nextSunday, taskEvent);
+reorder.setDragOver('b', 'before');
+assert.equal(reorder.dragOverDay.value, null, 'a task marker replaces the day marker');
+reorder.setWeekdayDragOver(nextSunday, taskEvent);
+assert.equal(reorder.dragOver.value.id, null, 'a day marker replaces the task marker');
+await reorder.dropOnWeekdayFromView('week-next', nextSunday);
+assert.equal(reorder.dragOverDay.value, null, 'dropping clears the day marker');
+reorder.setWeekdayDragOver(nextSunday, taskEvent);
+reorder.endDrag();
+assert.equal(reorder.dragOverDay.value, null, 'cancel/end clears the day marker');
+reorder.setWeekdayDragOver(nextSunday, taskEvent);
+assert.equal(reorder.dragOverDay.value, null, 'no marker without an active task drag');
+
+const dayBounds=[{dateKey:'Saturday',top:100},{dateKey:'Sunday',top:140}];
+for (const y of [100,115,128,130,139.99]) assert.equal(weekdayDropTarget(dayBounds,y).dateKey,'Saturday');
+for (const y of [140,141,180]) assert.equal(weekdayDropTarget(dayBounds,y).dateKey,'Sunday');
+assert.equal(weekdayDropTarget(dayBounds,99).dateKey,'Saturday','space above the first heading belongs to the first day');
+assert.equal(weekdayDropTarget([],140),null);
+assert.equal(weekdayDropTarget(dayBounds,NaN),null);

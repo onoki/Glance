@@ -59,34 +59,4 @@ public sealed class ConcurrencyTests
         Assert.DoesNotContain(stored, task => task.Id == created.TaskId &&
             TaskTextExtractor.ExtractPlainText(task.Title).Contains("Window B", StringComparison.Ordinal));
     }
-
-    [Fact]
-    public async Task StaleStatusMarkerUpdate_IsRejected()
-    {
-        await using var app = TestAppFixture.Create();
-        var created = await app.Tasks.CreateTaskAsync(new TaskCreateRequest(
-            TaskPages.DashboardMain,
-            TestAppFixture.CreateTitle("Original"),
-            TestAppFixture.CreateContent("Original content"),
-            1,
-            null,
-            null), CancellationToken.None);
-        var first = await app.Tasks.UpdateTaskAsync(created.TaskId, new TaskUpdateRequest(
-            created.UpdatedAt,
-            TestAppFixture.CreateTitle("Changed elsewhere"),
-            null,
-            null,
-            null,
-            null,
-            null), CancellationToken.None);
-
-        var title = TestAppFixture.CreateTitle("Marked");
-        var content = TestAppFixture.CreateContent("Status input");
-        var error = await Assert.ThrowsAsync<TaskWriteConflictException>(() =>
-            app.Tasks.SetStatusMarkersAsync(created.TaskId,
-                new TaskStatusMarkersRequest(created.UpdatedAt, title, content),
-                CancellationToken.None));
-
-        Assert.Equal(first!.UpdatedAt, error.CurrentUpdatedAt);
-    }
 }

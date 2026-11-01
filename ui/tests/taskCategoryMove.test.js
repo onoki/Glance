@@ -240,10 +240,71 @@ delete globalThis.innerWidth; delete globalThis.innerHeight;
 actionApp.unmount();
 assert.equal(windowListeners.has('blur'), false);
 assert.equal(documentListeners.has('click'), false);
+for (const [page,createdAt,expected] of [
+  ['people:main',new Date(2024,3,4,12).getTime(),'2024-04-04'],
+  ['people:main',undefined,null],['dashboard:main',123,null]
+]) {
+  const datedApp=renderer.createApp({render:()=>h(TaskItem,{...bindings,task:{...task,page,createdAt},onSave:async()=>({updatedAt:2})})});
+  datedApp.mount(node('root'));
+  assert.equal(actionState.creationDate,expected,'People uses the original creation date; other task dates are unchanged');
+  datedApp.unmount();
+}
+const { privacyMode, revealedPrivateTask } = await import('../src/composables/usePrivacy.js');
+const sent = [], saved = [], alerts = [];
+const originalAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.requestAnimationFrame = callback => callback();
+const originalSetTimeout = globalThis.setTimeout;
+let flashTimer;
+globalThis.setTimeout = (callback, delay) => {
+  if (delay === 5800) { flashTimer = { callback, delay }; return 900001; }
+  return originalSetTimeout(callback, delay);
+};
+let sendFails = false;
+window.alert = message => alerts.push(message);
+const privateTask = { ...task, id: 'private-menu', isPrivate: true };
+const privateApp = renderer.createApp({ render: () => h(TaskItem, { ...bindings, task: privateTask,
+  highlightId: privateTask.id,
+  allowDashboardSend: true, onSave: async payload => { saved.push(payload); return { updatedAt: 2 + saved.length }; },
+  onSendToPeople: async (...args) => { if (sendFails) throw new Error('Send failed'); sent.push(args); return { created: 2 }; }
+}) });
+privateApp.mount(node('root'));
+assert.equal(actionState.highlightFlash, true);
+assert.equal(flashTimer.delay, 5800, 'source highlighting holds for five seconds then fades');
+flashTimer.callback(); assert.equal(actionState.highlightFlash, false);
+assert.equal(actionState.privacyHidden, true);
+revealedPrivateTask.value = privateTask.id; assert.equal(actionState.privacyHidden, false);
+revealedPrivateTask.value = 'other'; assert.equal(actionState.privacyHidden, true);
+privacyMode.value = false; assert.equal(actionState.privacyHidden, false);
+privacyMode.value = true;
+await actionState.togglePrivateSubcontent();
+assert.equal(saved.at(-1).isPrivate, false, 'privacy changes are persisted by the normal save owner');
+assert.equal(actionState.snapshot().isPrivate, false);
+await actionState.togglePrivateSubcontent();
+assert.equal(saved.at(-1).isPrivate, true);
+actionState.selectedDashboard = true; actionState.selectedPeople = ['person']; actionState.sendOpen = true;
+sendFails = true; await actionState.sendToPeople();
+assert.equal(actionState.sendOpen, true); assert.equal(actionState.selectedDashboard, true);
+assert.deepEqual(actionState.selectedPeople, ['person'], 'failed send retains all selections');
+assert.deepEqual(alerts, ['Send failed']);
+sendFails = false; await actionState.sendToPeople();
+assert.deepEqual(sent[0].slice(1), [['person'], [], true], 'one operation sends to Dashboard and selected people');
+assert.equal(actionState.sendOpen, false); assert.equal(actionState.selectedDashboard, false);
+assert.deepEqual(actionState.selectedPeople, []);
+privateApp.unmount(); revealedPrivateTask.value = null;
+globalThis.requestAnimationFrame = originalAnimationFrame;
+globalThis.setTimeout = originalSetTimeout;
+// The confirmation must be a sibling of the scrolling recipients, not inside it.
+const elements = [];
+const visit = (element, parent = null) => { if (element.type === 1) elements.push({ element, parent }); for (const child of element.children || []) visit(child, element); };
+visit(descriptor.template.ast);
+const hasClass = (element, name) => element.props?.some(prop => prop.name === 'class' && prop.value?.content.split(' ').includes(name));
+const recipients = elements.find(({ element }) => hasClass(element, 'send-recipients'));
+const confirm = elements.find(({ element }) => hasClass(element, 'send-confirm'));
+assert.ok(recipients); assert.ok(confirm); assert.equal(confirm.parent, recipients.parent);
 delete globalThis.window;
 delete globalThis.document;
 delete globalThis.ResizeObserver;
-console.log('Task action dismissal and selection-grip reordering passed');
+console.log('Task action dismissal, reordering, private rendering/save and unified Send passed');
 
 // Keyboard intent must survive both the debounce window and an in-flight create.
 const { useTaskEditing } = await import('../src/composables/useTaskEditing.js');

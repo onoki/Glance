@@ -13,16 +13,18 @@ internal static class EndpointHelpers
 
     internal static long GetStartOfToday()
     {
-        var now = DateTimeOffset.Now;
-        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
-        return start.ToUnixTimeMilliseconds();
+        return GetDayStart(DateTimeOffset.Now, TimeZoneInfo.Local, 0);
     }
 
     internal static long GetHistoryStart(int days)
     {
-        var now = DateTimeOffset.Now;
-        var start = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddDays(-days + 1);
-        return start.ToUnixTimeMilliseconds();
+        return GetDayStart(DateTimeOffset.Now, TimeZoneInfo.Local, -days + 1);
+    }
+
+    internal static long GetDayStart(DateTimeOffset now, TimeZoneInfo zone, int offsetDays)
+    {
+        var date = TimeZoneInfo.ConvertTime(now, zone).Date.AddDays(offsetDays);
+        return new DateTimeOffset(date, zone.GetUtcOffset(date)).ToUnixTimeMilliseconds();
     }
 
     internal static string FormatDate(long? timestamp)

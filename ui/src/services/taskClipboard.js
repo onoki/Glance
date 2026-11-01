@@ -99,7 +99,7 @@ export const taskClipboard = {
           for (const child of node.content || []) rebase(child);
         };
         rebase(task.title); rebase(task.content);
-        const payload = { ...destination(i), title: task.title, content: task.content, recurrence: null };
+        const payload = { ...destination(i), title: task.title, content: task.content, isPrivate: !!task.isPrivate, recurrence: null };
         const response = await createTask(payload);
         records.push({ task: { ...payload, id: response.taskId, completedAt: null }, present: true });
       }

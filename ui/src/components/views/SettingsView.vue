@@ -52,7 +52,8 @@
         </div>
         <section class="settings-subsection">
           <h3>Font licenses</h3>
-          <p class="settings-status">BigBlue TerminalPlus by VileR (CC BY-SA 4.0), used unmodified.</p>
+          <p class="settings-status">IBM Plex Sans by IBM, used unmodified under the SIL Open Font License 1.1. Upright and italic faces support genuine regular and bold task text.</p>
+          <p class="settings-status"><a :href="fontLicenseUrl" target="_blank" rel="noopener">Font license and attribution</a></p>
         </section>
       </div>
     </section>
@@ -61,6 +62,7 @@
 
 <script setup>
 import DataSafetyPanel from "../DataSafetyPanel.vue";
+import fontLicenseUrl from "../../../assets/fonts/IBMPlexSans-OFL.txt?url&no-inline";
 const props = defineProps({
   isBackingUp: {
     type: Boolean,

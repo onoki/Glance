@@ -14,7 +14,11 @@ const content = { type: 'doc', content: [{ type: 'bulletList', content: [{ type:
 ] }] }] };
 const original = { id: 'one', page: 'dashboard:new', ownerPersonId: null, position: 1, title, content, completedAt: null };
 const encoded = encodeTaskClipboard([original], 'scope');
-assert.deepEqual(decodeTaskClipboard(encoded.html).tasks, [{ title, content }]);
+assert.deepEqual(decodeTaskClipboard(encoded.html).tasks, [{ title, content, isPrivate: false }]);
+assert.equal(decodeTaskClipboard(encodeTaskClipboard([{ ...original, isPrivate: true }], 'scope').html).tasks[0].isPrivate, true);
+const clipboardPayload = tasks => `<div data-glance-tasks="${encodeURIComponent(JSON.stringify({ format: 'glance-tasks', version: 1, tasks }))}"></div>`;
+assert.equal(decodeTaskClipboard(clipboardPayload([{ title, content }])).tasks[0].isPrivate, undefined, 'legacy clipboard payloads remain supported');
+assert.throws(() => decodeTaskClipboard(clipboardPayload([{ title, content, isPrivate: 'true' }])), /privacy flag/);
 assert.match(encoded.html, /&lt;one&gt;/);
 assert.match(encoded.html, /<strong>/);
 assert.match(encoded.text, /Parent\nSecond line/);

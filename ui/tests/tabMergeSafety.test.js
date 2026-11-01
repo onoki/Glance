@@ -27,7 +27,7 @@ for(const upper of variants) for(const lower of variants) {
   const result=indentTaskDocuments({content:upper},{title:empty,content:lower});
   const upperItems=upper.content[0].type==='bulletList'?upper.content[0].content:[];
   const lowerItems=lower.content[0].type==='bulletList'?lower.content[0].content:[];
-  assert.deepEqual(result.content.content[0].content,[...upperItems,{type:'listItem',content:[{type:'paragraph',content:[]}]},...lowerItems]);
+  assert.deepEqual(result.content.content[0].content,[...upperItems,{type:'listItem',content:[{type:'paragraph',content:[]},...(lowerItems.length?[{type:'bulletList',content:lowerItems}]:[])]}]);
   assert.equal(result.listIndex,upperItems.length);
   assert.equal(JSON.stringify([upper,lower]),before,'transformation cannot mutate saved snapshots');
 }

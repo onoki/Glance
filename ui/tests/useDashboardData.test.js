@@ -162,6 +162,51 @@ try {
   assert.equal(await dashboard.navigateToTask('other-column'),true);
   assert.equal(dashboard.maximizedCategoryId.value,null,'opening a source in another column cannot leave it hidden behind maximization');
 
+  // Next week uses chronological weekday order even when server positions
+  // interleave, while adjacent insertion uses the source day's neighbours.
+  rows.length = 0;
+  const nextStart = getWeekStart(new Date()); nextStart.setDate(nextStart.getDate() + 7);
+  const nextWeekId = `week-${formatDateKey(nextStart)}`;
+  const nextDays = Array.from({length:7}, (_,index)=>{const date=new Date(nextStart);date.setDate(date.getDate()+index);return formatDateKey(date);});
+  for (const [id,day,position] of [['wed',2,0],['mon',0,10],['tue',1,20],['wed-tail',2,30]]) {
+    rows.push({id,page:'dashboard:main',title:doc(id),content:emptyDoc,position,updatedAt:1,completedAt:null,scheduledDate:nextDays[day],recurrence:null});
+  }
+  await dashboard.loadDashboard();
+  const source = dashboard.mainTasks.value.find(task=>task.id==='tue');
+  dashboard.navigateHorizontal(source, 1);
+  assert.equal(dashboard.focusTaskId.value.taskId, 'wed', 'Right follows the visible day order');
+  dashboard.navigateHorizontal(source, -1);
+  assert.equal(dashboard.focusTaskId.value.taskId, 'mon', 'Left follows the visible day order');
+  const adjacent = await dashboard.createTaskBelow(dashboard.mainTasks.value.find(task=>task.id==='wed'),nextWeekId);
+  assert.equal(rows.find(task=>task.id===adjacent).scheduledDate,nextDays[2]);
+  assert.equal(rows.find(task=>task.id===adjacent).position,15,'use Wednesday neighbours, not Monday/Tuesdays interleaved positions');
+  for (const date of nextDays) {
+    const id = await dashboard.createTask('dashboard:main',doc('Day addition'),emptyDoc,50,`day-${date}`);
+    assert.equal(rows.find(task=>task.id===id).scheduledDate,date);
+    await dashboard.setTaskCategory(dashboard.mainTasks.value.find(task=>task.id==='tue'), `day-${date}`);
+    assert.equal(rows.find(task=>task.id==='tue').scheduledDate,date, 'Next week picker assigns each weekday');
+  }
+
+  const { relativeWeekStart } = await import('../src/utils/categoryUtils.js');
+  const twoWeeksDate = formatDateKey(relativeWeekStart(2));
+  rows.push({id:'postpone',page:'dashboard:new',title:doc('Later'),content:tabContent,position:100,updatedAt:1,completedAt:null,recurrence:{type:'notes'}});
+  await dashboard.loadDashboard();
+  await dashboard.setTaskCategory(dashboard.newTasks.value.find(task=>task.id==='postpone'), 'two-weeks');
+  assert.equal(rows.find(task=>task.id==='postpone').scheduledDate, twoWeeksDate);
+  assert.equal(rows.find(task=>task.id==='postpone').page, 'dashboard:main');
+  assert.equal(rows.find(task=>task.id==='postpone').recurrence, null);
+  assert.deepEqual(rows.find(task=>task.id==='postpone').content, tabContent, 'postponing never changes text');
+  assert.equal(dashboard.mainCategories.value.find(category=>category.id===`week-${twoWeeksDate}`).label, 'In two weeks');
+  await dashboard.undo();
+  assert.equal(rows.find(task=>task.id==='postpone').page, 'dashboard:new');
+  assert.deepEqual(rows.find(task=>task.id==='postpone').recurrence, {type:'notes'});
+  await dashboard.redo();
+  assert.equal(rows.find(task=>task.id==='postpone').scheduledDate, twoWeeksDate);
+  const postponedAddition = await dashboard.createTask('dashboard:main',doc('Later addition'),emptyDoc,101,'two-weeks');
+  assert.equal(rows.find(task=>task.id===postponedAddition).scheduledDate, twoWeeksDate);
+  await dashboard.applyTaskMove(dashboard.mainTasks.value.find(task=>task.id==='tue'), `week-${twoWeeksDate}`, 102);
+  assert.equal(rows.find(task=>task.id==='tue').scheduledDate, twoWeeksDate, 'column drops use the same postponement date');
+
 } finally {
   globalThis.fetch = originalFetch;
   globalThis.document = originalDocument;

@@ -10,7 +10,9 @@ Use **Settings → Export all notes**. Glance downloads a ZIP named `GlanceExpor
 - `status-updates/`, containing uncompressed status-report JSON; and
 - `manifest.json`, containing the SHA-256 hash and byte length of every payload file.
 
-The machine-readable record retains rich title and content JSON (including hyperlink marks and file targets), ordering, recurrence, completion and deletion timestamps, archived people, user-defined tags and memberships, send events, status metadata, and schema/app/export versions. Full-text search and the short-lived change log are explicitly classified as derived data because they can be rebuilt from task records.
+The machine-readable record retains rich title and content JSON (including hyperlink marks and file targets), ordering, recurrence, completion, history archive and deletion timestamps, private-subcontent flags, archived people, user-defined tags and memberships, send events, status metadata, and schema/app/export versions. Full-text search and the short-lived change log are explicitly classified as derived data because they can be rebuilt from task records.
+
+Private content remains fully present in the machine-readable data, media and backups. Offline HTML shows private bodies in collapsed **Private subcontent** disclosures; this prevents accidental initial display but does not encrypt or redact the exported files. Completion and history archive timestamps are separate and retained.
 
 The version-1 JSON contract is [glance-export-v1.schema.json](../schema/glance-export-v1.schema.json). A future importer should verify the ZIP paths, manifest hashes and schema before consuming a bundle.
 

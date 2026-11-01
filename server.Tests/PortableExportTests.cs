@@ -20,7 +20,7 @@ public sealed class PortableExportTests
             TestAppFixture.CreateContent("Keep this text"),
             1,
             null,
-            null), CancellationToken.None);
+            null, IsPrivate: true), CancellationToken.None);
 
         Directory.CreateDirectory(app.Paths.AttachmentsDirectory);
         await File.WriteAllBytesAsync(Path.Combine(app.Paths.AttachmentsDirectory, "sample.png"), new byte[] { 1, 2, 3, 4 });
@@ -34,11 +34,19 @@ public sealed class PortableExportTests
         Assert.NotNull(archive.GetEntry("index.html"));
         Assert.NotNull(archive.GetEntry("dashboard.html"));
         Assert.NotNull(archive.GetEntry("media/attachments/sample.png"));
+        using (var html = new StreamReader(archive.GetEntry("dashboard.html")!.Open()))
+        {
+            var rendered = await html.ReadToEndAsync();
+            Assert.Contains("<details><summary>Private subcontent</summary>", rendered);
+            Assert.Contains("Keep this text", rendered);
+        }
 
         using var data = await ReadJsonAsync(archive.GetEntry("data/glance.json")!);
         var tasks = data.RootElement.GetProperty("tables").GetProperty("tasks");
         Assert.Contains(tasks.EnumerateArray(), task =>
             task.GetProperty("id").GetString() == created.TaskId &&
+            task.GetProperty("is_private").GetInt32() == 1 &&
+            task.GetProperty("history_archived_at").ValueKind == JsonValueKind.Null &&
             task.GetProperty("title_json").GetString()!.Contains("Portable note", StringComparison.Ordinal));
 
         using var manifest = await ReadJsonAsync(archive.GetEntry("manifest.json")!);

@@ -5,16 +5,15 @@ Feature: Main application layout
     When I am in the main view
     Then I see a navigation pane at the top with tabs:
       | Dashboard |
-      | History   |
+      | People    |
       | Search    |
-      | People |
-      | Status Updates |
+      | History   |
     And a Settings gear icon is immediately to the left of the New window icon on the right
     And the Settings icon has an accessible name, tooltip, and selected state
     And the gap between Settings and New window matches the shared 1px gap between navigation buttons
     And I see an editable rich text task list for new tasks in the middle
     And next to the title of the new tasks view I see a button to move all new tasks to "Uncategorized"
-    And every Dashboard column has a compact maximize and restore control beside its title
+    And every Dashboard column has a compact maximize and restore control on the right of its title, including New tasks
     And maximizing a column fills the content area while keeping the top navigation available
     And I see an editable rich text main task list below
 
@@ -115,10 +114,14 @@ Feature: Repeatable tasks
 
 Feature: Daily task cleanup
 
-  Scenario: Hiding completed tasks from the dashboard
-    Given a task was completed on a day earlier than today
-    When the day changes or the application is started
-    Then the task is hidden from the main task list on the dashboard
+  Scenario: Archiving completed tasks at local midnight
+    Given a Dashboard or People task was completed on a day earlier than today
+    When local midnight arrives or Glance regains focus after sleep or hibernation
+    Then pending edits are saved before the task is archived
+    And the task leaves its active list without changing its completion timestamp or content
+    And History is refreshed if visible
+    And failed saves or archive requests remain eligible for retry
+    And application startup also excludes earlier completions from active lists
 
 
 Feature: History view
@@ -128,13 +131,19 @@ Feature: History view
     Then I see a list of completed tasks grouped by completion date
     And an expanded activity chart shows daily completion counts from the last 180 days when there are completions
     And my Activity over time expand or collapse choice is remembered across restarts on this PC
+    And daily counts use the recorded completion timestamp in the current local timezone
+    And counts include completed Dashboard and People notes even before manual archiving
+    And archiving does not change the completion day or count
+    And restoring or deleting a completed note removes its activity count
 
   Scenario: Moving completed tasks to history
     Given I am on the history tab
     And completed tasks exist for today
     When I click the Move completed to history button
     Then today's completed tasks are removed from Dashboard and People lists
-    And the tasks appear in the history list
+    And completion timestamps remain unchanged because archiving is stored separately
+    And the tasks remain in the history list under their completion dates
+    And repeated archiving is idempotent
     And People notes retain their person attribution and can be restored to that person's list
     And open notes, earlier completions, and deleted notes are unchanged
 
@@ -143,7 +152,7 @@ Feature: History view
     And a completed task exists
     When I mark the task as not completed
     Then the task is removed from the history
-    And the task appears in the dashboard
+    And the task returns to its original Dashboard or People list with its archive marker cleared
 
 
 Feature: Search
@@ -175,7 +184,7 @@ Feature: Search
     Given a search result belongs to Dashboard, People, or History
     When I choose Open source
     Then Glance opens the owning view
-    And scrolls to and briefly highlights the matching task
+    And scrolls to and highlights the matching task for five seconds before fading out
     And I can return to the same search result with Back to search
 
   Scenario: Opening a note for an archived person
@@ -253,7 +262,8 @@ Feature: Task restructuring via Tab
     And a task title has focus
     When I press Tab in the task title
     Then the task becomes subcontent of the previous task
-    And any existing subcontent is moved under the previous task
+    And its existing subcontent is nested one level below its former title
+    And deeper descendants retain their relative nesting, rich formatting and images
     And existing empty subcontent lines are preserved before and after the moved task
 
   Scenario: Tab on an empty new task creates editable subcontent
@@ -269,6 +279,8 @@ Feature: Task restructuring via Tab
     When I press Shift+Tab
     Then a new task is created below the current task
     And the sibling-level subcontent is moved to the new task
+    And the promoted item's children become the new task's subcontent one level higher
+    And promoting a just-demoted task reverses its hierarchy without losing blank lines or descendants
     And the caret or selection stays at the same relative position in the promoted title
     And this behavior is identical in Dashboard and People, including after a server refresh
 
@@ -319,7 +331,7 @@ Feature: Version visibility and update metadata
     Then related options are grouped into Data safety, Maintenance, and About
     And backup, restore, and export have separate labeled subsections
     And search and repeatable-task maintenance are grouped together
-    And settings use regular shared typography with 4px gaps within subsections and 8px between groups
+    And settings use shared typography with 4px gaps within subsections and 8px between groups
     And settings wrap within narrow windows and scroll vertically when needed
     And each group's contents, including subheadings, are indented 12px under its heading
 
@@ -468,6 +480,17 @@ Feature: Dashboard layout and scrolling
 
 Feature: Title-only tasks and deletion
 
+  Scenario: Enter at the beginning of a populated title
+    Given a task title has focus with a collapsed caret at its beginning
+    When I press Enter
+    Then an empty task is inserted immediately above in the same column or person
+    And it inherits the scheduled date of the original task
+    And the original task keeps its identity, title, complete subcontent, and metadata
+    And the caret stays at the beginning of the original title
+    And a slow or failed creation never clears or relocates the original task
+    And Undo removes only the inserted empty task
+    And Redo restores that empty task in the same position and category
+
   Scenario: Creating title-only tasks
     Given a task has no subcontent
     When I press Enter at the end of the title
@@ -482,6 +505,11 @@ Feature: Title-only tasks and deletion
     And the text after the caret is removed from the original task
     And the original task subcontent is moved to the new task
     And pressing Backspace at the start of the new title merges the tasks back together
+    And the new task is saved before the original title or subcontent is shortened
+    And a failed creation leaves the original task intact
+    And typing during a slow creation is never replaced by an older split snapshot
+    And an incomplete split reports the error and keeps the available copies
+    And Undo and Redo restore the complete split in Dashboard and People
 
   Scenario: Removing the last subcontent item
     Given a task has a single empty subcontent item
@@ -605,27 +633,6 @@ Feature: Search matching
     Given tasks exist with words in titles or subcontent
     When I search for a partial word
     Then matches include occurrences within the word
-
-
-Feature: Project status updates
-
-  Scenario: Marking status input
-    Given a Dashboard or History task line has focus
-    When I press Ctrl+7 or Cmd+7
-    Then that title or subcontent line shows a durable status input marker
-    And the whole task is included when status input is collected
-
-  Scenario: Recollecting status input on the same day
-    Given a status input package already exists for today
-    When I collect status input again
-    Then the daily package is replaced
-    And its input revision is incremented
-
-  Scenario: Importing completed status output
-    Given I upload a completed StatusSummary.json
-    Then Glance validates its schema, report identity, revision, and unchanged input
-    And Excel is available as one worksheet
-    And PowerPoint is available as one slide
 
 
 Feature: Person-specific notes
@@ -770,7 +777,7 @@ Feature: Verified backup and recovery
     Then the verified local backup still succeeds
     And Glance shows a warning that the second copy failed
 
-Feature: Pixel typography and shared controls
+Feature: Compact typography and shared controls
 
   Scenario: Task title alignment with completion checkbox
     Then the completion checkbox and the first title line have the same vertical center
@@ -778,14 +785,19 @@ Feature: Pixel typography and shared controls
     And task titles have no extra bullet and sit beside the checkbox with a 2px gap
     And subcontent keeps its list bullets and optional checklist markers
 
-  Scenario: BigBlue Terminal at 150 percent display scaling
-    Then app text uses BigBlue TerminalPlus at 8 CSS pixels
+  Scenario: IBM Plex Sans with the neutral Notepad palette
+    Then Dashboard, People, Search, History and Settings use IBM Plex Sans at 7 CSS pixels
+    And plain task titles and subcontent share the same size and 1.35 line height
+    And app and header backgrounds are off-white with near-black ordinary text and neutral gray borders
+    And selected tabs use a pale gray fill and a dark inset bottom rule without inverted text
     And controls use a shared neutral, emphasized, or danger style with 16px minimum height
-    And UI text uses regular weight without synthetic bold or italic
-    And only BigBlue TerminalPlus is bundled and listed in Font licenses
+    And task text and ordinary or selected controls use regular weight without synthetic bold or italic
+    And section headings use genuine semibold at the same 7px size, with 500-weight Settings subsection headings
+    And only the IBM Plex Sans family is bundled and listed in Font licenses with its SIL OFL 1.1 attribution
+    And genuine upright and italic variable faces support regular and bold task formatting
     And ordinary unpressed buttons, task titles, and subcontent use the same dark neutral text color
-    And link, highlight, completion, selection, and danger colors retain their meaning
-    And task rich text retains user-applied synthetic bold and italic
+    And underlined links, highlights, completion, selection, tags, warnings and danger actions retain their meaning
+    And task rich text retains user-applied bold and italic without synthetic faces
 
   Scenario: Task actions follow focus
     Given a task editor has focus
@@ -874,7 +886,7 @@ Feature: Whole-task selection and clipboard
 
   Scenario: Compact text rendering and highlights
     Given Windows display scaling is 150 percent
-    Then BigBlue TerminalPlus remains at 8 CSS pixels
+    Then IBM Plex Sans remains at 7 CSS pixels
     And text origins are not repeatedly repositioned by a self-correcting layout loop
     And existing control sizes stay unchanged
     And ordinary text stays dark neutral while semantic colors remain meaningful
@@ -922,18 +934,17 @@ Feature: Whole-task selection and clipboard
     And Up and Down navigate Open source buttons and Enter opens the source
     And History omits an empty chart and shows populated charts by default with a remembered Activity over time disclosure
     And Settings keeps group indentation and collapses restore controls unless recovery requires them
-    And Status Updates explains the next step with technical details in a disclosure
 
   Scenario: Grayscale desktop text rendering
     Given Glance runs in its Windows desktop host
     Then its WebView2 processes request grayscale text antialiasing with disable-lcd-text
-    And the font size remains 8 CSS pixels
+    And the font size remains 7 CSS pixels
     And Windows-wide font settings are unchanged
     And this is not described as disabling all font smoothing
 
   Scenario: Neutral Add Person control
     Then + Person uses the same neutral button treatment as Rename and Archive
-    And dark selected styling identifies the selected person or navigation tab
+    And selected fill and an inset rule identify the selected person or navigation tab
 
   Scenario: Stable person switching
     When I choose another person
@@ -943,7 +954,7 @@ Feature: Whole-task selection and clipboard
 
   Scenario: Connected task ownership outline
     Given a task's action bar is visible
-    Then its top blue line extends across the bar to meet the left task line
+    Then its top focus line extends across the bar to meet the left task line
     And neither line reserves layout space or blocks clicks through empty bar space
     When I drag a task
     Then both ownership lines and the action bar are hidden together
@@ -1016,13 +1027,13 @@ Feature: Whole-task selection and clipboard
     And entirely empty task deletion retains its forward Delete and backward Backspace focus rules
 
   Scenario: Practical zoom with monitor-local preferences
-    Given BigBlue TerminalPlus remains at an 8 CSS pixel base size
+    Given IBM Plex Sans remains at a 7 CSS pixel base size
     Then compact minus, percentage reset, and plus controls appear in the top bar between the version number and Settings
     And Ctrl+wheel and Ctrl+plus/minus use the same practical intermediate zoom steps
     And clicking the percentage or pressing Ctrl+0 resets extra Glance zoom to 100 percent
     And Windows display scaling remains in effect
-    And near-whole multiples of the native 12-device-pixel font height show an asterisk
-    And the percentage tooltip explains that the asterisk suggests sharpness without guaranteeing it
+    And text sizes mapping near whole device pixels show an asterisk
+    And the percentage tooltip explains this is only an alignment hint for outline text, without guaranteeing sharpness or removing antialiasing
     And no text-origin correction loop runs after zoom, layout, or monitor changes
     And desktop zoom is remembered per monitor on this PC, outside portable app data
     When the window changes monitors
@@ -1081,7 +1092,7 @@ Feature: Whole-task selection and clipboard
 
   Scenario: Subtle helper window appearance
     Given a helper window opened through New window
-    Then only its top navigation bar has a muted blue tint
+    Then only its top navigation bar has a slightly darker neutral background
     And a compact regular-weight Helper window label appears beside the version without a border or background
     And the label tooltip explains that closing this helper leaves other windows open
     And task backgrounds, text, navigation controls, and the native title bar remain available
@@ -1153,6 +1164,8 @@ Feature: Nested subcontent deletion safety
   Scenario: Compact weekday choices within the category menu
     When I open the task Move menu
     Then Mo Tu We Th Fr Sa Su appear directly below This week and before Next week
+    And a second Mo Tu We Th Fr Sa Su row appears directly below Next week
+    And next-week dates include Saturday and Sunday and remain enabled
     And the day row has no separate heading
     And tooltips and accessible labels identify full weekdays and dates
 
@@ -1215,10 +1228,201 @@ Feature: Compact column and selection controls
     And the Move picker keeps compact Mo through Su buttons
 
   Scenario: Multi-selection menus
-    Given I open a task's Send to people menu or a person's Tags menu
+    Given I open a task's Send a copy menu or a person's Tags menu
     When I click an option's name or checkbox
     Then only that checkbox is toggled
     And the menu stays open for additional selections
     When I click outside the menu or press Escape
     Then the menu closes
     And Dashboard background panning never captures clicks inside task menus
+
+  Scenario: Safe promotion and structural history
+    Given a task has rich subcontent including nested items, images and intentional empty lines
+    When I promote an outer item with Shift+Tab
+    Then its destination is saved before the original is shortened
+    And failures preserve the complete original and report the error
+    And repeated promotion is blocked while that operation is pending
+    And later typing is not replaced by an old snapshot
+    And a successful promotion has one structural Undo and Redo in Dashboard and People
+    And Undo or Redo restores retained destinations before removing copies or sources
+    And fresh expected documents and revision guards protect other-window edits
+    And failed or partially applied history stays available to retry without losing text
+    And normal task deletion also settles saves and checks the selected revision
+    And an image-only title does not count as an empty task
+
+  Scenario: Plan all days of next week
+    Given I open the Dashboard
+    Then Next week remains available even when it has no tasks
+    And its column has Monday through Sunday headings with their dates
+    And each day accepts additions and whole-task drops
+    And Enter and splits within a task inherit its scheduled day
+    And navigation follows the visible weekday order
+    And the category Move dropdown offers compact Mo-Su buttons directly below Next week
+    And the column maximize icon has two arrows pointing towards opposite corners
+    And its restore icon has two arrows pointing inward
+
+  Scenario: Empty weekday drop targets show their insertion position
+    Given a current or next-week day contains no tasks
+    When I drag a whole task over that day
+    Then a red insertion line appears below its weekday header without moving the layout
+    And leaving the day, dropping or cancelling removes the line
+    And ordinary text and image drags do not show a task insertion line
+    And moving between header children does not dismiss the line
+
+  Scenario: Spacing between weekday headings belongs to the preceding day
+    Given Saturday and Sunday are empty planning days
+    When I drag a whole task below Saturday and above the Sunday heading text
+    Then Saturday's red insertion line remains visible across the entire blank space
+    And dropping there schedules the task for Saturday, never the column's default Monday
+    And Sunday's drop area begins at the Sunday heading text
+    And this applies to every adjacent weekday in This week and Next week
+    And dropping on task rows retains their before-or-after reordering behavior
+
+  Scenario: Postpone dated work until the week after next
+    When I move a task to In two weeks
+    Then it is scheduled for Monday of the week after next
+    And it appears in an In two weeks column immediately after Next week
+    And its text and complete nested subcontent remain unchanged
+    And the operation can be undone and redone
+    And next week the same task appears in Next week without changing its stored date
+    And the following week the same task appears in This week
+    And an empty In two weeks column is omitted like other optional categories
+
+Feature: Compact navigation and People usability
+
+  Scenario: Navigate directly to the four main tabs
+    Then the tab order is Dashboard, People, Search, History
+    And Alt+1, Alt+2, Alt+3 and Alt+4 select those tabs respectively
+    And the same shortcuts work while editing task text
+    And Ctrl+1 through Ctrl+6, AltGr, modified keys and composition remain unaffected
+    And tab tooltips and accessible shortcut labels describe the combinations
+    And recovery mode still prevents navigation into editable views
+
+  Scenario: Search receives focus when selected
+    When I select Search by clicking or Alt+3
+    Then its search field receives focus without clearing the saved query or results
+    And selecting Search again focuses the field again
+
+  Scenario: Filter many people without switching the open notes
+    Given a person's notes are open
+    When I type part of a name into Find person
+    Then only matching active person tabs remain visible, ignoring letter case
+    And the current person's notes stay open until I select a match
+    And Enter selects the first matching person
+    And Escape or clearing the field restores all active names
+    And no matches has an explicit empty message without creating or losing notes
+
+  Scenario: People notes show their creation date
+    Given a current or previously saved People note has a recorded createdAt timestamp
+    When its task action bar is visible
+    Then it displays that creation date in local YYYY-MM-DD format
+    And the date does not reserve extra row height
+
+  Scenario: Pending-save feedback cannot change title wrapping
+    When a task becomes dirty, starts saving or finishes saving
+    Then the pending-save dot floats in a fixed small gutter
+    And title width and line wrapping remain identical between those states
+    And the dot cannot cover text or intercept clicks
+
+  Scenario: Send copies directly between people
+    Given a task with nested content exists under Alice
+    When I send it to Bob or a tag group
+    Then independent copies appear under the other active recipients without passing through Dashboard
+    And the source remains intact with the same dismissible sent marker and destination list as Dashboard
+    And each copy identifies Alice as its source
+    And tag membership does not create a duplicate for Alice or duplicate recipients
+    And pending edits are saved before copying
+
+  Scenario: Every Glance window shares its pinned taskbar identity
+    When a main or secondary native window is created
+    Then its explicit window AppUserModelID matches the process and Glance shortcut
+    And the identity property is cleared on a successful close
+    And Windows controls the final taskbar grouping and placement
+
+  Scenario: Retired report feature preserves old data
+    Then Status Updates and its report integrations, endpoints, Office exports and marker controls are absent
+    And Ctrl+7 no longer adds report markers
+    And existing database columns, stored report files and rich-text metadata are preserved
+    And backups, restores and portable exports can still carry that legacy data
+
+
+Feature: Reliable compact task menus and private subcontent
+
+  Scenario: Removing a leading blank subcontent bullet
+    Given a blank bullet is followed by another bullet with text, rich marks or nested descendants
+    When I press Delete at the blank bullet or Backspace at the following bullet start
+    Then only the blank bullet is removed
+    And the caret remains at the following line start
+    And other content and descendants remain intact
+    And native Undo and Redo restore the exact hierarchy
+    And selections and modified keys retain their normal behavior
+    And an empty parent with populated descendants is not treated as a disposable empty bullet
+
+  Scenario: Sending to Dashboard and people from one menu
+    Given I am viewing a task in People
+    When I open Send a copy
+    Then Send to Dashboard is the first checkbox above the people and tag groups
+    And I can select Dashboard and multiple people together
+    And one explicit Send confirmation creates independent copies and audit records atomically
+    And the source and its privacy flag are preserved
+    And Dashboard tasks use the same menu without a Dashboard recipient
+    And the Send confirmation stays visible outside the scrolling recipient list
+    And a failed send retains the menu and selections for retry
+
+  Scenario: External links cannot navigate the Glance window
+    When I activate a hyperlink with Ctrl or Meta click in an editor, a normal click in read-only text, middle click, or Enter on a focused anchor
+    Then its destination is captured before editor focus expands shortened URLs
+    And that destination is opened through the validated external opener before focusing the task
+    And the native anchor navigation is cancelled
+    And failed external activation reports an error without internal navigation
+    And plain editing clicks retain caret placement without navigating
+    And URL or file drops on the app background cannot replace Glance
+
+  Scenario: Marking a task's subcontent private
+    Given I mark a task Private subcontent using its focus-only task controls
+    Then its title remains visible
+    And the flag is saved without changing the title or subcontent
+    And Dashboard, People, Search and History conceal its body while unfocused and privacy is on
+    And the hidden body cannot receive pointer, keyboard or accessibility focus
+    And concealment preserves row height and does not make tasks jump
+    When I focus that task or deliberately activate its hidden-body placeholder
+    Then its subcontent is shown
+    When task focus leaves or Glance loses focus
+    Then its body is concealed again
+    And native window focus restoration alone does not reveal it
+
+  Scenario: Global privacy and preservation
+    Given every new Glance window starts with global privacy on
+    When I turn privacy off using the top-bar lock button
+    Then every flagged task's subcontent is revealed in that window
+    When I turn it on again
+    Then only the focused flagged task may remain revealed
+    And unflagged tasks are unaffected
+    And sent copies, recurring instances, whole-task clipboard payloads and promoted or split tasks retain privacy
+    And combining tasks retains privacy if either source was private
+    And Undo and Redo restore the corresponding flags
+    And privacy is a screen presentation feature, not encryption or removal from backups, exports or the clipboard
+
+
+Feature: Modern font-comparison styling without extra whitespace
+
+  Scenario: Consistent restrained hierarchy
+    Then Dashboard, People, Search, History and Settings use the shared IBM Plex Sans Notepad visual style
+    And section and column headings use sentence case, normal letter spacing and genuine 600 weight at 7 CSS px
+    And Settings subsection headings use 500 weight and keep their existing group indentation
+    And ordinary and selected navigation controls retain 400 weight so selection cannot reflow them
+    And selected navigation has a pale fill and inset bottom rule
+    And thin neutral separators, small control radii and subtle menu shadows distinguish surfaces
+    And History uses quiet gridlines and zero-height bars for zero-completion days
+    And normal text and links remain neutral while semantic colors retain their meaning
+
+  Scenario: Compact stable task geometry
+    Given I focus a task in any task view
+    Then a 2px left rail connects to the 1px full-width action-bar line
+    And neither decoration adds layout borders or moves task text
+    And the ownership indication retains its existing focus, window-blur and dragging rules
+    And visible checkboxes are 10px inside their unchanged 12px hit areas and centered on the first title line
+    And all task lists share 1px vertical row padding and 12px list indentation per level
+    And font size, line height, column widths, task gaps and toolbar hit targets do not increase
+    And narrow windows have no extra content padding or enlarged navigation gaps
+    And disabled controls retain their appearance on hover

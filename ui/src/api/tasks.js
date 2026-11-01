@@ -17,3 +17,4 @@ export const fetchChanges = (since) => apiGet(`/api/changes?since=${since}`);
 export const runRecurrence = () => apiPost("/api/recurrence/run", {});
 
 export const moveCompletedToHistory = () => apiPost("/api/history/move-completed-to-history", {});
+export const archivePreviousCompletions = () => apiPost("/api/history/archive-previous-days", {});

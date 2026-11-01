@@ -16,7 +16,7 @@
         data-category-id="new"
       >
         <section class="list-card" data-category-id="new">
-          <header class="list-header column-header">
+          <header class="column-header">
             <div>
               <h3 class="category-title">New tasks</h3>
             </div>
@@ -54,11 +54,15 @@
 
       <template v-for="category in mainCategories" :key="category.id">
         <div
-          v-if="category.tasks.length || isThisWeekCategory(category)"
+          v-if="category.tasks.length || isPlanningWeekCategory(category)"
           class="dashboard-column"
           :style="maximizedCategoryId === category.id ? null : getColumnStyle(category.id)"
           :class="{ expanded: maximizedCategoryId === category.id }"
           :data-category-id="category.id"
+          @dragenter.capture="handleWeekdayBackgroundDrag(category, $event)"
+          @dragover.capture="handleWeekdayBackgroundDrag(category, $event)"
+          @dragleave="handleWeekdayBackgroundLeave(category, $event)"
+          @drop.capture="handleWeekdayBackgroundDrop(category, $event)"
           @dragover.prevent
           @drop.prevent="onDropOnCategory(category.id, $event)"
         >
@@ -69,16 +73,15 @@
             </header>
 
             <div class="task-list">
-              <template v-if="isThisWeekCategory(category)">
+              <template v-if="isPlanningWeekCategory(category)">
                 <div
-                  v-for="group in groupTasksByWeekday(category.tasks)"
+                  v-for="group in categoryWeekGroups(category)"
                   :key="group.id"
                   class="weekday-group"
-                  @dragover.prevent
-                  @drop.prevent.stop="handleDropOnWeekday(category.id, group, $event)"
+                  :data-weekday-date="group.dateKey"
                 >
                   <div class="weekday-header">
-                    <span>{{ group.label }}</span>
+                    <span>{{ category.label === 'Next week' ? `${group.label} ${group.dateKey}` : group.label }}</span>
                     <button
 v-if="!group.isPast" type="button" class="weekday-add"
                       :aria-label="`Add task on ${group.label} ${group.dateKey}`"
@@ -87,6 +90,7 @@ v-if="!group.isPast" type="button" class="weekday-add"
 +
 </button>
                   </div>
+                  <div v-if="dragOverDay === group.dateKey" class="weekday-drop-indicator" aria-hidden="true"></div>
                   <TransitionGroup name="task-move" tag="div" class="task-list-group">
                     <TaskItem
                       v-for="task in group.tasks"
@@ -132,6 +136,7 @@ import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import TaskItem from "../TaskItem.vue";
 import ColumnViewButton from "../ColumnViewButton.vue";
 import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
+import { isTaskDrag, weekdayDropTarget } from "../../utils/taskDrag.js";
 
 const props = defineProps({
   newTasks: {
@@ -158,11 +163,11 @@ const props = defineProps({
     type: Function,
     required: true
   },
-  groupTasksByWeekday: {
+  categoryWeekGroups: {
     type: Function,
     required: true
   },
-  isThisWeekCategory: {
+  isPlanningWeekCategory: {
     type: Function,
     required: true
   },
@@ -195,6 +200,9 @@ const props = defineProps({
     required: true
   },
   onCreateDayTask: { type: Function, required: true },
+  dragOverDay: { type: String, default: null },
+  onDragOverWeekday: { type: Function, default: () => {} },
+  onDragLeaveWeekday: { type: Function, default: () => {} },
   onDropOnWeekday: {
     type: Function,
     required: true
@@ -209,7 +217,7 @@ const appendTask = async (tasks, categoryId) => {
   appending = true;
   try {
     const last = tasks[tasks.length - 1];
-    if (!last && categoryId !== "new") await props.onCreateDayTask(new Date());
+    if (!last && categoryId !== "new") await props.onCreateDayTask(props.mainCategories.find(category => category.id === categoryId)?.label === 'Next week' ? categoryId.slice(5) : new Date());
     else if (!last) await props.onCreateNewTask();
     else await props.getTaskItemBindings(last, tasks, { categoryId }).onCreateBelow(last, categoryId, null, { inheritScheduledDate: false });
   } finally { appending = false; }
@@ -235,7 +243,7 @@ watch(() => props.maximizedCategoryId, async (id, previous) => {
 });
 watch(() => props.mainCategories, categories => {
   const id = props.maximizedCategoryId;
-  if (id && id !== 'new' && !categories.some(category => category.id === id && (category.tasks.length || props.isThisWeekCategory(category)))) {
+  if (id && id !== 'new' && !categories.some(category => category.id === id && (category.tasks.length || props.isPlanningWeekCategory(category)))) {
     props.onToggleMaximize(id);
   }
 }, { immediate: true });
@@ -270,8 +278,41 @@ const appendDay = async (group) => {
   finally { appending = false; }
 };
 
-const handleDropOnWeekday = (categoryId, group, event) => {
-  if (!group.isPast) return props.onDropOnWeekday(categoryId, group.dateKey, event);
+const weekdayBackgroundTarget = (category, event) => {
+  if (!props.isPlanningWeekCategory(category) || !isTaskDrag(event)) return null;
+  // Task rows keep their own midpoint-based before/after insertion handling.
+  if (event.target?.closest?.('.task-item') || !event.target?.closest?.('.task-list')) return null;
+  const days = Array.from(event.currentTarget.querySelectorAll('.weekday-group')).map(group => ({
+    dateKey: group.dataset.weekdayDate,
+    top: group.querySelector('.weekday-header span').getBoundingClientRect().top
+  }));
+  return weekdayDropTarget(days, event.clientY);
+};
+
+const handleWeekdayBackgroundDrag = (category, event) => {
+  const day = weekdayBackgroundTarget(category, event);
+  if (!day) {
+    if (isTaskDrag(event) && !event.target?.closest?.('.task-item')) props.onDragLeaveWeekday(props.dragOverDay);
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  props.onDragOverWeekday(day.dateKey, event);
+};
+
+const handleWeekdayBackgroundLeave = (category, event) => {
+  if (!props.dragOverDay || !props.isPlanningWeekCategory(category)) return;
+  const ownsMarker = Array.from(event.currentTarget.querySelectorAll('.weekday-group'))
+    .some(group => group.dataset.weekdayDate === props.dragOverDay);
+  if (ownsMarker) props.onDragLeaveWeekday(props.dragOverDay, event);
+};
+
+const handleWeekdayBackgroundDrop = (category, event) => {
+  const day = weekdayBackgroundTarget(category, event);
+  if (!day) return;
+  event.preventDefault();
+  event.stopPropagation();
+  return props.onDropOnWeekday(category.id, day.dateKey, event);
 };
 
 const loadColumnWidths = () => {

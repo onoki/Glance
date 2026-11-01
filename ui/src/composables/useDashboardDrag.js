@@ -1,6 +1,7 @@
-import { currentWeekDays } from "../utils/categoryUtils.js";
+import { planningWeekDays } from "../utils/categoryUtils.js";
 import { ref } from "vue";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
+import { isTaskDrag } from "../utils/taskDrag.js";
 
 export const useDashboardDrag = (options) => {
   const activeTab = options?.activeTab;
@@ -11,10 +12,12 @@ export const useDashboardDrag = (options) => {
 
   const dragState = ref(null);
   const dragOver = ref({ id: null, position: "before" });
+  const dragOverDay = ref(null);
   const isDashboardDragging = ref(false);
   const dashboardDragState = ref({ active: false, startX: 0, startScrollLeft: 0, pointerId: null });
 
   const setDragOver = (taskId, position) => {
+    dragOverDay.value = null;
     if (!dragState.value || dragState.value.taskId === taskId) {
       dragOver.value = { id: null, position: "before" };
       return;
@@ -28,7 +31,21 @@ export const useDashboardDrag = (options) => {
     }
   };
 
+  const setWeekdayDragOver = (dateKey, event) => {
+    if (!dragState.value || !isTaskDrag(event)) return;
+    dragOver.value = { id: null, position: "before" };
+    dragOverDay.value = planningWeekDays().some(day => day.dateKey === dateKey && !day.isPast) ? dateKey : null;
+  };
+
+  const clearWeekdayDragOver = (dateKey, event) => {
+    if (event?.currentTarget?.contains?.(event.relatedTarget)) return;
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
+    if (rect && event.clientX >= rect.left && event.clientX < rect.right && event.clientY >= rect.top && event.clientY < rect.bottom) return;
+    if (dragOverDay.value === dateKey) dragOverDay.value = null;
+  };
+
   const startDrag = (task, event) => {
+    dragOverDay.value = null;
     dragState.value = { taskId: task.id, page: task.page };
     dragOver.value = { id: null, position: "before" };
     if (event?.dataTransfer) {
@@ -38,6 +55,7 @@ export const useDashboardDrag = (options) => {
   };
 
   const endDrag = () => {
+    dragOverDay.value = null;
     dragState.value = null;
     dragOver.value = { id: null, position: "before" };
   };
@@ -48,7 +66,7 @@ export const useDashboardDrag = (options) => {
     if (!dragged || dragged.id === targetTask.id) {
       return;
     }
-    const day = currentWeekDays().find(day => day.dateKey === targetTask.scheduledDate);
+    const day = planningWeekDays().find(day => day.dateKey === targetTask.scheduledDate);
     if (day?.isPast && dragged.scheduledDate !== targetTask.scheduledDate) return;
 
     const list = getCategoryTasks?.(targetTask.page, categoryId);
@@ -67,12 +85,13 @@ export const useDashboardDrag = (options) => {
   };
 
   const dropOnCategory = async (categoryId, page, event, scheduledDateOverride = null) => {
+    dragOverDay.value = null;
     const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
     const dragged = dragId ? findTaskById?.(dragId) : null;
     if (!dragged) {
       return;
     }
-    const list = getCategoryTasks?.(page, categoryId).filter((item) => item.id !== dragged.id);
+    const list = getCategoryTasks?.(page, categoryId).filter((item) => item.id !== dragged.id && (!scheduledDateOverride || item.scheduledDate === scheduledDateOverride));
     const last = list[list.length - 1] || null;
     const position = last ? last.position + 1 : Date.now();
     await applyTaskMove?.(dragged, categoryId, position, scheduledDateOverride);
@@ -84,7 +103,8 @@ export const useDashboardDrag = (options) => {
   };
 
   const dropOnWeekdayFromView = (categoryId, scheduledDate, event) => {
-    if (!currentWeekDays().some(day => day.dateKey === scheduledDate && !day.isPast)) return;
+    dragOverDay.value = null;
+    if (!planningWeekDays().some(day => day.dateKey === scheduledDate && !day.isPast)) return;
     return dropOnCategoryFromView(categoryId, event, scheduledDate);
   };
 
@@ -138,6 +158,9 @@ export const useDashboardDrag = (options) => {
 
   return {
     dragOver,
+    dragOverDay,
+    setWeekdayDragOver,
+    clearWeekdayDragOver,
     isDashboardDragging,
     startDrag,
     endDrag,

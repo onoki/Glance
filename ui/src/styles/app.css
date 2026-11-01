@@ -376,10 +376,22 @@
 }
 
 .weekday-group {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-bottom: 10px;
+}
+
+.weekday-drop-indicator {
+  position: absolute;
+  left: 12px;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: #d94a3d;
+  pointer-events: none;
+  z-index: 3;
 }
 
 .weekday-header {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Schema } from 'prosemirror-model';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { splitAtSelection } from '../src/utils/editorListUtils.js';
+import { indentTaskDocuments } from '../src/utils/taskJoin.js';
 
 const schema = new Schema({
   nodes: {
@@ -78,3 +79,24 @@ let promotePos;spacedDoc.descendants((n,pos)=>{if(n.type.name==='paragraph' && n
 const spacedSplit=splitAtSelection({state:EditorState.create({schema,doc:spacedDoc,selection:TextSelection.create(spacedDoc,promotePos) }),getJSON:()=>spacedDoc.toJSON()});
 assert.deepEqual(spacedSplit.remainingContent.content[0].content,spacedDoc.toJSON().content[0].content.slice(0,3));
 assert.deepEqual(spacedSplit.newTaskContent.content[0].content,spacedDoc.toJSON().content[0].content.slice(4));
+
+// Whole-task Tab adds exactly one level, and outer Shift+Tab reverses it.
+const empty = schema.node('doc', null, [paragraph([])]).toJSON();
+const contents = [empty, schema.node('doc', null, [schema.node('bulletList', null, [item([paragraph([])]),item([paragraph([])])])]).toJSON(), multiline.toJSON(), nestedDoc.toJSON()];
+const titles = [empty, schema.node('doc', null, [rich]).toJSON()];
+for (const before of contents) for (const children of contents) for (const title of titles) {
+  const inputs = JSON.stringify([before,children,title]);
+  const demoted = indentTaskDocuments({content:before},{title,content:children});
+  const doc = schema.nodeFromJSON(demoted.content);
+  doc.check();
+  const siblings = doc.child(0);
+  let position = 3;
+  for (let index=0;index<demoted.listIndex;index++) position += siblings.child(index).nodeSize;
+  const state = EditorState.create({schema,doc,selection:TextSelection.create(doc,position)});
+  const promoted = splitAtSelection({state,getJSON:()=>doc.toJSON()});
+  assert.deepEqual(schema.nodeFromJSON(promoted.remainingContent).toJSON(), before, 'original parent and blanks are preserved');
+  assert.deepEqual(schema.nodeFromJSON(promoted.title).toJSON(), title, 'former title retains marks, image and hard break');
+  assert.deepEqual(schema.nodeFromJSON(promoted.newTaskContent).toJSON(), children, 'all descendants return to their original levels');
+  assert.deepEqual(promoted.titleSelection,{from:1,to:1});
+  assert.equal(JSON.stringify([before,children,title]),inputs, 'roundtrip does not mutate snapshots');
+}

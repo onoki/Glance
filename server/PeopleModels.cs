@@ -23,7 +23,8 @@ public sealed record PersonTagUpdateRequest(string? Name, double? Position, stri
 
 public sealed record TaskSendToPeopleRequest(
     IReadOnlyList<string>? PersonIds,
-    IReadOnlyList<string>? TagIds
+    IReadOnlyList<string>? TagIds,
+    bool IncludeDashboard = false
 );
 
 public sealed record TaskSendEventItem(

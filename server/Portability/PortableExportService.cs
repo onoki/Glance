@@ -374,14 +374,21 @@ internal sealed class PortableExportService
         var body = new StringBuilder("<ol class=notes>");
         foreach (var task in tasks)
         {
+            var isPrivate = GetLong(task, "is_private") == 1;
             body.Append("<li class=note><div class=title>")
                 .Append(RenderRichText(GetString(task, "title_json")))
-                .Append("</div><div class=content>")
+                .Append("</div>");
+            if (isPrivate) body.Append("<details><summary>Private subcontent</summary>");
+            body.Append("<div class=content>")
                 .Append(RenderRichText(GetString(task, "content_json")))
-                .Append("</div><div class=meta>")
+                .Append("</div>");
+            if (isPrivate) body.Append("</details>");
+            body.Append("<div class=meta>")
                 .Append(Html(FormatTimestamp(GetLong(task, "created_at"))))
-                .Append(" · updated ").Append(Html(FormatTimestamp(GetLong(task, "updated_at"))))
-                .Append("</div></li>");
+                .Append(" · updated ").Append(Html(FormatTimestamp(GetLong(task, "updated_at"))));
+            if (GetLong(task, "completed_at") is { } completed) body.Append(" · completed ").Append(Html(FormatTimestamp(completed)));
+            if (GetLong(task, "history_archived_at") is { } archived) body.Append(" · archived ").Append(Html(FormatTimestamp(archived)));
+            body.Append("</div></li>");
         }
         body.Append("</ol>");
         return body.ToString();

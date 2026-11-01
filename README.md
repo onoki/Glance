@@ -1,6 +1,6 @@
 Glance is a lightweight desktop app for capturing and organizing tasks with a fast, keyboard-friendly workflow. It combines a Photino-based desktop shell with a local .NET backend and a Vite-powered UI.
 
-The app stores data locally and keeps the interface focused on quick capture, simple categorization, and minimal friction. It ships with a dashboard for active work, person-specific lists, project status packages, search, and history.
+The app stores data locally and keeps the interface focused on quick capture, simple categorization, and minimal friction. It ships with a dashboard for active work, person-specific lists, search, and history.
 
 This repository contains the desktop host, server, and UI. Build and run from the solution file at the root, or use the UI and server projects directly during development.
 
@@ -16,7 +16,7 @@ Release builds always use the bundled UI and store data beside the executable, r
 
 To update an existing installation, close all Glance windows and copy the contents of the new portable package over the installed application files. Keep the existing `data`, `blobs`, `backups`, `recovery`, and `exports` folders; do not replace the database with another copy. On the next launch, Glance makes a verified pre-migration backup when needed and applies pending schema migrations to the existing database. There is no in-app update installer.
 
-The app bundles one font: BigBlue TerminalPlus by VileR, unmodified under CC BY-SA 4.0. Its attribution and license are in `ui/assets/fonts/`.
+The app bundles one font family: IBM Plex Sans by IBM, unmodified under SIL Open Font License 1.1. Its upright and italic variable faces provide genuine regular and bold task formatting. Attribution, source details and the license are in `ui/assets/fonts/` and Settings → About.
 
 For development, start Vite in one PowerShell terminal:
 
@@ -34,7 +34,7 @@ dotnet run --project desktop/Glance.Desktop.csproj -c Debug
 
 Debug builds always use Vite (default `http://localhost:5173/`). `GLANCE_DEV_SERVER_URL` can optionally customize that URL for Debug builds only. `GLANCE_USE_DEV_SERVER` is no longer used. Production builds also ignore `GLANCE_APP_ROOT`; Debug builds still support it for isolated development data.
 
-Workplace setup for the disabled-by-default Azure DevOps and Outlook status readers is documented in [docs/status-updates-integration.md](docs/status-updates-integration.md).
+The Status Updates feature has been retired. Existing report files and metadata remain supported by backup, restore and portable export; see [retirement notes](docs/status-updates-integration.md).
 
 Backup verification, restore behavior, retention, and recovery mode are documented in [docs/data-safety.md](docs/data-safety.md). The neutral exit bundle is documented in [docs/data-portability.md](docs/data-portability.md).
 
@@ -42,15 +42,15 @@ Useful editor shortcuts include Ctrl+B/Ctrl+I for formatting, Ctrl+K for web or 
 
 In Dashboard and People, the narrow dotted handle beside a task's checkbox selects its title and all subtasks. Drag that same handle to reorder the task. Ctrl-click adds/removes tasks; Shift-click selects a range. Ctrl+C/Ctrl+X copies/cuts whole selected tasks and Ctrl+V pastes below the focused task. Ctrl+Shift+Space selects a task from its editor, and Escape returns to text editing. Each task-group cut or paste has one Undo step. See [whole-task clipboard](docs/task-clipboard-proposal.md) for attachment and destination behavior.
 
-Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights, and Ctrl+7 marks Dashboard or History lines for status input. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized or maximized below the top navigation. Restoring keeps the normal column widths. Images fit the column but never grow beyond their original dimensions. People tabs wrap and use colored dots and a shared legend to show assigned tags.
+Ctrl+3 toggles a question marker, Ctrl+4/5/6 toggle green/yellow/red line highlights. Long URL text is shown compactly until its editor is focused; its full text and destination are retained. All Dashboard columns, including New tasks, can be resized or maximized below the top navigation. Restoring keeps the normal column widths. Images fit the column but never grow beyond their original dimensions. People tabs wrap and use colored dots and a shared legend to show assigned tags.
 
 ### Compact editing and navigation
 
 Task columns include blank space below the last row: click it to append a task. Typing near an edge keeps the caret visible. Delete, like Backspace, removes an entirely empty task; Backspace at the start of a subsequent task joins it to the previous one and keeps the caret at the join.
 
-Category menus open by clicking their button (or keyboard activation). Moves provide a short Undo notification when still applicable; copies are explicitly labelled as copies. The selected person's name appears beside their controls, and shared tag editing is separated from personal tag assignment. Search shows source context; History activity starts expanded and remembers your show/hide choice; restore controls and technical Status Updates details use compact disclosures. Send and person-tag menus support multiple label/checkbox selections and close on an outside click or Escape.
+Category menus open by clicking their button (or keyboard activation). Moves provide a short Undo notification when still applicable; copies are explicitly labelled as copies. The selected person's name appears beside their controls, and shared tag editing is separated from personal tag assignment. Search shows source context; History activity starts expanded and remembers your show/hide choice; restore controls use compact disclosures. Send and person-tag menus support multiple label/checkbox selections and close on an outside click or Escape. People tasks have one Send menu with Dashboard first; its confirmation stays visible while recipients scroll.
 
-BigBlue remains 8 CSS pixels. Editor and navigation text origins are aligned to the physical pixel grid to reduce uneven smoothing at 150% scaling. UI controls retain their compact sizes; task bold and italic formatting remains supported.
+Every tab, including Settings, uses IBM Plex Sans at a 7 CSS pixel base size with 1.35 line height and the neutral Notepad palette: off-white surfaces, near-black ordinary text and pale gray selection. Semantic highlights, tags and warnings remain colored. UI controls retain their compact pointer targets; task bold and italic use genuine font faces. No automatic text-origin correction runs. Zoom retains per-monitor preferences and reset; its asterisk only indicates a near-whole-device-pixel text size, not guaranteed sharpness or the removal of antialiasing.
 
 The Windows desktop app requests grayscale text smoothing to avoid colored LCD fringes. Fully close all Glance windows and reopen after upgrading to test this change. It retains the same font size and does not alter Windows settings; it does not disable all antialiasing. Empty-task Delete now focuses the beginning of the next task (falling back to the previous task if no next task exists), while Backspace keeps its backward behavior. People switches replace the person and fetched list together without cross-person task animations.
 
@@ -58,4 +58,10 @@ Delete at the end of a title joins its first subcontent line, or the following t
 
 Windows taskbar pinning, portable shortcuts, and main/helper closing behavior: [Windows integration](docs/windows-integration.md).
 
-This week uses full Monday-Sunday column headings and supports Mon-Sun scheduling through the Move menu, day-header drops, and small per-day + buttons. Empty current/upcoming days stay visible; empty past days disappear without rescheduling unfinished tasks. See [weekday assignment](docs/weekday-assignment-proposal.md). History’s Move completed button includes completed notes from both Dashboard and People, retaining person attribution.
+This week uses full Monday-Sunday column headings and supports Mon-Sun scheduling through the Move menu, day-header drops, and small per-day + buttons. Empty current/upcoming days stay visible; empty past days disappear without rescheduling unfinished tasks. See [weekday assignment](docs/weekday-assignment-proposal.md). History’s Move completed button includes completed notes from both Dashboard and People, retaining person attribution and the original completion day. Prior-day completions leave active lists at local midnight or on first focus after sleep. The 180-day chart counts local completion days, including notes not yet manually archived. See [privacy and history](docs/privacy-and-history.md).
+
+Navigation is Dashboard, People, Search, History (Alt+1–4). Search focuses its field on entry. People has a name filter (Esc clears; Enter selects the first match), creation dates in the focused task bar, and direct Send a copy to other people or tag groups. Pending-save dots float in a permanent narrow title gutter to keep wrapping stable.
+
+Use the lock in a focused task’s controls to mark its subcontent private; the top-bar lock enables/disables concealment for flagged tasks in that window. Privacy starts on each launch, reveals the focused task, and hides it again on task/window blur. Titles remain visible. This is screen privacy; saved data, clipboard and exports keep the complete content.
+
+The shared [compact visual system](docs/button-styles.md) follows the font comparison: clearer sentence-case headings, a 2px focused-task rail, quiet separators and small rounded controls across all tabs. Task text remains 7px; no extra padding is added.

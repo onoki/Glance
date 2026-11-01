@@ -101,7 +101,7 @@ internal static class Program
 
         window.RegisterWebMessageReceivedHandler(HandleWebMessage);
         RegisterZoom(window);
-        window.WindowCreated += (_, _) => RestoreWindowPlacement(window, savedPlacement);
+        window.WindowCreated += (_, _) => { RegisterWindowIdentity(window); RestoreWindowPlacement(window, savedPlacement); };
 
         window.WindowClosing += (_, _) => RequestWindowClose(window);
 
@@ -438,7 +438,7 @@ internal static class Program
                 .SetResizable(true);
             child.RegisterWebMessageReceivedHandler(HandleWebMessage);
             RegisterZoom(child);
-            child.WindowCreated += (_, _) => RestoreWindowPlacement(child, parentPlacement);
+            child.WindowCreated += (_, _) => { RegisterWindowIdentity(child); RestoreWindowPlacement(child, parentPlacement); };
             child.WindowClosing += (_, _) => RequestWindowClose(child);
             if (!string.IsNullOrWhiteSpace(_iconPath) && File.Exists(_iconPath))
             {
@@ -466,6 +466,13 @@ internal static class Program
                 state.Window.SetTitle(WindowPresentation.Title(state.IsPrimary, Windows.Count));
     }
 
+    private static void RegisterWindowIdentity(PhotinoWindow window)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try { WindowsShellIdentity.ApplyToWindow(window.WindowHandle); }
+        catch (Exception ex) { Log($"Unable to assign taskbar identity: {ex.Message}"); }
+    }
+
     private static bool RequestWindowClose(PhotinoWindow window)
     {
         lock (WindowGate)
@@ -477,6 +484,11 @@ internal static class Program
             if (state.AllowClose)
             {
                 SaveWindowPlacement(window);
+                if (OperatingSystem.IsWindows())
+                {
+                    try { WindowsShellIdentity.ClearWindow(window.WindowHandle); }
+                    catch (Exception ex) { Log($"Unable to clear taskbar identity: {ex.Message}"); }
+                }
                 Windows.Remove(window.Id);
                 UpdateWindowTitles();
                 return false;

@@ -1,17 +1,27 @@
 import { formatDateKey, getWeekStart, parseDateKey, toWeekdayNumber, weekdayLabels, weekdayNames } from "./dateUtils.js";
 
-export const currentWeekDays = (today = new Date()) => {
-  const start = getWeekStart(today);
+export const weekDays = (today = new Date(), weekStart = getWeekStart(today)) => {
+  const start = getWeekStart(weekStart);
   const todayKey = formatDateKey(today);
   return weekdayLabels.map((label, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     const dateKey = formatDateKey(date);
-    return { id: `weekday-${index + 1}`, label, dateKey, isPast: dateKey < todayKey };
+    return { id: `weekday-${index + 1}`, label, name: weekdayNames[index], dateKey, isPast: dateKey < todayKey };
   });
 };
 
-export const groupTasksByWeekday = (tasks, today = new Date()) => {
+export const currentWeekDays = (today = new Date()) => weekDays(today);
+export const relativeWeekStart = (weeks, today = new Date()) => {
+  const start = getWeekStart(today);
+  start.setDate(start.getDate() + weeks * 7);
+  return start;
+};
+export const nextWeekDays = (today = new Date()) => weekDays(today, relativeWeekStart(1, today));
+export const planningWeekDays = (today = new Date()) => [...currentWeekDays(today), ...nextWeekDays(today)];
+export const categoryPickerDays = (id, today = new Date()) => id === 'this-week' ? currentWeekDays(today) : id === 'next-week' ? nextWeekDays(today) : [];
+
+export const groupTasksByWeekday = (tasks, today = new Date(), weekStart = getWeekStart(today)) => {
   const groups = new Map();
   tasks.forEach((task) => {
     const date = task.scheduledDate ? parseDateKey(task.scheduledDate) : new Date();
@@ -22,15 +32,17 @@ export const groupTasksByWeekday = (tasks, today = new Date()) => {
     groups.get(weekday).push(task);
   });
 
-  return currentWeekDays(today)
+  return weekDays(today, weekStart)
     .map((day, index) => ({ ...day, label: weekdayNames[index], tasks: groups.get(index + 1) || [] }))
     .filter((group) => !group.isPast || group.tasks.length > 0);
 };
 
 export const isThisWeekCategory = (category) => category.label === "This week";
+export const isPlanningWeekCategory = category => ['This week', 'Next week'].includes(category?.label);
+export const categoryWeekGroups = category => groupTasksByWeekday(category.tasks, new Date(), parseDateKey(category.id.slice(5)));
 
-export const deriveCategories = (tasks) => {
-  const now = new Date();
+export const deriveCategories = (tasks, today = new Date()) => {
+  const now = new Date(today);
   now.setHours(0, 0, 0, 0);
   const currentWeekStart = getWeekStart(now);
   const futureLimit = new Date(currentWeekStart);
@@ -85,6 +97,7 @@ export const deriveCategories = (tasks) => {
   nextWeek.setDate(currentWeekStart.getDate() + 7);
   const thisWeekKey = formatDateKey(currentWeekStart);
   const nextWeekKey = formatDateKey(nextWeek);
+  const twoWeeksKey = formatDateKey(relativeWeekStart(2, now));
 
   weekKeys.forEach((key) => {
     const weekDate = parseDateKey(key);
@@ -95,7 +108,7 @@ export const deriveCategories = (tasks) => {
       pastWeeks.push(key);
       return;
     }
-    if (key === thisWeekKey || key === nextWeekKey) {
+    if (key === thisWeekKey || key === nextWeekKey || key === twoWeeksKey) {
       return;
     }
     futureWeeks.push(key);
@@ -107,8 +120,10 @@ export const deriveCategories = (tasks) => {
 
   categories.push({ id: `week-${thisWeekKey}`, label: "This week", tasks: weekGroups.get(thisWeekKey) || [] });
 
-  if (weekGroups.has(nextWeekKey)) {
-    categories.push({ id: `week-${nextWeekKey}`, label: "Next week", tasks: weekGroups.get(nextWeekKey) });
+  categories.push({ id: `week-${nextWeekKey}`, label: "Next week", tasks: weekGroups.get(nextWeekKey) || [] });
+
+  if (weekGroups.has(twoWeeksKey)) {
+    categories.push({ id: `week-${twoWeeksKey}`, label: "In two weeks", tasks: weekGroups.get(twoWeeksKey) });
   }
 
   futureWeeks.forEach((key) => {

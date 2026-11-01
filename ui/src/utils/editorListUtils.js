@@ -242,6 +242,31 @@ export const handleEmptyListItemBackspace = (editor) => {
   return removeEmptyListItem(editor, -1);
 };
 
+// Native list joins can refuse the barrier between an empty bullet and its
+// neighbour. Handle only that exact boundary; never discard nested children.
+export const removeBlankBulletBoundary = (editor, key) => {
+  if (!editor?.state.selection.empty || !["Backspace", "Delete"].includes(key)) return false;
+  const { state, view } = editor;
+  const { $from } = state.selection;
+  const depth = getListItemDepth(editor);
+  if (!depth || $from.depth !== depth + 1 || $from.parentOffset !== 0 || $from.index(depth) !== 0) return false;
+  const list = $from.node(depth - 1);
+  const index = $from.index(depth - 1);
+  const blank = item => item.childCount === 1 && item.firstChild?.type.name === "paragraph" && item.firstChild.content.size === 0;
+  if (key === "Delete") {
+    if (!blank($from.node(depth)) || index + 1 >= list.childCount) return false;
+    return removeEmptyListItem(editor, 1);
+  }
+  if (index === 0 || !blank(list.child(index - 1))) return false;
+  const to = $from.before(depth);
+  const from = to - list.child(index - 1).nodeSize;
+  const tr = state.tr.delete(from, to);
+  tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(state.selection.from)));
+  view.dispatch(tr.scrollIntoView());
+  editor.commands?.focus?.();
+  return true;
+};
+
 export const insertListItemAfterSelection = (editor) => {
   if (!editor) {
     return false;

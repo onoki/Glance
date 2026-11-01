@@ -37,7 +37,7 @@ import {
 import ResizableImage from "../utils/resizableImage.js";
 import { revealCaret } from "../utils/editorVisibility.js";
 import { insertDateShortcut } from "../utils/insertDateShortcut.js";
-import { StatusMetadata, toggleStatusAtSelection } from "../utils/statusMetadata.js";
+import { StatusMetadata } from "../utils/statusMetadata.js";
 import {
   isAllowedExternalTarget,
   normalizeExternalTarget,
@@ -80,10 +80,6 @@ const props = defineProps({
   showToolbar: {
     type: Boolean,
     default: false
-  },
-  allowStatusMarkers: {
-    type: Boolean,
-    default: false
   }
 });
 
@@ -110,7 +106,7 @@ const editorRef = useEditor({
       multicolor: true
     }),
     Link.extend({ inclusive: false, renderHTML({ HTMLAttributes }) {
-      return ["a", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { title: HTMLAttributes.href }), 0];
+      return ["a", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { title: HTMLAttributes.href, target: "_blank", rel: "noopener noreferrer" }), 0];
     } }).configure({
       autolink: true,
       linkOnPaste: true,
@@ -324,10 +320,6 @@ const editorRef = useEditor({
           event.preventDefault();
           return toggleLineHighlight(editor, "red");
         }
-        if (event.key === "7" && props.allowStatusMarkers) {
-          event.preventDefault();
-          return toggleStatusAtSelection(editor, isTitle.value);
-        }
       }
       if (event.key === 'Tab') {
         event.preventDefault();
@@ -338,13 +330,12 @@ const editorRef = useEditor({
           if (isOutermostListItem(editor)) {
             const splitPayload = splitAtSelection(editor);
             if (splitPayload) {
-              props.onSplitToNewTask({
+              void Promise.resolve(props.onSplitToNewTask({
                 title: splitPayload.title,
                 content: splitPayload.newTaskContent,
                 titleSelection: splitPayload.titleSelection,
                 remainingContent: splitPayload.remainingContent
-              });
-              editor.commands.setContent(splitPayload.remainingContent);
+              })).catch(error => window.alert(error?.message || "Could not split the note."));
               return true;
             }
           }
@@ -899,19 +890,11 @@ onBeforeUnmount(() => {
 defineExpose({
   focus,
   focusListItem,
-  insertParagraphIfEmpty,
-  toggleStatusMarker: () => toggleStatusAtSelection(editorInstance.value, isTitle.value)
+  insertParagraphIfEmpty
 });
 </script>
 
 <style scoped>
-.rich-editor :deep([data-status-input-at-utc]::before) {
-  content: "📝 ";
-  color: #a86018;
-  font-size: var(--font-size-body);
-  text-decoration: none;
-}
-
 .rich-editor :deep(.image-resize-wrapper) {
   display: inline-block;
   position: relative;

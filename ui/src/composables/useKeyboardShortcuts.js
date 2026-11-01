@@ -5,8 +5,19 @@ export const useKeyboardShortcuts = (options) => {
   const onUndo = options?.onUndo;
   const onRedo = options?.onRedo;
   const onOpenSearch = options?.onOpenSearch;
+  const onSelectTab = options?.onSelectTab;
 
   const handleGlobalShortcut = (event) => {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.isComposing) {
+      const tab = ['Dashboard', 'People', 'Search', 'History'][Number(event.key) - 1];
+      if (tab && /^[1-4]$/.test(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (onSelectTab) onSelectTab(tab);
+        else activeTab.value = tab;
+        return;
+      }
+    }
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
       const key = event.key.toLowerCase();
       if (key === "z" && !event.shiftKey) {

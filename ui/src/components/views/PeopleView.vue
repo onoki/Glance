@@ -2,9 +2,10 @@
   <section ref="peopleRoot" class="people-view dashboard" @scroll.capture="keepTaskListsLeft">
     <header class="people-navigation">
       <button type="button" class="ghost" @click="addPerson">+ Person</button>
+      <input v-model="personFilter" class="people-quick-filter" type="search" placeholder="Find person…" aria-label="Filter people" @keydown.esc.stop="personFilter = ''" @keydown.enter.prevent="selectFirstMatchingPerson" />
       <div class="people-tabs" role="tablist" aria-label="People">
         <div
-          v-for="person in activePeople"
+          v-for="person in filteredPeople"
           :key="person.id"
           class="person-tab-shell"
           :class="{
@@ -42,6 +43,7 @@
         >
           Archived ({{ archivedPeople.length }})
         </button>
+        <span v-if="personFilter.trim() && !filteredPeople.length" class="empty-message" role="status">No matching people</span>
       </div>
     </header>
     <div v-if="directory.tags.length" class="people-tag-legend" aria-label="Person tag colors">
@@ -145,7 +147,10 @@
             :on-drop="dropOnTask"
             :on-drag-over="setDragOver"
             :on-drag-leave="clearDragOver"
-            :on-send-to-dashboard="sendDashboard"
+            :allow-dashboard-send="true"
+            :send-people="activePeople.filter(person => person.id !== selectedId)"
+            :send-tags="directory.tags"
+            :on-send-to-people="sendPeople"
             :on-load-send-events="loadSendEvents"
             :on-dismiss-send-marker="dismissSend"
           />
@@ -175,7 +180,7 @@ import {
   updatePerson,
   updatePersonTag
 } from "../../api/people.js";
-import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToDashboard } from "../../api/taskSend.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople } from "../../api/taskSend.js";
 import { usePeopleTasks } from "../../composables/usePeopleTasks.js";
 import { tagColor, createTagColorSaver } from "../../utils/tagColor.js";
 import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
@@ -188,6 +193,7 @@ const props = defineProps({
 
 const emit = defineEmits(["directory-change", "history-change"]);
 const directory = ref({ people: [], tags: [] });
+const personFilter = ref('');
 const peopleRoot = ref(null);
 const selectedId = ref(sessionStorage.getItem("glance.selectedPerson"));
 watch(selectedId, (id) => {
@@ -226,6 +232,10 @@ let navigationSequence = 0;
 const activePeople = computed(() => directory.value.people
   .filter((person) => !person.archivedAt)
   .sort((left, right) => left.position - right.position));
+const filteredPeople = computed(() => activePeople.value.filter(person => person.displayName.toLocaleLowerCase().includes(personFilter.value.trim().toLocaleLowerCase())));
+const selectFirstMatchingPerson = () => {
+  if (filteredPeople.value.length) return selectPerson(filteredPeople.value[0].id);
+};
 const archivedPeople = computed(() => directory.value.people
   .filter((person) => !!person.archivedAt)
   .sort((left, right) => left.displayName.localeCompare(right.displayName)));
@@ -331,6 +341,7 @@ const scrollToElement = (selector, id) => {
 
 const applyNavigationTarget = async (target) => {
   if (!target?.taskId || !target?.personId) return;
+  personFilter.value = '';
   const sequence = ++navigationSequence;
   await loadDirectory();
   if (sequence !== navigationSequence) return;
@@ -480,9 +491,10 @@ const tagNamesFor = (person) => {
 };
 const tagsFor = (person) => directory.value.tags.filter((tag) => (person.tagIds || []).includes(tag.id));
 
-const sendDashboard = async (task) => {
-  await sendTaskToDashboard(task.id);
-  task.sendMarkerVisible = true;
+const sendPeople = async (task, personIds, tagIds, includeDashboard = false) => {
+  const response = await sendTaskToPeople(task.id, personIds, tagIds, includeDashboard);
+  if (response.created > 0) task.sendMarkerVisible = true;
+  return response;
 };
 const loadSendEvents = (task) => fetchTaskSendEvents(task.id);
 const dismissSend = async (task) => {
@@ -568,18 +580,20 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
   padding: 0;
 }
 
+.people-quick-filter { width: 130px; min-width: 80px; font: inherit; font-size: var(--font-size-body); }
+
 .archive-navigation-notice {
   color: var(--text-main);
   margin: 2px 0 0;
 }
 
 .archived-person-card.navigation-highlight {
-  animation: archived-person-flash 0.8s ease-out;
+  animation: archived-person-flash 5.8s ease-out;
   outline: 1px solid rgba(120, 92, 40, 0.35);
 }
 
 @keyframes archived-person-flash {
-  from { background: rgba(225, 199, 128, 0.55); }
+  0%, 86% { background: rgba(225, 199, 128, 0.55); }
   to { background: transparent; }
 }
 

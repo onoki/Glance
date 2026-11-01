@@ -3,12 +3,13 @@
     ref="taskRoot"
     class="task-item"
     @focusin="trackFocusOverlay"
-    @click="actionDismissal.interact($event)"
+    @click="handleTaskClick"
     @keydown="actionDismissal.interact($event)"
     @keydown.esc="closeTaskMenus"
     :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected, 'actions-dismissed': actionsDismissed, 'task-dragging': dragging }"
     :draggable="false"
     :data-task-id="task.id"
+    :tabindex="privateSubcontent ? 0 : undefined"
     @dragstart="handleDragStart"
     @dragover.capture="handleDragOver"
     @dragenter.capture="handleDragOver"
@@ -42,10 +43,19 @@
     <div v-show="!actionsDismissed" ref="taskMeta" class="task-meta" :style="overlayStyle" :inert="actionsDismissed">
       <div class="task-meta-labels">
         <span v-if="showScheduledDate" class="task-date">{{ task.scheduledDate }}</span>
+        <span v-if="creationDate" class="task-date" :title="`Created ${creationDate}`">{{ creationDate }}</span>
         <span v-if="showOwnerPerson && task.ownerPersonName" class="task-context">{{ task.ownerPersonName }}</span>
         <span v-if="task.originLabel" class="task-context">{{ task.originLabel }}</span>
       </div>
       <div class="task-action-strip" aria-label="Task actions">
+        <button
+          v-if="!readOnly" type="button" class="task-tool task-icon-button contextual-task-action"
+          :aria-pressed="privateSubcontent" aria-label="Private subcontent"
+          :title="privateSubcontent ? 'Private subcontent: shown only while this task is focused when privacy is on' : 'Mark subcontent private'"
+          @click.stop="togglePrivateSubcontent"
+        >
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1" /><path :d="privateSubcontent ? 'M5 7V4a3 3 0 0 1 6 0v3' : 'M5 7V4a3 3 0 0 1 6 0'" /></svg>
+        </button>
         <button
           v-if="draggable && !readOnly && !clipboardAdapter"
           type="button"
@@ -75,12 +85,12 @@
               <button type="button" class="category-option" @click="setCategory(option.id)">
                 {{ option.label }}
               </button>
-              <div v-if="option.id === 'this-week'" class="week-picker-days" aria-label="Schedule this week">
+              <div v-if="categoryPickerDays(option.id).length" class="week-picker-days" :aria-label="`Schedule ${option.label.toLowerCase()}`">
                 <button
-                  v-for="day in currentWeekDays()" :key="day.dateKey" type="button"
+                  v-for="day in categoryPickerDays(option.id)" :key="day.dateKey" type="button"
                   :disabled="day.isPast" :aria-pressed="task.scheduledDate === day.dateKey"
-                  :aria-label="`Move to ${day.label} ${day.dateKey}`"
-                  :title="day.isPast ? `${day.dateKey} has passed` : `Move to ${day.label} ${day.dateKey}`"
+                  :aria-label="`Move to ${day.name} ${day.dateKey}`"
+                  :title="day.isPast ? `${day.name} ${day.dateKey} has passed` : `Move to ${day.name} ${day.dateKey}`"
                   @click="setCategory(`day-${day.dateKey}`)"
                 >
                   {{ day.label.slice(0, 2) }}
@@ -89,45 +99,25 @@
             </template>
           </div>
         </div>
-        <button
-          v-if="allowStatusMarkers && showStatusMarkerButton"
-          type="button"
-          class="task-tool task-icon-button status-tool contextual-task-action"
-          :class="{ active: taskHasStatusMarker }"
-          :aria-label="statusActionLabel"
-          :aria-pressed="taskHasStatusMarker"
-          :title="statusActionLabel"
-          @click.stop="toggleStatusButton"
-        >
-          📝
-        </button>
         <div v-if="onSendToPeople" ref="sendPickerRef" class="task-popover-wrap contextual-task-action">
-          <button type="button" class="task-tool task-icon-button" aria-label="Send a copy to people" title="Send a copy to people" @click.stop="toggleSendMenu">→</button>
+          <button type="button" class="task-tool task-icon-button" aria-label="Send a copy" title="Send a copy…" @click.stop="toggleSendMenu">→</button>
           <div
             v-if="sendOpen"
             ref="sendMenuRef"
-            class="floating-menu task-popover"
+            class="floating-menu task-popover send-menu"
             :style="{ left: `${sendMenuLeft}px`, top: `${sendMenuTop}px` }"
             @click.stop
           >
-            <strong class="task-popover-title">Send to people</strong>
-            <label v-for="person in sendPeople" :key="person.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedPeople" type="checkbox" :value="person.id" /> {{ person.displayName }}</label>
-            <label v-for="tag in sendTags" :key="tag.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedTags" type="checkbox" :value="tag.id" /> Everyone tagged {{ tag.name }}</label>
-            <span v-if="!sendPeople.length" class="task-context">Add people in the People tab first.</span>
-            <button type="button" class="category-option" :disabled="sending || (!selectedPeople.length && !selectedTags.length)" @click="sendToPeople">Send</button>
+            <strong class="task-popover-title">Send a copy to</strong>
+            <div class="send-recipients">
+              <label v-if="allowDashboardSend" class="task-menu-option" @mousedown.prevent><input v-model="selectedDashboard" type="checkbox" /> Send to Dashboard</label>
+              <label v-for="person in sendPeople" :key="person.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedPeople" type="checkbox" :value="person.id" /> {{ person.displayName }}</label>
+              <label v-for="tag in sendTags" :key="tag.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedTags" type="checkbox" :value="tag.id" /> Everyone tagged {{ tag.name }}</label>
+              <span v-if="!sendPeople.length" class="task-context">Add people in the People tab first.</span>
+            </div>
+            <button type="button" class="category-option send-confirm" :disabled="sending || (!selectedDashboard && !selectedPeople.length && !selectedTags.length)" @click="sendToPeople">{{ sending ? 'Sending…' : 'Send' }}</button>
           </div>
         </div>
-        <button
-          v-if="onSendToDashboard"
-          type="button"
-          class="task-tool task-icon-button contextual-task-action"
-          aria-label="Send a copy to Dashboard"
-          title="Send a copy to Dashboard"
-          :disabled="sending"
-          @click.stop="sendToDashboard"
-        >
-          →
-        </button>
         <div v-if="onLoadSendEvents" ref="eventsPickerRef" class="task-popover-wrap sent-marker-slot">
           <button
             v-if="sendMarkerVisible"
@@ -175,7 +165,6 @@
           :on-dirty="handleTitleDirty"
           :on-split-to-new-task="noopSplit"
           :on-key-down="handleTitleKeydown"
-          :allow-status-markers="allowStatusMarkers"
         />
         <span
           v-if="dirty && !readOnly"
@@ -193,19 +182,22 @@
         @apply="applyRecurrence"
         @toggle-weekday="toggleWeekday"
       />
-      <RichTextEditor
-        v-if="hasSubcontent"
-        ref="contentEditorRef"
-        class="content-editor"
-        v-model="content"
-        :editable="!readOnly && !clipboardBusy"
-        :on-dirty="handleContentDirty"
-        :on-split-to-new-task="handleSplitToNewTask"
-        :on-key-down="handleContentKeydown"
-        :on-focus="handleContentFocus"
-        :on-blur="handleContentBlur"
-        :allow-status-markers="allowStatusMarkers"
-      />
+      <div v-if="hasSubcontent" class="private-subcontent">
+        <div :inert="privacyHidden" :aria-hidden="privacyHidden" :style="privacyHidden ? { visibility: 'hidden' } : undefined">
+          <RichTextEditor
+            ref="contentEditorRef"
+            class="content-editor"
+            v-model="content"
+            :editable="!readOnly && !clipboardBusy"
+            :on-dirty="handleContentDirty"
+            :on-split-to-new-task="handleSplitToNewTask"
+            :on-key-down="handleContentKeydown"
+            :on-focus="handleContentFocus"
+            :on-blur="handleContentBlur"
+          />
+        </div>
+        <button v-if="privacyHidden" type="button" class="private-subcontent-mask" @mousedown.prevent @click.stop="revealSubcontent">Private subcontent — focus to reveal</button>
+      </div>
       <div v-if="saveError && !readOnly" class="task-save-warning" role="alert">
         <span>{{ saveErrorMessage }}</span>
         <button
@@ -223,16 +215,18 @@
 
 <script setup>
 import { taskClipboard } from "../services/taskClipboard.js";
+import { privacyMode, revealedPrivateTask, revealPrivateTask } from "../composables/usePrivacy.js";
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
-import { currentWeekDays } from "../utils/categoryUtils.js";
+import { categoryPickerDays } from "../utils/categoryUtils.js";
+import { formatDateKey } from "../utils/dateUtils.js";
 import { isTaskDrag, TASK_DRAG_TYPE, taskDropPosition } from "../utils/taskDrag.js";
 import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
 import { announceAction } from "../services/actionFeedback.js";
 import RichTextEditor from "./RichTextEditor.vue";
 import RecurrenceControls from "./RecurrenceControls.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
+import { indentTaskDocuments } from "../utils/taskJoin.js";
 import { isDocEmptyJson } from "../utils/taskDocUtils.js";
-import { hasStatusMarker, toggleWholeTaskStatus } from "../utils/statusMetadata.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 
 const props = defineProps({
@@ -376,20 +370,37 @@ const props = defineProps({
     type: Function,
     default: null
   },
-  allowStatusMarkers: { type: Boolean, default: false },
-  showStatusMarkerButton: { type: Boolean, default: false },
   showOwnerPerson: { type: Boolean, default: true },
-  onStatusMarkers: { type: Function, default: null },
   sendPeople: { type: Array, default: () => [] },
   sendTags: { type: Array, default: () => [] },
   onSendToPeople: { type: Function, default: null },
-  onSendToDashboard: { type: Function, default: null },
+  allowDashboardSend: { type: Boolean, default: false },
   onLoadSendEvents: { type: Function, default: null },
   onDismissSendMarker: { type: Function, default: null }
 });
 
 const title = ref(props.task.title);
 const content = ref(props.task.content);
+const privateSubcontent = ref(!!props.task.isPrivate);
+const privacyHidden = computed(() => privateSubcontent.value && privacyMode.value && revealedPrivateTask.value !== props.task.id);
+const revealSubcontent = () => {
+  taskRoot.value?.focus({ preventScroll: true });
+  revealPrivateTask(props.task.id);
+  actionDismissal.interact();
+};
+const handleTaskClick = event => {
+  // Read-only titles are not contenteditable, so give their private task an
+  // actual focus owner as well as revealing it visually.
+  if (privateSubcontent.value && props.readOnly && !taskRoot.value?.contains(document.activeElement)) {
+    taskRoot.value?.focus({ preventScroll: true });
+  }
+  actionDismissal.interact(event);
+};
+const togglePrivateSubcontent = async () => {
+  privateSubcontent.value = !privateSubcontent.value;
+  markDirty();
+  await saveNow();
+};
 const dirty = ref(false);
 const saving = ref(false);
 const saveError = ref(null);
@@ -475,6 +486,7 @@ const monthDaysInput = ref("");
 const sendOpen = ref(false);
 const eventsOpen = ref(false);
 const selectedPeople = ref([]);
+const selectedDashboard = ref(false);
 const selectedTags = ref([]);
 const sendEvents = ref([]);
 const sending = ref(false);
@@ -521,14 +533,14 @@ const hasSubcontent = computed(() => {
 const showScheduledDate = computed(
   () => !!props.task.scheduledDate && props.task.scheduledDate !== "no-date"
 );
+const creationDate = computed(() => {
+  if (props.task.page !== 'people:main' || !Number.isFinite(props.task.createdAt)) return null;
+  return formatDateKey(new Date(props.task.createdAt));
+});
 
 const canSetCategory = computed(() => !!props.onSetCategory && !props.readOnly);
 const canDelete = computed(() => !!props.onDelete && props.allowDelete);
 const completionActionLabel = computed(() => props.task.completedAt ? "Mark task incomplete" : "Mark task complete");
-const taskHasStatusMarker = computed(() => hasStatusMarker(title.value) || hasStatusMarker(content.value));
-const statusActionLabel = computed(() => taskHasStatusMarker.value
-  ? "Remove entire task from project status input"
-  : "Include entire task in project status input");
 const saveErrorMessage = computed(() => {
   if (saveError.value?.kind === "conflict") {
     return "This note changed in another window. Your edits are preserved here. Review the other window, then save your version only if it should replace the newer saved version.";
@@ -600,6 +612,7 @@ const categoryOptions = [
   { id: "uncategorized", label: "Uncategorized" },
   { id: "this-week", label: "This week" },
   { id: "next-week", label: "Next week" },
+  { id: "two-weeks", label: "In two weeks" },
   { id: "no-date", label: "No date" },
   { id: "notes", label: "Notes" },
   { id: "repeatable", label: "Repeatable" }
@@ -619,6 +632,7 @@ const snapshot = () => ({
   ...props.task,
   title: title.value,
   content: content.value,
+  isPrivate: privateSubcontent.value,
   updatedAt: updatedAt.value
 });
 
@@ -648,6 +662,7 @@ const performSave = async (options = null) => {
     id: props.task.id,
     title: title.value,
     content: content.value,
+    isPrivate: privateSubcontent.value,
     baseUpdatedAt: updatedAt.value,
     page: props.task.page,
     suppressUndo: options?.suppressUndo ?? false
@@ -788,7 +803,10 @@ let deleting = false;
 async function handleDelete(_task, options = {}) {
   if (deleting) return;
   deleting = true;
-  try { await props.onDelete?.(snapshot(), options); }
+  try {
+    if (await saveNow() === false) throw new Error("Could not save edits before deleting the note.");
+    await props.onDelete?.(snapshot(), options);
+  } catch (error) { window.alert(error?.message || "Could not delete the note."); }
   finally { deleting = false; }
 }
 
@@ -848,28 +866,38 @@ const handleDragEnd = () => {
   props.onDragEnd?.();
 };
 
+let splittingSubcontent = false;
 const handleSplitToNewTask = async (payload) => {
-  if (props.readOnly) {
-    return;
-  }
-  const previousContent = content.value;
-  if (payload?.remainingContent) {
-    content.value = payload.remainingContent;
-    markDirty();
-  }
-  const saved = await saveNow(false, { suppressUndo: true });
-  if (!saved) {
-    window.alert("Could not save the latest edits before splitting the task.");
-    return;
-  }
-  props.onSplitToNewTask(props.task, {
-    title: payload?.title,
-    content: payload?.content,
-    previousContent,
-    remainingContent: payload?.remainingContent,
-    titleSelection: payload?.titleSelection,
-    categoryId: props.categoryId
-  });
+  if (props.readOnly || splittingSubcontent) return null;
+  splittingSubcontent = true;
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const previousContent = clone(content.value);
+  const previousTitle = JSON.stringify(title.value);
+  try {
+    if (await saveNow() === false) throw new Error("Could not save edits before splitting the note.");
+    return await props.onSplitToNewTask(snapshot(), {
+      ...payload, previousContent, categoryId: props.categoryId,
+      commitSource: async () => {
+        if (JSON.stringify(content.value) !== JSON.stringify(previousContent) || JSON.stringify(title.value) !== previousTitle) {
+          throw new Error('The note changed while splitting. Both versions have been kept; review the new copy.');
+        }
+        content.value = clone(payload.remainingContent);
+        markDirty();
+        await nextTick();
+        const shortenedSnapshot = JSON.stringify(content.value);
+        const saved = await saveNow(true, { suppressUndo: true });
+        if (saved === false) {
+          content.value = JSON.stringify(content.value) === shortenedSnapshot ? previousContent
+            : indentTaskDocuments({ content: content.value }, { title: payload.title, content: payload.content }).content;
+          markDirty();
+        }
+        return saved;
+      }
+    });
+  } catch (error) {
+    window.alert(error?.message || 'Could not split the note. The original content has been kept.');
+    return null;
+  } finally { splittingSubcontent = false; }
 };
 
 const noopSplit = () => {};
@@ -881,19 +909,6 @@ const setCategory = async (category) => {
   closeTaskMenus();
   try { await props.onSetCategory(props.task, category); }
   catch (error) { window.alert(error?.message || "Could not move the task."); }
-};
-
-const toggleStatusButton = async () => {
-  if (!props.onStatusMarkers) return;
-  const next = toggleWholeTaskStatus(title.value, content.value);
-  try {
-    const result = await props.onStatusMarkers(props.task, next.title, next.content);
-    title.value = next.title;
-    content.value = next.content;
-    if (result?.updatedAt) updatedAt.value = result.updatedAt;
-  } catch (error) {
-    window.alert(error?.message || "Could not update the status marker");
-  }
 };
 
 const toggleSendMenu = async () => {
@@ -911,25 +926,14 @@ const sendToPeople = async () => {
   try {
     const saved = await saveNow();
     if (!saved) throw new Error("Could not save the latest edits before copying the task.");
-    await props.onSendToPeople(props.task, selectedPeople.value, selectedTags.value);
-    announceAction('Sent a copy to the selected people.');
+    const response = await props.onSendToPeople(props.task, selectedPeople.value, selectedTags.value, selectedDashboard.value);
+    if (response?.created === 0) throw new Error("No other active people matched. Choose another person or tag.");
+    announceAction('Sent a copy to the selected destinations.');
     sendMarkerVisible.value = true;
     selectedPeople.value = [];
     selectedTags.value = [];
+    selectedDashboard.value = false;
     sendOpen.value = false;
-  } catch (error) {
-    window.alert(error?.message || "Could not copy the task");
-  } finally { sending.value = false; }
-};
-
-const sendToDashboard = async () => {
-  sending.value = true;
-  try {
-    const saved = await saveNow();
-    if (!saved) throw new Error("Could not save the latest edits before copying the task.");
-    await props.onSendToDashboard(props.task);
-    announceAction('Sent a copy to Dashboard.');
-    sendMarkerVisible.value = true;
   } catch (error) {
     window.alert(error?.message || "Could not copy the task");
   } finally { sending.value = false; }
@@ -1090,7 +1094,7 @@ watch(
       highlightFlash.value = true;
       highlightTimer = setTimeout(() => {
         highlightFlash.value = false;
-      }, 1000);
+      }, 5800);
     });
   },
   { immediate: true }
@@ -1106,6 +1110,7 @@ watch(
     saveRegistration?.discard();
     title.value = props.task.title;
     content.value = props.task.content;
+    privateSubcontent.value = !!props.task.isPrivate;
   }
 );
 
@@ -1117,6 +1122,7 @@ watch(
     }
     title.value = task.title;
     content.value = task.content;
+    privateSubcontent.value = !!task.isPrivate;
     updatedAt.value = task.updatedAt;
     sendMarkerVisible.value = !!task.sendMarkerVisible;
   },
@@ -1146,11 +1152,11 @@ watch(
 
 .task-item.task-highlight {
   background: transparent;
-  animation: task-flash 0.6s ease-out;
+  animation: task-flash 5.8s ease-out;
 }
 
 @keyframes task-flash {
-  0% {
+  0%, 86% {
     background-color: rgba(225, 199, 128, 0.5);
     box-shadow: 0 0 0 1px rgba(120, 92, 40, 0.25);
   }
@@ -1310,11 +1316,6 @@ watch(
   pointer-events: auto;
 }
 
-.status-tool.active {
-  color: var(--text-main);
-  background: var(--bg-tab-active);
-}
-
 .sent-mark { color: var(--text-main); font-weight: 400; }
 .task-context {
   min-width: 0;
@@ -1349,6 +1350,9 @@ watch(
 }
 
 .task-popover-title { font-size: var(--font-size-body); font-weight: 400; color: var(--text-muted); }
+.task-popover.send-menu { overflow: hidden; }
+.send-menu > .task-popover-title, .send-confirm { flex: 0 0 auto; }
+.send-recipients { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .task-menu-option { display: flex; align-items: center; gap: 4px; min-height: 18px; }
 .task-menu-option input { margin: 0; }
 
@@ -1370,7 +1374,7 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 2px;
-  padding-right: 0;
+  padding-right: 10px;
   padding-top: max(0px, calc((12px - var(--task-title-line-height)) / 2));
   position: relative;
 }
@@ -1392,12 +1396,23 @@ watch(
   margin-top: -2px;
 }
 
+.private-subcontent { position: relative; display: flow-root; }
+#app button.private-subcontent-mask {
+  position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0;
+  padding: 0 3px; text-align: left; border: 0;
+  background: var(--bg-tab-active); color: var(--text-muted); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .dirty-indicator {
+  position: absolute;
+  right: 1px;
+  top: 2px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--text-warning);
-  margin-left: 4px;
+  pointer-events: none;
 }
 
 .dirty-indicator.saving {

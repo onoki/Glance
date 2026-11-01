@@ -1,8 +1,8 @@
-/* Shared control system. BigBlue's 12px grid at 150%: 8 CSS px = 12 device px. */
+/* Shared 7px IBM Plex Sans controls; preserve compact pointer targets. */
 body { font-size: var(--font-size-body); font-synthesis: none; }
 #app .task-item:focus-within:not(.actions-dismissed):not(.task-dragging)::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-  border-left: 1px solid var(--focus-outline); pointer-events: none;
+  border-left: 2px solid var(--focus-outline); pointer-events: none;
 }
 #app .task-item:focus-within .task-meta { border-bottom: 1px solid var(--focus-outline); box-sizing: border-box; }
 #app .task-item.task-dragging .task-meta { visibility: hidden; pointer-events: none; }
@@ -42,19 +42,23 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   line-height: 12px;
   padding: 1px 6px;
   border: 1px solid var(--border-panel);
-  border-radius: 0;
+  border-radius: var(--radius-control);
   background: var(--bg-panel);
   color: var(--text-main);
   box-shadow: none;
   cursor: pointer;
 }
-#app :is(button, .tag-summary):not(:disabled):hover { background: var(--bg-tab-active); }
+#app :is(button, .tag-summary):not(:disabled):hover { background: var(--bg-tab-hover); }
 #app :is(button, summary, input, select, textarea):focus-visible {
   outline: 2px solid var(--focus-outline); outline-offset: 1px;
 }
 #app button:disabled { opacity: .5; cursor: default; }
-#app :is(.add-task, .tab.active, .person-tab.active, .weekday-chip.active) {
+#app .add-task {
   background: var(--text-main); color: var(--text-invert);
+}
+#app .add-task:not(:disabled):hover { background: #383838; }
+#app :is(.tab.active, .person-tab.active, .weekday-chip.active) {
+  background: var(--bg-tab-active); color: var(--text-main); border-color: var(--focus-outline);
 }
 #app :is(.danger-button, .delete-task, button[title="Delete tag"]) {
   color: #a02020; border-color: #a02020;
@@ -69,10 +73,10 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   .tag-summary, .version, .category-title, .weekday-header, .empty-message) {
   font-size: var(--font-size-meta); font-weight: 400;
 }
-#app .ProseMirror { font-family: var(--font-ui); font-size: var(--font-size-body); font-weight: 400; font-style: normal; line-height: var(--line-height-body); letter-spacing: 0; font-synthesis: weight style; }
+#app .ProseMirror { font-family: var(--font-ui); font-size: var(--font-size-body); font-weight: 400; font-style: normal; line-height: var(--line-height-body); letter-spacing: 0; font-synthesis: none; }
 #app .tag-menu-row input[type="color"] { width: 32px; height: 16px; padding: 1px; }
 
-#app :is(h1, h2, h3, h4, strong, b, em):not(.ProseMirror *) { font-weight: 400; font-style: normal; }
+#app :is(strong, b, em):not(.ProseMirror *) { font-weight: 400; font-style: normal; }
 
 /* Narrow whole-task selector: 8px plus the existing 2px column gap. */
 #app .task-select-handle {
@@ -105,7 +109,7 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
   background: color-mix(in srgb, var(--bg-app), black 6%);
 }
 
-#app .top-nav.helper-window-nav { background: #dbe7f1; }
+#app .top-nav.helper-window-nav { background: var(--bg-helper-header); }
 #app .helper-window-badge {
   color: var(--text-main); background: transparent; border: 0;
   padding: 0; margin-right: 4px; line-height: 14px; font-weight: 400;

@@ -47,7 +47,7 @@ public sealed partial class TaskRepository
                     source.ContentJson,
                     position,
                     now,
-                    date);
+                    date, source.IsPrivate);
 
                 if (!inserted)
                 {
@@ -94,7 +94,8 @@ public sealed partial class TaskRepository
         string TitleText,
         string TitleJson,
         string ContentJson,
-        RecurrenceSpec Recurrence
+        RecurrenceSpec Recurrence,
+        bool IsPrivate
     );
 
     private static IReadOnlyList<string> GetOccurrenceDates(
@@ -157,7 +158,7 @@ public sealed partial class TaskRepository
         var sources = new List<RecurrenceSource>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, page, title, title_json, content_json, recurrence_json
+            SELECT id, page, title, title_json, content_json, recurrence_json, is_private
             FROM tasks
             WHERE recurrence_json IS NOT NULL
               AND deleted_at IS NULL
@@ -194,7 +195,7 @@ public sealed partial class TaskRepository
                 reader.GetString(2),
                 reader.IsDBNull(3) ? ParseTitleJson(null, reader.GetString(2)).GetRawText() : reader.GetString(3),
                 reader.GetString(4),
-                recurrence));
+                recurrence, reader.GetInt64(6) != 0));
         }
 
         return sources;
