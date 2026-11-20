@@ -3,6 +3,7 @@ import { useDashboardDrag } from "../src/composables/useDashboardDrag.js";
 import { currentWeekDays, planningWeekDays } from "../src/utils/categoryUtils.js";
 import { ref } from "vue";
 import { TASK_DRAG_TYPE, weekdayDropTarget } from "../src/utils/taskDrag.js";
+import { taskGroupActions, taskGroupChanges } from "../src/utils/taskGroups.js";
 const task = { id: "new", page: "dashboard:new" };
 const moves = [];
 const drag = useDashboardDrag({
@@ -36,6 +37,17 @@ reorder.setDragOver('a', 'after');
 await reorder.dropOnTask(rows[0], 'week-test');
 assert.equal(moves.at(-1)[2], 100);
 assert.equal(moves.at(-1)[3], targetDay);
+const grouped = useDashboardDrag({
+  findTaskById: id => rows.find(row => row.id === id),
+  getCategoryTasks: () => rows,
+  applyTaskMoves: (...args) => moves.push(args)
+});
+grouped.startDrag(rows[3], null, [rows[2], rows[3]]);
+grouped.setDragOver('b', 'before');
+assert.equal(grouped.dragOver.value.id, null, 'selected rows cannot be their own group target');
+grouped.setDragOver('a', 'after');
+await grouped.dropOnTask(rows[0], 'week-test');
+assert.deepEqual(moves.at(-1), [[rows[2], rows[3]], 'week-test', [1, 2], targetDay]);
 reorder.endDrag();
 reorder.setDragOver('a', 'before');
 assert.equal(reorder.dragOver.value.id, null, 'unrelated text/image drags do not create task markers');
@@ -91,3 +103,52 @@ for (const y of [140,141,180]) assert.equal(weekdayDropTarget(dayBounds,y).dateK
 assert.equal(weekdayDropTarget(dayBounds,99).dateKey,'Saturday','space above the first heading belongs to the first day');
 assert.equal(weekdayDropTarget([],140),null);
 assert.equal(weekdayDropTarget(dayBounds,NaN),null);
+
+const groupRows = [
+  { id: 'first', groupId: 'group', position: 10 },
+  { id: 'middle', groupId: 'group', position: 20 },
+  { id: 'last', groupId: 'group', position: 30 },
+  { id: 'outside', position: 40 }
+];
+const bracketDrag = useDashboardDrag({
+  findTaskById: id => groupRows.find(row => row.id === id),
+  getCategoryTasks: () => groupRows,
+  taskGroupRows: () => groupRows,
+  applyTaskMove: (...args) => moves.push(args),
+  applyTaskMoves: (...args) => moves.push(args)
+});
+bracketDrag.startDrag(groupRows[3]);
+bracketDrag.setDragOver('middle', 'before');
+assert.equal(bracketDrag.dragOver.value.id, 'first', 'the outside drop marker snaps to the edge');
+await bracketDrag.dropOnTask(groupRows[1], 'uncategorized');
+assert.equal(moves.at(-1)[2], 9);
+bracketDrag.startDrag(groupRows[0]);
+bracketDrag.setDragOver('outside', 'after');
+assert.equal(bracketDrag.dragOver.value.id, null, 'a partial group cannot show a marker outside its bracket');
+await assert.rejects(bracketDrag.dropOnTask(groupRows[3], 'uncategorized'), /Detach the task first/);
+bracketDrag.setDragOver('middle', 'after');
+await bracketDrag.dropOnTask(groupRows[1], 'uncategorized');
+assert.equal(moves.at(-1)[2], 25, 'a member can still move within its group');
+bracketDrag.startDrag(groupRows[0], null, groupRows.slice(0, 3));
+bracketDrag.setDragOver('outside', 'after');
+await bracketDrag.dropOnTask(groupRows[3], 'uncategorized');
+assert.deepEqual(moves.at(-1)[2], [41, 42, 43]);
+
+const tied = [
+  { id: 'additional', position: 10 },
+  { id: 'between', position: 20 },
+  { id: 'group-start', position: 20, groupId: 'original' },
+  { id: 'group-end', position: 30, groupId: 'original' },
+  { id: 'separate-start', position: 40, groupId: 'separate' },
+  { id: 'separate-end', position: 50, groupId: 'separate' }
+];
+const selection = new Set(['additional', 'group-start', 'group-end']);
+const changes = taskGroupChanges(tied, tied[0], selection, 'extend');
+assert.deepEqual(changes.map(change => change.task.id), [
+  'between', 'additional', 'group-start', 'group-end', 'separate-start', 'separate-end'
+], 'equal positions still yield an ordered contiguous group');
+assert.ok(changes.every((change, index) => change.position === index));
+assert.equal(changes.find(change => change.task.id === 'separate-start').groupId, undefined);
+assert.deepEqual(taskGroupActions(tied, tied[0], new Set([...selection, 'separate-start', 'separate-end'])), []);
+tied[0].scheduledDate = '2090-01-01';
+assert.deepEqual(taskGroupActions(tied, tied[0], selection), [], 'a group cannot extend across dates');

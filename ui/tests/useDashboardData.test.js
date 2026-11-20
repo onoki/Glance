@@ -30,8 +30,17 @@ const originalFrame = globalThis.requestAnimationFrame;
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
 globalThis.requestAnimationFrame = callback => callback();
 const removedRows=new Map();
+const batchWrites = [];
+const updateRow = (row, payload) => {
+  assert.equal(payload.baseUpdatedAt, row.updatedAt, 'update must use the current revision');
+  Object.assign(row, payload, {updatedAt:row.updatedAt+1});
+  return {updatedAt:row.updatedAt};
+};
 globalThis.fetch = async (path,request) => {
-  if(path==='/api/dashboard') return {ok:true,json:async()=>({newTasks:structuredClone(rows.filter(row=>row.page==='dashboard:new')),mainTasks:structuredClone(rows.filter(row=>row.page==='dashboard:main'))})};
+  if (path === '/api/dashboard') {
+    const page = name => structuredClone(rows.filter(row => row.page === name).sort((left, right) => left.position - right.position));
+    return { ok: true, json: async () => ({ newTasks: page('dashboard:new'), mainTasks: page('dashboard:main') }) };
+  }
   if(path.endsWith('/restore')) {
     const id=path.split('/')[3];const restored=removedRows.get(id);
     assert.ok(restored); restored.updatedAt++; rows.push(restored); removedRows.delete(id);
@@ -43,13 +52,24 @@ globalThis.fetch = async (path,request) => {
     rows.push({ ...payload, id, updatedAt: 1, completedAt: null });
     return {ok:true,json:async()=>({taskId:id,updatedAt:1})};
   }
+  if (path === '/api/tasks/batch' && request.method === 'PUT') {
+    const updates = JSON.parse(request.body);
+    batchWrites.push(updates.map(({ taskId }) => taskId));
+    const responses = updates.map(({ taskId, update, delete: deleted }) => {
+      const row = rows.find(row => row.id === taskId);
+      if (!deleted) return updateRow(row, update);
+      assert.equal(row.updatedAt, update.baseUpdatedAt);
+      removedRows.set(row.id, structuredClone(row));
+      rows.splice(rows.indexOf(row), 1);
+      return { updatedAt: row.updatedAt + 1 };
+    });
+    return { ok: true, json: async () => responses };
+  }
   const row=rows.find(row=>path.split('?')[0]===`/api/tasks/${row.id}`);
   assert.ok(row, `unexpected request: ${path}`);
   if(request.method==='DELETE') { removedRows.set(row.id,structuredClone(row)); rows.splice(rows.indexOf(row),1); return {ok:true,json:async()=>({ok:true})}; }
-  const payload=JSON.parse(request.body);
-  assert.equal(payload.baseUpdatedAt,row.updatedAt,'merge must use current revision');
-  Object.assign(row,payload,{updatedAt:row.updatedAt+1});
-  return {ok:true,json:async()=>({updatedAt:row.updatedAt})};
+  const response = updateRow(row, JSON.parse(request.body));
+  return {ok:true,json:async()=>response};
 };
 try {
   const dashboard=useDashboardData();
@@ -116,6 +136,21 @@ try {
   await dashboard.applyTaskMove(newTask, `week-${sunday}`, 21, sunday);
   assert.equal(rows.find(row => row.id === movable.id).page, 'dashboard:main');
   assert.equal(rows.find(row => row.id === movable.id).scheduledDate, sunday);
+
+  const group = [dashboard.newTasks.value.find(task => task.id === 'next'), dashboard.mainTasks.value.find(task => task.id === movable.id)];
+  const groupIds = group.map(task => task.id);
+  const groupPositions = () => groupIds.map(id => rows.find(row => row.id === id).position);
+  const oldPositions = groupPositions();
+  await dashboard.setTaskCategory(group, 'no-date');
+  assert.deepEqual(batchWrites.at(-1), groupIds, 'Move uses the entire selection in visual order');
+  assert.ok(groupIds.every(id => rows.find(row => row.id === id).scheduledDate === 'no-date'));
+  assert.ok(groupPositions()[0] < groupPositions()[1]);
+  const movedPositions = groupPositions();
+  await dashboard.undo();
+  assert.deepEqual(groupPositions(), oldPositions);
+  assert.deepEqual(batchWrites.at(-1), groupIds, 'Undo writes the group as a batch');
+  await dashboard.redo();
+  assert.deepEqual(groupPositions(), movedPositions);
 
   const { formatDateKey, getWeekStart } = await import('../src/utils/dateUtils.js');
   for (const offset of [1, 3, -1, 8]) {
@@ -206,6 +241,83 @@ try {
   assert.equal(rows.find(task=>task.id===postponedAddition).scheduledDate, twoWeeksDate);
   await dashboard.applyTaskMove(dashboard.mainTasks.value.find(task=>task.id==='tue'), `week-${twoWeeksDate}`, 102);
   assert.equal(rows.find(task=>task.id==='tue').scheduledDate, twoWeeksDate, 'column drops use the same postponement date');
+
+  rows.length = 0;
+  const persistentGroupIds = ['group-a', 'group-b', 'group-c'];
+  for (const [index, id] of persistentGroupIds.entries()) {
+    rows.push({ id, page: 'dashboard:new', title: doc(id), content: emptyDoc,
+      position: index, updatedAt: 1, completedAt: null });
+  }
+  await dashboard.loadDashboard();
+  const [first, middle, last] = persistentGroupIds;
+  const findGroupRow = id => dashboard.findTaskById(id);
+  await dashboard.changeTaskGroup(findGroupRow(middle), new Set(persistentGroupIds), 'create');
+  const groupId = findGroupRow(first).groupId;
+  assert.ok(groupId);
+  await assert.rejects(dashboard.setTaskCategory(findGroupRow(middle), 'uncategorized'), /Detach/);
+  await dashboard.setTaskCategory(persistentGroupIds.map(findGroupRow), 'uncategorized');
+  assert.deepEqual(dashboard.taskGroupRows(findGroupRow(first)).map(row => [row.id, row.groupId]),
+    persistentGroupIds.map(id => [id, groupId]));
+  await dashboard.changeTaskGroup(findGroupRow(middle), new Set([middle]), 'detach');
+  assert.equal(findGroupRow(middle).groupId, null);
+  assert.ok(findGroupRow(middle).position > findGroupRow(last).position);
+  await dashboard.undo();
+  assert.equal(findGroupRow(middle).groupId, groupId);
+  assert.ok(findGroupRow(middle).position < findGroupRow(last).position);
+  await dashboard.redo();
+  await dashboard.changeTaskGroup(findGroupRow(middle), new Set(), 'attach-above');
+  assert.equal(findGroupRow(middle).groupId, groupId);
+
+  const additions = ['before', 'after-1', 'after-2'];
+  for (const [id, position] of [['before', -20], ['gap-before', -10], ['after-1', 10], ['gap-after', 20], ['after-2', 30]]) {
+    rows.push({ id, page: 'dashboard:main', title: doc(id), content: emptyDoc, position, updatedAt: 1, completedAt: null });
+  }
+  await dashboard.loadDashboard();
+  const extendedSelection = new Set([...persistentGroupIds, ...additions]);
+  await dashboard.changeTaskGroup(findGroupRow('after-2'), extendedSelection, 'extend');
+  const order = () => dashboard.taskGroupRows(findGroupRow(first)).map(row => row.id);
+  const extendedOrder = ['gap-before', 'before', first, last, middle, 'after-1', 'after-2', 'gap-after'];
+  assert.deepEqual(order(), extendedOrder);
+  assert.ok(additions.every(id => findGroupRow(id).groupId === groupId));
+  assert.equal(findGroupRow('gap-before').position, -10);
+  assert.equal(findGroupRow('gap-after').position, 20);
+  await dashboard.undo();
+  assert.deepEqual(order(), ['before', 'gap-before', first, last, middle, 'after-1', 'gap-after', 'after-2']);
+  assert.ok(additions.every(id => !findGroupRow(id).groupId));
+  await dashboard.redo();
+  assert.deepEqual(order(), extendedOrder);
+  assert.ok(additions.every(id => findGroupRow(id).groupId === groupId));
+
+  const selected = () => [first, last].map(findGroupRow);
+  rows.find(row => row.id === first).isPrivate = true;
+  await dashboard.loadDashboard();
+  await dashboard.applyTaskAction(selected(), 'privacy');
+  assert.ok(selected().every(row => row.isPrivate));
+  assert.ok(selected().every(row => row.groupId === groupId));
+  assert.equal(!!findGroupRow(middle).isPrivate, false, 'unselected members retain their privacy');
+  await dashboard.undo();
+  assert.equal(findGroupRow(first).isPrivate, true);
+  assert.equal(findGroupRow(last).isPrivate, false);
+  await dashboard.redo();
+  await dashboard.applyTaskAction(selected(), 'privacy');
+  assert.ok(selected().every(row => !row.isPrivate));
+  await dashboard.applyTaskAction(selected(), 'complete');
+  const completed = findGroupRow(first).completedAt;
+  assert.ok(completed);
+  assert.equal(findGroupRow(last).completedAt, completed);
+  await dashboard.undo();
+  assert.ok(selected().every(row => row.completedAt === null));
+  await dashboard.redo();
+  assert.equal(findGroupRow(first).completedAt, completed);
+  await dashboard.applyTaskAction(selected(), 'delete');
+  assert.equal(findGroupRow(first), null);
+  assert.equal(findGroupRow(last), null);
+  await dashboard.undo();
+  assert.equal(findGroupRow(first).completedAt, completed);
+  assert.equal(findGroupRow(last).completedAt, completed);
+  await dashboard.redo();
+  assert.equal(findGroupRow(first), null);
+  assert.equal(findGroupRow(last), null);
 
 } finally {
   globalThis.fetch = originalFetch;

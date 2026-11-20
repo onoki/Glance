@@ -28,14 +28,6 @@
   text-transform: uppercase;
 }
 
-.brand-version {
-  font-size: var(--font-size-body);
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-muted);
-}
-
 .tabs {
   flex-wrap: wrap;
   display: flex;
@@ -333,23 +325,10 @@
 }
 
 .task-list-group {
+  --task-row-gap: 2px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.task-move-move {
-  transition: transform 0.18s ease;
-}
-
-.task-move-enter-active,
-.task-move-leave-active {
-  transition: opacity 0.15s ease;
-}
-
-.task-move-enter-from,
-.task-move-leave-to {
-  opacity: 0;
+  gap: var(--task-row-gap);
 }
 
 .empty-new {

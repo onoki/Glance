@@ -5,7 +5,7 @@ const canonical = value => JSON.stringify(value, (_, item) => item && typeof ite
 
 // Compare the fields recorded by this history entry, including rich content and
 // intentional blank lines. Revisions change on restore; document checks do not.
-const historyFields = ['title', 'content', 'page', 'position', 'scheduledDate', 'recurrence', 'ownerPersonId', 'completedAt', 'isPrivate'];
+const historyFields = ['title', 'content', 'page', 'position', 'scheduledDate', 'recurrence', 'ownerPersonId', 'completedAt', 'isPrivate', 'groupId'];
 export const matchesTaskSnapshot = (task, snapshot) => !!task && !!snapshot && historyFields
   .filter(key => Object.hasOwn(snapshot, key))
   .every(key => canonical(key === 'title' ? normalizeTitle(task[key]) : key === 'content' ? normalizeContent(task[key]) : key === 'isPrivate' ? !!task[key] : task[key] ?? null)
@@ -31,6 +31,24 @@ export async function applyTaskHistory(diffs, direction, api) {
       throw new Error('This note is no longer available. Undo or redo was stopped without replacing it.');
     }
   };
+  const updateFor = (row, snapshot) => ({
+    baseUpdatedAt: taskRevision(row), title: normalizeTitle(snapshot.title), content: normalizeContent(snapshot.content),
+    page: snapshot.page, position: snapshot.position, scheduledDate: snapshot.scheduledDate ?? null,
+    recurrence: snapshot.recurrence ?? null, isPrivate: snapshot.isPrivate,
+    ...(Object.hasOwn(snapshot, 'completedAt') ? { completedAt: snapshot.completedAt ?? null } : {}),
+    ...(Object.hasOwn(snapshot, 'groupId') ? { groupId: snapshot.groupId ?? null } : {})
+  });
+  if (api.updateTasks && diffs.length > 1 && diffs.every(diff => diff.before && diff.after)) {
+    const rows = new Map((await api.fetchTasks()).map(row => [row.id, row]));
+    const updates = diffs.flatMap(diff => {
+      const row = rows.get(api.resolveId(diff));
+      check(row, diff);
+      const target = diff[targetKey];
+      return matchesTaskSnapshot(row, target) ? [] : [{ taskId: row.id, update: updateFor(row, target) }];
+    });
+    if (updates.length) await api.updateTasks(updates);
+    return true;
+  }
   // Validate the entire operation before making even its first change.
   for (const diff of diffs) check(await current(diff), diff);
   for (const diff of diffs.filter(diff => diff[targetKey])) {
@@ -50,12 +68,7 @@ export async function applyTaskHistory(diffs, direction, api) {
     const row = await current(diff);
     check(row, diff);
     if (matchesTaskSnapshot(row, diff[targetKey])) continue;
-    const snapshot = diff[targetKey];
-    await api.updateTask(row.id, {
-      baseUpdatedAt: taskRevision(row), title: normalizeTitle(snapshot.title), content: normalizeContent(snapshot.content),
-      page: snapshot.page, position: snapshot.position, scheduledDate: snapshot.scheduledDate ?? null,
-      recurrence: snapshot.recurrence ?? null, isPrivate: snapshot.isPrivate
-    });
+    await api.updateTask(row.id, updateFor(row, diff[targetKey]));
   }
   for (const diff of diffs.filter(diff => diff[targetKey] === null)) {
     for (const retained of diffs.filter(item => item[targetKey])) {

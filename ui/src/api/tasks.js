@@ -5,6 +5,7 @@ export const fetchDashboard = () => apiGet("/api/dashboard");
 export const createTask = (payload) => apiPost("/api/tasks", payload);
 
 export const updateTask = (id, payload) => apiPut(`/api/tasks/${id}`, payload);
+export const updateTasks = (updates) => apiPut("/api/tasks/batch", updates);
 
 export const deleteTask = (id, baseUpdatedAt) => apiDelete(`/api/tasks/${id}${Number.isFinite(baseUpdatedAt) ? `?baseUpdatedAt=${baseUpdatedAt}` : ''}`);
 

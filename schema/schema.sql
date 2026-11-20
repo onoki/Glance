@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   completed_at INTEGER NULL,        -- UTC ms
   history_archived_at INTEGER NULL, -- hiding from active lists never changes completion time
   is_private INTEGER NOT NULL DEFAULT 0,
+  group_id TEXT NULL,
   scheduled_date TEXT NULL,         -- YYYY-MM-DD (derived categories)
   recurrence_json TEXT NULL,        -- recurrence config (JSON)
   owner_person_id TEXT NULL REFERENCES people(id) ON DELETE SET NULL,
@@ -139,7 +140,7 @@ CREATE INDEX IF NOT EXISTS idx_task_send_events_source_sent
 ON task_send_events (source_task_id, sent_at DESC);
 
 ------------------------------------------------------------
--- Record baseline migration as version 6 (for fresh installs)
+-- Record baseline migration as version 7 (for fresh installs)
 ------------------------------------------------------------
 INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-VALUES (6, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+VALUES (7, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));

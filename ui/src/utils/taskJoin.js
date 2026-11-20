@@ -1,4 +1,5 @@
 import { emptyContentDoc, mergeTitleDocs, normalizeContent, titleDocToListItem, titleJoinPosition } from './taskUtils.js';
+import { isSingleEmptyBullet } from './taskDocUtils.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 export const nodeSize = node => node.type === 'text' ? node.text.length
@@ -66,9 +67,10 @@ export function joinFirstContentLine(title, rawContent) {
 
 // Tab demotes the title and its entire subtree by one level.
 export function indentTaskDocuments(previous, current) {
-  const previousList = normalizeContent(previous.content).content[0];
+  const previousContent = normalizeContent(previous.content);
+  const previousList = previousContent.content[0];
   const currentList = normalizeContent(current.content).content[0];
-  const previousItems = previousList?.type === 'bulletList' ? previousList.content : [];
+  const previousItems = previousList?.type === 'bulletList' && !isSingleEmptyBullet(previousContent) ? previousList.content : [];
   const currentItems = currentList?.type === 'bulletList' ? currentList.content : [];
   const demoted = titleDocToListItem(current.title);
   if (currentItems.length) demoted.content.push({ type: 'bulletList', content: currentItems });

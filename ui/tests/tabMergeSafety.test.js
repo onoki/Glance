@@ -21,11 +21,12 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 // Blank rows, nested children and rich inline nodes survive on both sides.
 const nested={type:'listItem',content:[title('Nested parent').content[0],{type:'bulletList',content:[item(''),item('Nested KEEP'),item('')]}]};
 const rich={type:'listItem',content:[{type:'paragraph',content:[{type:'text',text:'Linked',marks:[{type:'link',attrs:{href:'https://example.com'}}]},{type:'hardBreak'},{type:'image',attrs:{src:'/fixture.png'}}]}]};
-const variants=[empty, content,{type:'doc',content:[{type:'bulletList',content:[item(''),item('')]}]}, {type:'doc',content:[{type:'bulletList',content:[item(''),nested,rich,item('')]}]}];
+const singleBlank={type:'doc',content:[{type:'bulletList',content:[item('')]}]};
+const variants=[empty, singleBlank, content,{type:'doc',content:[{type:'bulletList',content:[item(''),item('')]}]}, {type:'doc',content:[{type:'bulletList',content:[item(''),nested,rich,item('')]}]}];
 for(const upper of variants) for(const lower of variants) {
   const before=JSON.stringify([upper,lower]);
   const result=indentTaskDocuments({content:upper},{title:empty,content:lower});
-  const upperItems=upper.content[0].type==='bulletList'?upper.content[0].content:[];
+  const upperItems=upper.content[0].type==='bulletList' && upper!==singleBlank?upper.content[0].content:[];
   const lowerItems=lower.content[0].type==='bulletList'?lower.content[0].content:[];
   assert.deepEqual(result.content.content[0].content,[...upperItems,{type:'listItem',content:[{type:'paragraph',content:[]},...(lowerItems.length?[{type:'bulletList',content:lowerItems}]:[])]}]);
   assert.equal(result.listIndex,upperItems.length);

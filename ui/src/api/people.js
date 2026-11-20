@@ -5,6 +5,7 @@ export const createPerson = (displayName) => apiPost("/api/people", { displayNam
 export const updatePerson = (id, payload) => apiPut(`/api/people/${id}`, payload);
 export const setPersonTags = (id, tagIds) => apiPut(`/api/people/${id}/tags`, { tagIds });
 export const fetchPersonTasks = (id) => apiGet(`/api/people/${id}/tasks`);
+export const fetchPastPersonTasks = (id) => apiGet(`/api/people/${id}/tasks?past=true`);
 export const createPersonTag = (name) => apiPost("/api/people/tags", { name });
 export const updatePersonTag = (id, payload) => apiPut(`/api/people/tags/${id}`, payload);
 export const deletePersonTag = (id) => apiDelete(`/api/people/tags/${id}`);

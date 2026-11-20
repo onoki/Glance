@@ -39,8 +39,8 @@ internal static class PeopleEndpoints
             return Results.Ok(new { ok = true });
         });
 
-        app.MapGet("/api/people/{personId}/tasks", async (string personId, TaskRepository tasks, CancellationToken token) =>
-            Results.Ok(new { tasks = await tasks.GetPersonTasksAsync(personId, EndpointHelpers.GetStartOfToday(), token) }));
+        app.MapGet("/api/people/{personId}/tasks", async (string personId, bool? past, TaskRepository tasks, CancellationToken token) =>
+            Results.Ok(new { tasks = await tasks.GetPersonTasksAsync(personId, EndpointHelpers.GetStartOfToday(), token, past == true) }));
 
         app.MapPost("/api/people/tags", async (PersonTagCreateRequest request, PeopleRepository people, CancellationToken token) =>
         {

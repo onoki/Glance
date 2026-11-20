@@ -1,5 +1,7 @@
 import { applyTaskHistory, taskRevision } from "../utils/taskHistory.js";
-import { horizontalTaskTarget } from "../utils/taskNavigation.js";
+import { taskActionChanges, taskActionUpdates } from "../utils/taskActions.js";
+import { detachBeforeMove, detachTaskGroups, incompleteTaskGroup, taskGroupChanges, taskInsertionPosition } from "../utils/taskGroups.js";
+import { horizontalTaskTarget, TASK_HIGHLIGHT_MS } from "../utils/taskNavigation.js";
 import { indentTaskDocuments, joinTaskDocuments, createTaskActionQueue } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { announceAction } from "../services/actionFeedback.js";
@@ -13,7 +15,8 @@ import {
   fetchDashboard,
   restoreTask as restoreTaskApi,
   runRecurrence,
-  updateTask as updateTaskApi
+  updateTask as updateTaskApi,
+  updateTasks
 } from "../api/tasks.js";
 import { planningWeekDays, relativeWeekStart, deriveCategories, categoryWeekGroups, isPlanningWeekCategory } from "../utils/categoryUtils.js";
 import { formatDateKey, getDayKey, getWeekStart, parseDateKey } from "../utils/dateUtils.js";
@@ -49,6 +52,7 @@ export const useDashboardData = (options) => {
   const scrollTargetId = ref(null);
   const highlightTaskId = ref(null);
   const highlightNonce = ref(0);
+  let highlightTimer = null;
 
   const mainCategories = computed(() => deriveCategories(mainTasks.value));
 
@@ -104,7 +108,8 @@ export const useDashboardData = (options) => {
     recurrence: task.recurrence ?? null,
     ownerPersonId: task.ownerPersonId ?? null,
     completedAt: task.completedAt ?? null,
-    isPrivate: !!task.isPrivate
+    isPrivate: !!task.isPrivate,
+    groupId: task.groupId ?? null
   });
 
   const snapshotFromPayload = (payload) => ({
@@ -114,7 +119,8 @@ export const useDashboardData = (options) => {
     position: payload.position,
     scheduledDate: payload.scheduledDate ?? null,
     recurrence: payload.recurrence ?? null,
-    isPrivate: !!payload.isPrivate
+    isPrivate: !!payload.isPrivate,
+    groupId: null
   });
 
   const snapshotsEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
@@ -176,6 +182,8 @@ export const useDashboardData = (options) => {
     }
     highlightTaskId.value = taskId;
     highlightNonce.value += 1;
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => { highlightTaskId.value = null; }, TASK_HIGHLIGHT_MS);
   };
 
   const findCategoryIdForTask = (id) => {
@@ -407,7 +415,7 @@ export const useDashboardData = (options) => {
       position: payload.position,
       createdAt: Date.now(),
       updatedAt: response.updatedAt,
-      completedAt: null,
+      completedAt: response.completedAt ?? null,
       scheduledDate: payload.scheduledDate,
       recurrence: payload.recurrence,
       isPrivate: !!payload.isPrivate
@@ -460,7 +468,8 @@ export const useDashboardData = (options) => {
       position: positionOverride ?? Date.now(),
       scheduledDate,
       recurrence,
-      isPrivate: !!source?.isPrivate
+      isPrivate: !!source?.isPrivate,
+      ...(options.completed ? { completed: true } : {})
     };
     return createTaskInternal(payload, options);
   };
@@ -468,10 +477,7 @@ export const useDashboardData = (options) => {
   const createTaskBelow = queueTaskAction(async (task, categoryId = null, overrides = null, options = {}) => {
     if (!(await saveCoordinator.flushAll()).ok) return null;
     task = getStoredTaskById(task.id) || task;
-    const list = taskCreationList(task);
-    const index = list.findIndex((item) => item.id === task.id);
-    const neighbour = index >= 0 ? list[index + (options.before ? -1 : 1)] : null;
-    const position = neighbour ? (task.position + neighbour.position) / 2 : task.position + (options.before ? -1 : 1);
+    const position = taskInsertionPosition(taskGroupRows(task), task, options.before);
     const title = overrides?.title ?? emptyTitleDoc();
     const content = overrides?.content ?? emptyContentDoc();
     const newId = await createTask(task.page, title, content, position, categoryId, { ...options, scheduleFrom: options.inheritScheduledDate === false ? null : task });
@@ -582,31 +588,19 @@ export const useDashboardData = (options) => {
     }
   };
 
-  const moveNewToMain = async () => {
-    const snapshots = newTasks.value.map((task) => resolveTaskSnapshot(task));
-    const diffs = snapshots.map((task) => {
-      const logicalId = resolveLogicalId(task.id);
-      const before = snapshotTask(task);
-      const after = { ...before, page: DASHBOARD_MAIN_PAGE };
-      return { logicalId, before, after };
-    });
-    const updates = snapshots.map((task) =>
-      updateTaskApi(task.id, {
-        baseUpdatedAt: task.updatedAt,
-        title: task.title,
-        content: task.content,
-        page: DASHBOARD_MAIN_PAGE
-      })
-    );
-    await Promise.all(updates);
-    await loadDashboard();
-    if (diffs.length > 0) {
-      pushUndoEntry({
-        label: "move",
-        diffs
-      });
-    }
-  };
+  const moveNewToMain = queueTaskAction(async () => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before moving the tasks.");
+    const tasks = newTasks.value;
+    if (!tasks.length) return;
+    const grouped = tasks.some(task => task.groupId);
+    const lastPosition = mainTasks.value.reduce((last, task) => Math.max(last, task.position), 0);
+    const updates = tasks.map((task, index) => ({
+      baseUpdatedAt: taskRevision(task),
+      page: DASHBOARD_MAIN_PAGE,
+      ...(grouped ? { position: lastPosition + index + 1 } : {})
+    }));
+    return persistTaskMoves(tasks, updates, null);
+  });
 
   const getOrderedTasksForPage = (task) => {
     if (task.page === DASHBOARD_NEW_PAGE) {
@@ -625,7 +619,8 @@ export const useDashboardData = (options) => {
       : category ? (isPlanningWeekCategory(category) ? categoryWeekGroups(category).flatMap(group => group.tasks) : category.tasks) : [];
   };
 
-  const taskCreationList = (task) => {
+  const taskGroupRows = (task) => {
+    if (!task) return [];
     const category = mainCategories.value.find(item => item.tasks.some(row => row.id === task.id));
     // A new adjacent row inherits the source date, so the position must be
     // between rows of that visible day rather than between different groups.
@@ -763,16 +758,13 @@ export const useDashboardData = (options) => {
     beforeTitle: task.title, beforeContent: payload.previousContent,
     afterTitle: task.title, afterContent: payload.remainingContent,
     newTitle: payload.title, newContent: payload.content,
-    titleSelection: payload.titleSelection, commitSource: payload.commitSource
+    titleSelection: payload.titleSelection, commitSource: payload.commitSource, completed: payload.completed
   });
 
   const splitTitleToNewTask = queueTaskAction(async (task, categoryId, payload) => {
     if (!(await saveCoordinator.flushAll()).ok) return null;
     task = getStoredTaskById(task.id) || task;
-    const list = taskCreationList(task);
-    const index = list.findIndex((item) => item.id === task.id);
-    const next = index >= 0 ? list[index + 1] : null;
-    const position = next ? (task.position + next.position) / 2 : task.position + 1;
+    const position = taskInsertionPosition(taskGroupRows(task), task);
 
     const snapshot = resolveTaskSnapshot(task);
     const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
@@ -797,7 +789,7 @@ export const useDashboardData = (options) => {
       payload?.newContent ?? emptyContentDoc(),
       position,
       categoryId,
-      { suppressUndo: true, scheduleFrom: task }
+      { suppressUndo: true, scheduleFrom: task, completed: payload?.completed }
     );
     const newTask = getStoredTaskById(newId);
     const newLogicalId = newTask ? resolveLogicalId(newTask.id) : resolveLogicalId(newId);
@@ -807,7 +799,8 @@ export const useDashboardData = (options) => {
       content: payload?.newContent ?? emptyContentDoc(),
       position,
       scheduledDate: null,
-      recurrence: null
+      recurrence: null,
+      completed: payload?.completed
     });
 
     try {
@@ -857,7 +850,7 @@ export const useDashboardData = (options) => {
           return [...data.newTasks, ...data.mainTasks].map(normalizeTask);
         },
         resolveId: diff => resolveActualId(diff.logicalId),
-        restoreTask: restoreTaskApi, updateTask: updateTaskApi, deleteTask: deleteTaskApi,
+        restoreTask: restoreTaskApi, updateTask: updateTaskApi, updateTasks, deleteTask: deleteTaskApi,
         forget: id => saveCoordinator.forget(id)
       }));
     } finally {
@@ -916,89 +909,116 @@ export const useDashboardData = (options) => {
     }
   };
 
-  const setTaskCategory = async (task, category) => {
-    const snapshot = resolveTaskSnapshot(task);
-    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
-    const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
-    let scheduledDate = undefined;
-    let recurrence = undefined;
-    const cachedRecurrence = recurrenceCache.get(task.id);
-    const existingRecurrence = task.recurrence;
-
-    if (category !== "repeatable" && existingRecurrence && existingRecurrence.type !== "notes") {
-      recurrenceCache.set(task.id, existingRecurrence);
+  const persistTaskMoves = async (tasks, updates, focusId, label = "move") => {
+    const diffs = tasks.flatMap((task, index) => {
+      const before = snapshotTask(task);
+      const update = updates[index];
+      const after = {
+        ...before,
+        page: update.page ?? before.page,
+        position: update.position ?? before.position,
+        scheduledDate: update.scheduledDate === undefined ? before.scheduledDate : update.scheduledDate,
+        recurrence: update.recurrence === undefined ? before.recurrence : update.recurrence,
+        groupId: update.groupId === undefined ? before.groupId : update.groupId
+      };
+      return snapshotsEqual(before, after) ? [] : [{ logicalId: resolveLogicalId(task.id), before, after }];
+    });
+    if (tasks.length === 1) {
+      await updateTaskApi(tasks[0].id, updates[0]);
+      if (updates[0].recurrence) await runRecurrenceGeneration();
+    } else {
+      await updateTasks(tasks.map((task, index) => ({ taskId: task.id, update: updates[index] })));
     }
+    if (diffs.length) pushUndoEntry({ label, diffs });
+    const entry = diffs.length ? undoStack.value.at(-1) : null;
+    scrollTargetId.value = focusId;
+    await loadDashboard();
+    return entry;
+  };
 
-    switch (category) {
-      case "uncategorized":
-        scheduledDate = null;
-        recurrence = null;
-        break;
-      case "notes":
-        scheduledDate = null;
-        recurrence = { type: "notes" };
-        break;
-      case "no-date":
-        scheduledDate = "no-date";
-        recurrence = null;
-        break;
-      case "this-week":
-        scheduledDate = getDayKey();
-        recurrence = null;
-        break;
-      case "next-week":
-      case "two-weeks": {
-        scheduledDate = formatDateKey(relativeWeekStart(category === 'two-weeks' ? 2 : 1));
-        recurrence = null;
-        break;
-      }
-      case "repeatable":
-        scheduledDate = null;
-        recurrence = existingRecurrence && existingRecurrence.type !== "notes"
-          ? existingRecurrence
-          : cachedRecurrence || { type: "weekly", weekdays: [] };
-        break;
-      default: {
-        if (!category.startsWith("day-")) return;
-        const dayUpdate = buildCategoryUpdate(task, category);
-        scheduledDate = dayUpdate.scheduledDate;
-        recurrence = null;
-      }
-    }
+  const resolveMoveTasks = (tasks) => tasks.map(({ id }) => {
+    const current = getStoredTaskById(id);
+    if (!current) throw new Error("A selected task is no longer visible. Select the tasks again.");
+    return current;
+  });
 
-    const update = {
-      baseUpdatedAt: task.updatedAt,
-      scheduledDate,
-      recurrence
-    };
-    if (task.page === DASHBOARD_NEW_PAGE) {
-      update.page = DASHBOARD_MAIN_PAGE;
+  const changeTaskGroup = queueTaskAction(async (task, selectedIds, action) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before changing the group.");
+    const [current] = resolveMoveTasks([task]);
+    const detachedIds = selectedIds.has(task.id) ? selectedIds : new Set([task.id]);
+    const selectedLists = action === "detach"
+      ? resolveMoveTasks([...detachedIds].map(id => ({ id }))).map(taskGroupRows) : [];
+    const lists = new Map(selectedLists.map(rows => [rows[0]?.id, rows]));
+    const changes = action === "detach" ? [...lists.values()].flatMap(rows => detachTaskGroups(rows, detachedIds))
+      : taskGroupChanges(taskGroupRows(current), current, selectedIds, action);
+    if (!changes.length) return false;
+    const updates = changes.map(({ task: row, groupId, position }) => ({
+      baseUpdatedAt: taskRevision(row), groupId, position
+    }));
+    return persistTaskMoves(changes.map(change => change.task), updates, null, "group");
+  });
+
+  const applyTaskAction = queueTaskAction(async (selection, action, value) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before updating the selected tasks.");
+    const tasks = resolveMoveTasks(selection);
+    const changes = taskActionChanges(tasks, action, value);
+    const diffs = changes.map(({ task, fields, deleted }) => ({
+      logicalId: resolveLogicalId(task.id),
+      before: snapshotTask(task),
+      after: deleted ? null : { ...snapshotTask(task), ...fields }
+    }));
+    await updateTasks(taskActionUpdates(changes));
+    if (action !== "dismiss-send") pushUndoEntry({ label: action, diffs });
+    const deletedIds = new Set(changes.filter(change => change.deleted).map(change => change.task.id));
+    for (const id of deletedIds) {
+      saveCoordinator.forget(id);
+      dirtySnapshots.delete(id);
+      markLogicalDeleted(resolveLogicalId(id), id);
     }
-    await updateTaskApi(task.id, update);
-    if (recurrence) {
+    if (deletedIds.size) {
+      const list = getOrderedTasksForPage(tasks[0]);
+      const index = list.findIndex(task => task.id === tasks[0].id);
+      const survivor = list.slice(index).find(task => !deletedIds.has(task.id))
+        || list.slice(0, index).findLast(task => !deletedIds.has(task.id));
+      focusTaskId.value = survivor ? { taskId: survivor.id, selection: { from: 1, to: 1 } } : null;
+      newTasks.value = newTasks.value.filter(task => !deletedIds.has(task.id));
+      mainTasks.value = mainTasks.value.filter(task => !deletedIds.has(task.id));
+    }
+    if (action === "recurrence" && value) {
+      tasks.forEach(task => recurrenceCache.set(task.id, value));
       await runRecurrenceGeneration();
     }
-    scrollTargetId.value = task.id;
     await loadDashboard();
+    if (activeTab?.value === "History") await loadHistory?.();
+    await nextTick();
+  });
 
-    if (beforeSnapshot) {
-      const afterSnapshot = {
-        ...beforeSnapshot,
-        page: update.page ?? beforeSnapshot.page,
-        scheduledDate: update.scheduledDate,
-        recurrence: update.recurrence
+  const setTaskCategory = queueTaskAction(async (selection, category) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before moving the tasks.");
+    const tasks = resolveMoveTasks(Array.isArray(selection) ? selection : [selection]);
+    if (incompleteTaskGroup(tasks, taskGroupRows)) throw new Error(detachBeforeMove);
+    const categoryId = category === "this-week" ? `day-${getDayKey()}`
+      : category === "next-week" ? `week-${formatDateKey(relativeWeekStart(1))}` : category;
+    const selectedIds = new Set(tasks.map(task => task.id));
+    // Append a group in visual order. A single Move keeps its existing position.
+    const lastPosition = mainTasks.value.reduce((last, task) =>
+      selectedIds.has(task.id) ? last : Math.max(last, task.position), 0);
+    const updates = tasks.map((task, index) => {
+      const change = buildCategoryUpdate(task, categoryId);
+      if (!change) return null;
+      return {
+        baseUpdatedAt: task.updatedAt, page: DASHBOARD_MAIN_PAGE, ...change,
+        ...(tasks.length > 1 ? { position: lastPosition + index + 1 } : {})
       };
-      if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {
-        pushUndoEntry({
-          label: "move",
-          diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
-        });
-        const entry = undoStack.value[undoStack.value.length - 1];
-        const label = category.replaceAll('-', ' ');
-        announceAction(`Moved to ${label}.`, undo, () => undoStack.value[undoStack.value.length - 1] === entry);
-      }
+    });
+    if (updates.some(update => !update)) return;
+    const entry = await persistTaskMoves(tasks, updates, tasks[0].id);
+    if (entry) {
+      const label = category.replaceAll('-', ' ');
+      const message = tasks.length > 1 ? `Moved ${tasks.length} tasks to ${label}.` : `Moved to ${label}.`;
+      announceAction(message, undo, () => undoStack.value.at(-1) === entry);
     }
-  };
+  });
 
   const setTaskRecurrence = async (task, recurrence) => {
     if (recurrence) {
@@ -1018,51 +1038,21 @@ export const useDashboardData = (options) => {
       : buildCategoryUpdate(task, categoryId);
   };
 
-  const applyTaskMove = async (task, categoryId, position, scheduledDateOverride = null) => {
-    if (!(await saveCoordinator.flushAll()).ok) return;
-    task = getStoredTaskById(task.id);
-    if (!task) return;
-    const snapshot = resolveTaskSnapshot(task);
-    const logicalId = snapshot ? resolveLogicalId(snapshot.id) : resolveLogicalId(task.id);
-    const beforeSnapshot = snapshot ? snapshotTask(snapshot) : null;
-    const update = {
+  const applyTaskMoves = queueTaskAction(async (selection, categoryId, positions, scheduledDateOverride = null) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before moving the tasks.");
+    const tasks = resolveMoveTasks(selection);
+    const updates = tasks.map((task, index) => ({
       baseUpdatedAt: task.updatedAt,
-      position,
-      page: categoryId === "new" ? DASHBOARD_NEW_PAGE : DASHBOARD_MAIN_PAGE
-    };
+      position: positions[index],
+      page: categoryId === "new" ? DASHBOARD_NEW_PAGE : DASHBOARD_MAIN_PAGE,
+      ...buildCategoryUpdateForMove(task, categoryId),
+      ...(scheduledDateOverride ? { scheduledDate: scheduledDateOverride } : {})
+    }));
+    await persistTaskMoves(tasks, updates, tasks[0].id);
+  });
 
-    const categoryUpdate = buildCategoryUpdateForMove(task, categoryId);
-    if (categoryUpdate) {
-      update.scheduledDate = categoryUpdate.scheduledDate;
-      update.recurrence = categoryUpdate.recurrence;
-    }
-    if (scheduledDateOverride) {
-      update.scheduledDate = scheduledDateOverride;
-    }
-
-    await updateTaskApi(task.id, update);
-    if (update.recurrence) {
-      await runRecurrenceGeneration();
-    }
-    scrollTargetId.value = task.id;
-    await loadDashboard();
-
-    if (beforeSnapshot) {
-      const afterSnapshot = {
-        ...beforeSnapshot,
-        position: update.position ?? beforeSnapshot.position,
-        scheduledDate: update.scheduledDate !== undefined ? update.scheduledDate : beforeSnapshot.scheduledDate,
-        recurrence: update.recurrence !== undefined ? update.recurrence : beforeSnapshot.recurrence,
-        page: update.page ?? beforeSnapshot.page
-      };
-      if (!snapshotsEqual(beforeSnapshot, afterSnapshot)) {
-        pushUndoEntry({
-          label: "move",
-          diffs: [{ logicalId, before: beforeSnapshot, after: afterSnapshot }]
-        });
-      }
-    }
-  };
+  const applyTaskMove = (task, categoryId, position, scheduledDateOverride) =>
+    applyTaskMoves([task], categoryId, [position], scheduledDateOverride);
 
   const findTaskById = (id) => {
     return [...newTasks.value, ...mainTasks.value].find((task) => task.id === id) || null;
@@ -1136,6 +1126,8 @@ export const useDashboardData = (options) => {
     toggleComplete,
     moveNewToMain,
     setTaskCategory,
+    changeTaskGroup,
+    applyTaskAction,
     setTaskRecurrence,
     splitSubcontentToNewTask,
     splitTitleToNewTask,
@@ -1147,8 +1139,10 @@ export const useDashboardData = (options) => {
     focusNextTaskFromContent,
     handleDirtyChange,
     applyTaskMove,
+    applyTaskMoves,
     findTaskById,
     getCategoryTasks,
+    taskGroupRows,
     getOrderedTasksForPage,
     undoSignal,
     pollChanges,

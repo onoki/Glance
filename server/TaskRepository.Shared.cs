@@ -20,13 +20,14 @@ public sealed partial class TaskRepository
         string? ownerPersonId,
         long? statusInputAt,
         string? originLabel,
-        bool isPrivate = false)
+        bool isPrivate = false,
+        long? completedAt = null)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at, scheduled_date, recurrence_json, owner_person_id, status_input_at, origin_label, is_private)
-            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt, $scheduledDate, $recurrenceJson, $ownerPersonId, $statusInputAt, $originLabel, $isPrivate);
+            INSERT INTO tasks (id, page, title, title_json, content_json, position, created_at, updated_at, scheduled_date, recurrence_json, owner_person_id, status_input_at, origin_label, is_private, completed_at)
+            VALUES ($id, $page, $title, $titleJson, $content, $position, $createdAt, $updatedAt, $scheduledDate, $recurrenceJson, $ownerPersonId, $statusInputAt, $originLabel, $isPrivate, $completedAt);
             """;
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$page", page);
@@ -42,6 +43,7 @@ public sealed partial class TaskRepository
         command.Parameters.AddWithValue("$statusInputAt", (object?)statusInputAt ?? DBNull.Value);
         command.Parameters.AddWithValue("$originLabel", (object?)originLabel ?? DBNull.Value);
         command.Parameters.AddWithValue("$isPrivate", isPrivate ? 1 : 0);
+        command.Parameters.AddWithValue("$completedAt", (object?)completedAt ?? DBNull.Value);
         await command.ExecuteNonQueryAsync();
     }
 
@@ -91,7 +93,10 @@ public sealed partial class TaskRepository
         string? recurrenceJson,
         long? statusInputAt,
         long baseUpdatedAt,
-        bool isPrivate)
+        bool isPrivate,
+        string? groupId,
+        long? completedAt,
+        bool dismissSendMarker)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -106,6 +111,10 @@ public sealed partial class TaskRepository
                 recurrence_json = $recurrenceJson,
                 status_input_at = $statusInputAt,
                 is_private = $isPrivate,
+                group_id = $groupId,
+                completed_at = $completedAt,
+                history_archived_at = CASE WHEN $completedAt IS NULL THEN NULL ELSE history_archived_at END,
+                send_marker_dismissed_at = CASE WHEN $dismissSendMarker THEN $updatedAt ELSE send_marker_dismissed_at END,
                 updated_at = $updatedAt
             WHERE id = $id
               AND deleted_at IS NULL
@@ -123,6 +132,9 @@ public sealed partial class TaskRepository
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$baseUpdatedAt", baseUpdatedAt);
         command.Parameters.AddWithValue("$isPrivate", isPrivate ? 1 : 0);
+        command.Parameters.AddWithValue("$groupId", (object?)groupId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$completedAt", (object?)completedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$dismissSendMarker", dismissSendMarker);
         return await command.ExecuteNonQueryAsync();
     }
 
@@ -145,11 +157,12 @@ public sealed partial class TaskRepository
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<TaskRow?> GetTaskRowAsync(SqliteConnection connection, string taskId, CancellationToken cancellationToken)
+    private static async Task<TaskRow?> GetTaskRowAsync(SqliteConnection connection, string taskId, CancellationToken cancellationToken, SqliteTransaction? transaction = null)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
-            SELECT id, page, title, title_json, content_json, position, updated_at, scheduled_date, recurrence_json, owner_person_id, is_private
+            SELECT id, page, title, title_json, content_json, position, updated_at, scheduled_date, recurrence_json, owner_person_id, is_private, group_id, completed_at
             FROM tasks
             WHERE id = $id
               AND deleted_at IS NULL;
@@ -173,7 +186,9 @@ public sealed partial class TaskRepository
             reader.IsDBNull(7) ? null : reader.GetString(7),
             reader.IsDBNull(8) ? null : reader.GetString(8),
             reader.IsDBNull(9) ? null : reader.GetString(9),
-            reader.GetInt64(10) != 0
+            reader.GetInt64(10) != 0,
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(12) ? null : reader.GetInt64(12)
         );
     }
 
@@ -219,7 +234,8 @@ public sealed partial class TaskRepository
             reader.IsDBNull(14) ? null : reader.GetString(14),
             reader.GetInt64(15) != 0,
             reader.GetInt64(16) != 0,
-            reader.IsDBNull(17) ? null : reader.GetInt64(17)
+            reader.IsDBNull(17) ? null : reader.GetInt64(17),
+            reader.IsDBNull(18) ? null : reader.GetString(18)
         );
     }
 
@@ -234,7 +250,9 @@ public sealed partial class TaskRepository
         string? ScheduledDate,
         string? RecurrenceJson,
         string? OwnerPersonId,
-        bool IsPrivate
+        bool IsPrivate,
+        string? GroupId,
+        long? CompletedAt
     );
 
     private static JsonElement ParseTitleJson(string? titleJson, string fallbackText)

@@ -6,7 +6,7 @@
     @click="handleTaskClick"
     @keydown="actionDismissal.interact($event)"
     @keydown.esc="closeTaskMenus"
-    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected, 'actions-dismissed': actionsDismissed, 'task-dragging': dragging }"
+    :class="{ completed: !!task.completedAt, 'task-highlight': highlightFlash, 'has-task-selector': !!clipboardAdapter && !readOnly, 'whole-task-selected': wholeTaskSelected, 'task-group-hover': groupHovered, 'actions-dismissed': actionsDismissed, 'task-dragging': dragging }"
     :draggable="false"
     :data-task-id="task.id"
     :tabindex="privateSubcontent ? 0 : undefined"
@@ -23,18 +23,27 @@
       :class="{ after: dropPosition === 'after' }"
     ></div>
     <button
+      v-if="groupMembers.length" type="button" class="task-group-handle"
+      :class="{ 'group-start': groupFirst, 'group-end': groupLast }"
+      :aria-label="`Select group of ${groupMembers.length} tasks`" :aria-pressed="groupSelected"
+      title="Click to select the group · Drag to move it"
+      :tabindex="groupFirst ? 0 : -1" :draggable="draggable && !clipboardBusy" :disabled="clipboardBusy"
+      @pointerenter="hoverGroup" @pointerleave="clearGroupHover"
+      @click="selectGroup()" @dragstart.stop="handleDragStart" @dragend.stop="handleDragEnd"
+    ></button>
+    <button
       v-if="clipboardAdapter && !readOnly" ref="selectionHandle" type="button"
       class="task-select-handle" aria-label="Select whole task" :aria-pressed="wholeTaskSelected"
       title="Select whole task · Drag to reorder · Ctrl+click to add · Shift+click for range · Ctrl+Shift+Space from text"
       :draggable="draggable && !clipboardBusy"
       @dragstart.stop="handleDragStart" @dragend.stop="handleDragEnd"
-      :disabled="clipboardBusy" @click.stop="taskClipboard.select(task.id, $event)"
+      :disabled="clipboardBusy" @click="taskClipboard.select(task.id, $event)"
     ></button>
     <label class="task-check" :title="completionActionLabel">
       <input
         type="checkbox"
         :checked="!!task.completedAt"
-        :disabled="!allowToggle"
+        :disabled="!allowToggle || selectionActionBusy || clipboardBusy"
         :aria-label="completionActionLabel"
         @change="toggleComplete"
       />
@@ -49,9 +58,17 @@
       </div>
       <div class="task-action-strip" aria-label="Task actions">
         <button
+          v-for="action in groupActions" :key="action" type="button" class="task-tool task-icon-button contextual-task-action"
+          :aria-label="groupActionLabel(action)" :title="groupActionLabel(action)"
+          :disabled="groupUpdating || clipboardBusy" @click.stop="changeGroup(action)"
+        >
+          {{ groupControls[action].icon }}
+        </button>
+        <button
           v-if="!readOnly" type="button" class="task-tool task-icon-button contextual-task-action"
-          :aria-pressed="privateSubcontent" aria-label="Private subcontent"
-          :title="privateSubcontent ? 'Private subcontent: shown only while this task is focused when privacy is on' : 'Mark subcontent private'"
+          :aria-pressed="privateSelectionState" :aria-label="privacyActionLabel"
+          :title="selectedCount > 1 ? privacyActionLabel : privateSubcontent ? 'Private subcontent: shown only while this task is focused when privacy is on' : 'Mark subcontent private'"
+          :disabled="selectionActionBusy || clipboardBusy"
           @click.stop="togglePrivateSubcontent"
         >
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1" /><path :d="privateSubcontent ? 'M5 7V4a3 3 0 0 1 6 0v3' : 'M5 7V4a3 3 0 0 1 6 0'" /></svg>
@@ -73,7 +90,7 @@
           ref="categoryPickerRef"
           class="category-picker contextual-task-action"
         >
-          <button type="button" class="category-toggle task-icon-button" aria-label="Move to category" title="Move to category…" :aria-expanded="categoryOpen" @click.stop="toggleCategoryMenu">▦</button>
+          <button type="button" class="category-toggle task-icon-button" :aria-label="moveLabel" :title="moveLabel" :aria-expanded="categoryOpen" @click.stop="toggleCategoryMenu">▦</button>
           <div
             v-if="categoryOpen"
             ref="categoryMenuRef"
@@ -100,7 +117,7 @@
           </div>
         </div>
         <div v-if="onSendToPeople" ref="sendPickerRef" class="task-popover-wrap contextual-task-action">
-          <button type="button" class="task-tool task-icon-button" aria-label="Send a copy" title="Send a copy…" @click.stop="toggleSendMenu">→</button>
+          <button type="button" class="task-tool task-icon-button" :aria-label="sendLabel" :title="sendLabel" @click.stop="toggleSendMenu">→</button>
           <div
             v-if="sendOpen"
             ref="sendMenuRef"
@@ -108,7 +125,7 @@
             :style="{ left: `${sendMenuLeft}px`, top: `${sendMenuTop}px` }"
             @click.stop
           >
-            <strong class="task-popover-title">Send a copy to</strong>
+            <strong class="task-popover-title">{{ selectedCount > 1 ? `Send copies of ${selectedCount} tasks to` : 'Send a copy to' }}</strong>
             <div class="send-recipients">
               <label v-if="allowDashboardSend" class="task-menu-option" @mousedown.prevent><input v-model="selectedDashboard" type="checkbox" /> Send to Dashboard</label>
               <label v-for="person in sendPeople" :key="person.id" class="task-menu-option" @mousedown.prevent><input v-model="selectedPeople" type="checkbox" :value="person.id" /> {{ person.displayName }}</label>
@@ -139,15 +156,16 @@
             <strong class="task-popover-title">Send history</strong>
             <span v-if="loadingEvents">Loading…</span>
             <span v-for="eventItem in sendEvents" :key="eventItem.id">{{ eventItem.destinationLabel }} · {{ formatEventTime(eventItem.sentAt) }}</span>
-            <button type="button" class="category-option" @click="dismissSendMarker">Hide sent marker</button>
+            <button type="button" class="category-option" @click="dismissSendMarker">{{ selectedCount > 1 ? 'Hide sent markers for selected tasks' : 'Hide sent marker' }}</button>
           </div>
         </div>
         <button
           v-if="canDelete"
           type="button"
           class="delete-task task-icon-button contextual-task-action"
-          aria-label="Delete task"
-          title="Delete task"
+          :aria-label="deleteActionLabel"
+          :title="deleteActionLabel"
+          :disabled="selectionActionBusy || clipboardBusy"
           @click.stop="handleDelete"
         >
           ×
@@ -156,6 +174,7 @@
     </div>
     <div class="task-body">
       <div class="title-row">
+        <span v-if="!readOnly" class="title-start-target" aria-hidden="true" @mousedown.prevent @click="focusTitleStart"></span>
         <RichTextEditor
           ref="titleEditorRef"
           class="title-editor"
@@ -215,11 +234,13 @@
 
 <script setup>
 import { taskClipboard } from "../services/taskClipboard.js";
-import { privacyMode, revealedPrivateTask, revealPrivateTask } from "../composables/usePrivacy.js";
-import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
+import { hoveredGroupTaskId } from "../services/taskGroupHover.js";
+import { privacyMode, privacyPresentationKey, revealedPrivateTask, revealPrivateTask } from "../composables/usePrivacy.js";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from "vue";
 import { categoryPickerDays } from "../utils/categoryUtils.js";
 import { formatDateKey } from "../utils/dateUtils.js";
 import { isTaskDrag, TASK_DRAG_TYPE, taskDropPosition } from "../utils/taskDrag.js";
+import { taskGroup, taskGroupActions } from "../utils/taskGroups.js";
 import { createTaskActionDismissal } from "../utils/taskActionDismissal.js";
 import { announceAction } from "../services/actionFeedback.js";
 import RichTextEditor from "./RichTextEditor.vue";
@@ -227,10 +248,14 @@ import RecurrenceControls from "./RecurrenceControls.vue";
 import { useTaskEditing } from "../composables/useTaskEditing.js";
 import { indentTaskDocuments } from "../utils/taskJoin.js";
 import { isDocEmptyJson } from "../utils/taskDocUtils.js";
-import { saveCoordinator } from "../services/saveCoordinator.js";
+import { TASK_HIGHLIGHT_MS } from "../utils/taskNavigation.js";
+import { flushAllSaves, saveCoordinator } from "../services/saveCoordinator.js";
 
 const props = defineProps({
   clipboardAdapter: { type: Object, default: null },
+  groupRows: { type: Array, default: () => [] },
+  onChangeGroup: { type: Function, default: null },
+  onTaskAction: { type: Function, default: null },
   task: {
     type: Object,
     required: true
@@ -382,7 +407,8 @@ const props = defineProps({
 const title = ref(props.task.title);
 const content = ref(props.task.content);
 const privateSubcontent = ref(!!props.task.isPrivate);
-const privacyHidden = computed(() => privateSubcontent.value && privacyMode.value && revealedPrivateTask.value !== props.task.id);
+const privacyEnabled = inject(privacyPresentationKey, privacyMode);
+const privacyHidden = computed(() => privateSubcontent.value && privacyEnabled.value && revealedPrivateTask.value !== props.task.id);
 const revealSubcontent = () => {
   taskRoot.value?.focus({ preventScroll: true });
   revealPrivateTask(props.task.id);
@@ -397,6 +423,12 @@ const handleTaskClick = event => {
   actionDismissal.interact(event);
 };
 const togglePrivateSubcontent = async () => {
+  try {
+    if (await runSelectionAction("privacy")) return;
+  } catch (error) {
+    window.alert(error?.message || "Could not change privacy for the selected tasks.");
+    return;
+  }
   privateSubcontent.value = !privateSubcontent.value;
   markDirty();
   await saveNow();
@@ -405,10 +437,89 @@ const dirty = ref(false);
 const saving = ref(false);
 const saveError = ref(null);
 const titleEditorRef = ref(null);
+const focusTitleStart = () => {
+  if (!clipboardBusy.value) titleEditorRef.value?.focus(1);
+};
 const taskRoot = ref(null);
 const selectionHandle = ref(null);
 const wholeTaskSelected = computed(() => taskClipboard.selected.value.has(props.task.id));
+const selectedCount = computed(() => wholeTaskSelected.value ? taskClipboard.selected.value.size : 1);
+const moveLabel = computed(() => selectedCount.value > 1 ? `Move ${selectedCount.value} tasks to category` : "Move to category");
+const sendLabel = computed(() => selectedCount.value > 1 ? `Send copies of ${selectedCount.value} tasks` : "Send a copy");
 const clipboardBusy = computed(() => taskClipboard.busy.value);
+const selectionActionBusy = ref(false);
+const selectedTasks = computed(() => taskClipboard.selected.value.has(props.task.id)
+  ? taskClipboard.actionTasks(props.task) : [props.task]);
+const privateSelectionState = computed(() => {
+  if (selectedTasks.value.length < 2) return privateSubcontent.value;
+  if (selectedTasks.value.every(task => task.isPrivate)) return true;
+  return selectedTasks.value.some(task => task.isPrivate) ? "mixed" : false;
+});
+const privacyActionLabel = computed(() => selectedCount.value > 1
+  ? `Make ${selectedCount.value} tasks ${privateSelectionState.value === true ? "public" : "private"}`
+  : "Private subcontent");
+const deleteActionLabel = computed(() => selectedCount.value > 1 ? `Delete ${selectedCount.value} tasks` : "Delete task");
+const runSelectionAction = async (action, value) => {
+  const tasks = taskClipboard.actionTasks(props.task);
+  if (tasks.length < 2 || !props.onTaskAction) return false;
+  if (selectionActionBusy.value) return true;
+  const activeControl = document.activeElement;
+  selectionActionBusy.value = true;
+  try {
+    await props.onTaskAction(tasks, action, value);
+    return true;
+  } finally {
+    selectionActionBusy.value = false;
+    await nextTick();
+    if (activeControl?.isConnected && document.activeElement !== activeControl) {
+      selectionHandle.value?.focus({ preventScroll: true });
+      await nextTick();
+      activeControl.focus({ preventScroll: true });
+    }
+  }
+};
+const groupMembers = computed(() => props.onChangeGroup ? taskGroup(props.groupRows, props.task) : []);
+const groupFirst = computed(() => groupMembers.value[0]?.id === props.task.id);
+const groupLast = computed(() => groupMembers.value.at(-1)?.id === props.task.id);
+const groupSelected = computed(() => groupMembers.value.every(row => taskClipboard.selected.value.has(row.id)));
+const groupHovered = computed(() => !clipboardBusy.value && groupMembers.value.some(row => row.id === hoveredGroupTaskId.value));
+const hoverGroup = () => {
+  if (!clipboardBusy.value) hoveredGroupTaskId.value = props.task.id;
+};
+const clearGroupHover = () => {
+  if (hoveredGroupTaskId.value === props.task.id) hoveredGroupTaskId.value = null;
+};
+const handleWindowBlur = () => {
+  clearGroupHover();
+  actionDismissal.blur();
+};
+const groupActions = computed(() => props.onChangeGroup ? taskGroupActions(props.groupRows, props.task, taskClipboard.selected.value) : []);
+const groupControls = {
+  create: { label: "Group selected tasks", icon: "⊏" },
+  extend: { label: "Add selected tasks to group", icon: "⊏+" },
+  "attach-above": { label: "Attach to group above", icon: "+↑" },
+  "attach-below": { label: "Attach to group below", icon: "+↓" },
+  detach: { label: "Detach this task from group", icon: "−" }
+};
+const groupUpdating = ref(false);
+const groupActionLabel = action => action === "detach" && selectedCount.value > 1
+  ? "Detach selected tasks from groups" : groupControls[action].label;
+const selectGroup = (focus = true) => taskClipboard.selectGroup(groupMembers.value.map(row => row.id), props.task.id, focus);
+const changeGroup = async (action) => {
+  if (groupUpdating.value) return;
+  groupUpdating.value = true;
+  try {
+    const selectedIds = new Set(taskClipboard.selected.value);
+    const changed = await props.onChangeGroup?.(props.task, selectedIds, action);
+    if (!changed) return;
+    if (action === "detach") taskClipboard.selectGroup(selectedIds.has(props.task.id) ? [...selectedIds] : [props.task.id], props.task.id);
+    else selectGroup();
+  } catch (error) {
+    window.alert(error?.message || "Could not update the task group.");
+  } finally {
+    groupUpdating.value = false;
+  }
+};
 let unregisterClipboard;
 const taskMeta = ref(null);
 const actionsDismissed = ref(false);
@@ -495,6 +606,7 @@ const sendMarkerVisible = ref(!!props.task.sendMarkerVisible);
 const updatedAt = ref(props.task.updatedAt);
 let saveTimer = null;
 let highlightTimer = null;
+let highlightFrame = null;
 let saveRegistration = null;
 
 const removeMenuListeners = () => {
@@ -507,16 +619,15 @@ const removeMenuListeners = () => {
 onUpdated(positionTaskOverlay);
 
 onBeforeUnmount(() => {
+  clearGroupHover();
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
   void saveRegistration?.unregister({ flush: true });
   saveRegistration = null;
-  if (highlightTimer) {
-    clearTimeout(highlightTimer);
-    highlightTimer = null;
-  }
+  clearTimeout(highlightTimer);
+  if (highlightFrame != null) cancelAnimationFrame(highlightFrame);
   removeMenuListeners();
 });
 
@@ -540,7 +651,9 @@ const creationDate = computed(() => {
 
 const canSetCategory = computed(() => !!props.onSetCategory && !props.readOnly);
 const canDelete = computed(() => !!props.onDelete && props.allowDelete);
-const completionActionLabel = computed(() => props.task.completedAt ? "Mark task incomplete" : "Mark task complete");
+const completionActionLabel = computed(() => selectedCount.value > 1
+  ? `Mark ${selectedCount.value} tasks ${selectedTasks.value.every(task => task.completedAt) ? "incomplete" : "complete"}`
+  : props.task.completedAt ? "Mark task incomplete" : "Mark task complete");
 const saveErrorMessage = computed(() => {
   if (saveError.value?.kind === "conflict") {
     return "This note changed in another window. Your edits are preserved here. Review the other window, then save your version only if it should replace the newer saved version.";
@@ -684,12 +797,13 @@ onMounted(() => {
   if (props.clipboardAdapter && !props.readOnly) {
     unregisterClipboard = taskClipboard.register(props.task.id, {
       adapter: props.clipboardAdapter, element: () => taskRoot.value,
-      handle: () => selectionHandle.value, snapshot,
+      handle: () => selectionHandle.value, snapshot, task: () => props.task,
+      deleteSelected: () => handleDelete(),
       focusEditor: () => titleEditorRef.value?.focus()
     });
   }
   window.addEventListener('resize', positionTaskOverlay);
-  window.addEventListener('blur', actionDismissal.blur);
+  window.addEventListener('blur', handleWindowBlur);
   document.addEventListener('scroll', positionTaskOverlay, true);
   overlayObserver = new ResizeObserver(positionTaskOverlay);
   overlayObserver.observe(taskRoot.value);
@@ -703,7 +817,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', positionTaskOverlay);
-  window.removeEventListener('blur', actionDismissal.blur);
+  window.removeEventListener('blur', handleWindowBlur);
   unregisterClipboard?.();
   document.removeEventListener('scroll', positionTaskOverlay, true);
   overlayObserver?.disconnect();
@@ -773,7 +887,10 @@ const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
   getTaskSnapshot: snapshot,
   props,
   onDelete: handleDelete,
-  revealContent: () => { forceSubcontent.value = true; },
+  revealContent: () => {
+    forceSubcontent.value = true;
+    if (privacyHidden.value) revealPrivateTask(props.task.id);
+  },
   onContentChanged: markDirty,
   titleRef: title,
   contentRef: content,
@@ -783,9 +900,12 @@ const { handleTitleKeydown, handleContentKeydown } = useTaskEditing({
   saveNow
 });
 
-const toggleComplete = async () => {
+const toggleComplete = async (event) => {
   if (!props.allowToggle) {
     return;
+  }
+  if (event?.target && selectedTasks.value.length > 1) {
+    event.target.checked = !selectedTasks.value.every(task => task.completedAt);
   }
   const saved = await saveNow();
   if (!saved) {
@@ -793,8 +913,10 @@ const toggleComplete = async () => {
     return;
   }
   try {
+    if (await runSelectionAction("complete")) return;
     await props.onComplete(snapshot());
   } catch (error) {
+    if (event?.target) event.target.checked = !!props.task.completedAt;
     window.alert(error?.message || "Could not change task completion.");
   }
 };
@@ -805,6 +927,7 @@ async function handleDelete(_task, options = {}) {
   deleting = true;
   try {
     if (await saveNow() === false) throw new Error("Could not save edits before deleting the note.");
+    if (await runSelectionAction("delete")) return;
     await props.onDelete?.(snapshot(), options);
   } catch (error) { window.alert(error?.message || "Could not delete the note."); }
   finally { deleting = false; }
@@ -813,7 +936,7 @@ async function handleDelete(_task, options = {}) {
 const isEditorTarget = (event) =>
   !!event?.target?.closest?.(".ProseMirror, .editor-surface");
 
-const isHandleTarget = (event) => !!event?.target?.closest?.(".drag-handle, .task-select-handle");
+const isHandleTarget = (event) => !!event?.target?.closest?.(".drag-handle, .task-select-handle, .task-group-handle");
 
 const handleDragStart = (event) => {
   if (!props.draggable || !props.onDragStart) {
@@ -826,7 +949,10 @@ const handleDragStart = (event) => {
   dragging.value = true;
   event.dataTransfer?.setData(TASK_DRAG_TYPE, props.task.id);
   closeTaskMenus();
-  props.onDragStart(props.task, event);
+  const bracketDrag = event.target?.closest?.(".task-group-handle");
+  if (bracketDrag) selectGroup(false);
+  const tasks = bracketDrag ? groupMembers.value : taskClipboard.actionTasks(props.task);
+  props.onDragStart(props.task, event, tasks);
 };
 
 const handleDragOver = (event) => {
@@ -888,7 +1014,7 @@ const handleSplitToNewTask = async (payload) => {
         const saved = await saveNow(true, { suppressUndo: true });
         if (saved === false) {
           content.value = JSON.stringify(content.value) === shortenedSnapshot ? previousContent
-            : indentTaskDocuments({ content: content.value }, { title: payload.title, content: payload.content }).content;
+            : indentTaskDocuments({ content: content.value }, { title: payload.originalTitle ?? payload.title, content: payload.content }).content;
           markDirty();
         }
         return saved;
@@ -907,7 +1033,8 @@ const setCategory = async (category) => {
     return;
   }
   closeTaskMenus();
-  try { await props.onSetCategory(props.task, category); }
+  const tasks = taskClipboard.actionTasks(props.task);
+  try { await props.onSetCategory(tasks.length > 1 ? tasks : props.task, category); }
   catch (error) { window.alert(error?.message || "Could not move the task."); }
 };
 
@@ -922,13 +1049,18 @@ const toggleSendMenu = async () => {
 };
 
 const sendToPeople = async () => {
+  if (sending.value) return;
+  const tasks = taskClipboard.actionTasks(props.task);
+  const personIds = [...selectedPeople.value];
+  const tagIds = [...selectedTags.value];
+  const includeDashboard = selectedDashboard.value;
   sending.value = true;
   try {
-    const saved = await saveNow();
+    const saved = tasks.length > 1 ? (await flushAllSaves()).ok : await saveNow();
     if (!saved) throw new Error("Could not save the latest edits before copying the task.");
-    const response = await props.onSendToPeople(props.task, selectedPeople.value, selectedTags.value, selectedDashboard.value);
+    const response = await props.onSendToPeople(tasks.length > 1 ? tasks : props.task, personIds, tagIds, includeDashboard);
     if (response?.created === 0) throw new Error("No other active people matched. Choose another person or tag.");
-    announceAction('Sent a copy to the selected destinations.');
+    announceAction(tasks.length > 1 ? `Sent copies of ${tasks.length} tasks.` : 'Sent a copy to the selected destinations.');
     sendMarkerVisible.value = true;
     selectedPeople.value = [];
     selectedTags.value = [];
@@ -958,9 +1090,13 @@ const toggleEvents = async () => {
 };
 
 const dismissSendMarker = async () => {
-  await props.onDismissSendMarker?.(props.task);
-  sendMarkerVisible.value = false;
-  eventsOpen.value = false;
+  try {
+    if (!(await runSelectionAction("dismiss-send"))) await props.onDismissSendMarker?.(props.task);
+    sendMarkerVisible.value = false;
+    eventsOpen.value = false;
+  } catch (error) {
+    window.alert(error?.message || "Could not hide sent markers.");
+  }
 };
 
 const formatEventTime = (milliseconds) => new Date(milliseconds).toLocaleString();
@@ -1029,11 +1165,17 @@ const buildRecurrencePayload = () => {
   return null;
 };
 
-const applyRecurrence = () => {
+const applyRecurrence = async () => {
   if (props.readOnly || !props.onSetRecurrence) {
     return;
   }
-  props.onSetRecurrence(props.task, buildRecurrencePayload());
+  try {
+    const recurrence = buildRecurrencePayload();
+    if (await runSelectionAction("recurrence", recurrence)) return;
+    await props.onSetRecurrence(props.task, recurrence);
+  } catch (error) {
+    window.alert(error?.message || "Could not change recurrence.");
+  }
 };
 
 const toggleWeekday = (day) => {
@@ -1070,6 +1212,8 @@ watch(
       return;
     }
     forceSubcontent.value = true;
+    // Remove inert before ProseMirror measures or focuses this destination.
+    if (privacyHidden.value) revealPrivateTask(props.task.id);
     await nextTick();
     actionDismissal.interact();
     if (target.selection) contentEditorRef.value?.focus(target.selection, target.vertical);
@@ -1083,18 +1227,16 @@ watch(
 watch(
   () => [props.highlightId, props.highlightNonce],
   ([id]) => {
-    if (!id || id !== props.task.id) {
-      return;
-    }
     highlightFlash.value = false;
-    if (highlightTimer) {
-      clearTimeout(highlightTimer);
-    }
-    requestAnimationFrame(() => {
+    clearTimeout(highlightTimer);
+    if (highlightFrame != null) cancelAnimationFrame(highlightFrame);
+    if (!id || id !== props.task.id) return;
+    highlightFrame = requestAnimationFrame(() => {
+      highlightFrame = null;
       highlightFlash.value = true;
       highlightTimer = setTimeout(() => {
         highlightFlash.value = false;
-      }, 5800);
+      }, TASK_HIGHLIGHT_MS);
     });
   },
   { immediate: true }
@@ -1149,6 +1291,39 @@ watch(
 .has-task-selector .task-check { grid-column: 2; }
 .has-task-selector .task-body { grid-column: 3; }
 .task-item.whole-task-selected { background: var(--bg-tab-active); outline: 1px solid var(--focus-outline); }
+
+#app .task-item.has-task-selector { padding-inline-start: 8px; }
+#app .task-group-handle {
+  --task-group-stroke: 2px;
+  position: absolute;
+  inset: 0 auto calc(-1 * var(--task-row-gap, 2px)) 1px;
+  width: 7px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: move;
+}
+#app .task-group-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 2px;
+  border-inline-start: var(--task-group-stroke) solid currentColor;
+  pointer-events: none;
+}
+#app .task-group-handle.group-start::after { border-block-start: var(--task-group-stroke) solid currentColor; }
+#app .task-group-handle.group-end { bottom: 0; }
+#app .task-group-handle.group-end::after { border-block-end: var(--task-group-stroke) solid currentColor; }
+#app .task-group-handle:not(:disabled):hover,
+#app .task-group-handle[aria-pressed="true"] { color: var(--text-main); }
+#app .task-group-hover:not(.whole-task-selected) { background: var(--bg-tab-hover); }
+#app .task-group-hover .task-group-handle:not(:disabled) {
+  color: var(--focus-outline);
+  background: var(--border-panel);
+}
 
 .task-item.task-highlight {
   background: transparent;
@@ -1381,6 +1556,17 @@ watch(
 
 .title-editor {
   flex: 1;
+}
+
+.title-row:has(.title-start-target) {
+  margin-left: 2px;
+}
+
+.title-start-target {
+  position: absolute;
+  inset: 0 auto 0 -4px;
+  width: 4px;
+  cursor: text;
 }
 
 .title-editor :deep(.editor-surface) {

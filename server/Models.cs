@@ -19,7 +19,8 @@ public sealed record TaskItem(
     string? OriginLabel,
     bool SendMarkerVisible,
     bool IsPrivate = false,
-    long? HistoryArchivedAt = null
+    long? HistoryArchivedAt = null,
+    string? GroupId = null
 );
 
 public sealed record TaskCreateRequest(
@@ -31,12 +32,14 @@ public sealed record TaskCreateRequest(
     JsonElement? Recurrence,
     string? OwnerPersonId = null,
     string? OriginLabel = null,
-    bool IsPrivate = false
+    bool IsPrivate = false,
+    bool Completed = false
 );
 
 public sealed record TaskCreateResponse(
     string TaskId,
-    long UpdatedAt
+    long UpdatedAt,
+    long? CompletedAt = null
 );
 
 public sealed record TaskUpdateRequest(
@@ -47,13 +50,19 @@ public sealed record TaskUpdateRequest(
     double? Position,
     [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? ScheduledDate,
     [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? Recurrence,
-    bool? IsPrivate = null
+    bool? IsPrivate = null,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? GroupId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(ExplicitJsonNullConverter))] JsonElement? CompletedAt = null,
+    bool DismissSendMarker = false
 );
 
 public sealed record TaskUpdateResponse(
     long UpdatedAt,
     bool ExternalUpdate
 );
+
+public sealed record TaskBatchUpdateItem(string TaskId, TaskUpdateRequest Update, bool Delete = false);
 
 public sealed class TaskWriteConflictException : Exception
 {

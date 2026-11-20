@@ -35,3 +35,12 @@ export const isListItemEmpty = (listItem) => {
   });
   return !hasInlineNonText;
 };
+
+export const isSingleEmptyBullet = (doc) => {
+  const [list] = doc?.content || [];
+  const [item] = list?.content || [];
+  const [paragraph] = item?.content || [];
+  return doc?.content?.length === 1 && list?.type === "bulletList" && list.content?.length === 1
+    && item?.type === "listItem" && item.content?.length === 1
+    && paragraph?.type === "paragraph" && !paragraph.content?.length;
+};

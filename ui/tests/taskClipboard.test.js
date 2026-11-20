@@ -68,7 +68,7 @@ const adapter = createTaskClipboardAdapter({ tasks: () => [...store.values()], r
 function register(task) {
   store.set(task.id, task);
   const element = { isConnected: true, compareDocumentPosition: other => task.position < other.position ? 4 : 2, position: task.position };
-  const row = { adapter, snapshot: () => task, element: () => element, handle: () => ({ focus() {} }), focusEditor: () => editorFocus++ };
+  const row = { adapter, task: () => task, snapshot: () => task, element: () => element, handle: () => ({ focus() {} }), focusEditor: () => editorFocus++ };
   taskClipboard.register(task.id, row);
   return row;
 }
@@ -82,6 +82,23 @@ taskClipboard.select('three', { shiftKey: true });
 assert.deepEqual([...taskClipboard.selected.value], ['one', 'two', 'three']);
 taskClipboard.select('two', { ctrlKey: true });
 assert.deepEqual([...taskClipboard.selected.value], ['one', 'three']);
+taskClipboard.selectGroup(['one', 'two'], 'two');
+taskClipboard.select('three', { shiftKey: true });
+assert.deepEqual([...taskClipboard.selected.value], ['one', 'two', 'three'], 'Shift includes both ends of a selected bracket');
+taskClipboard.selectGroup(['two', 'three'], 'two');
+taskClipboard.select('one', { shiftKey: true });
+assert.deepEqual([...taskClipboard.selected.value], ['one', 'two', 'three'], 'the bracket anchors a range in either direction');
+taskClipboard.selectGroup(['one', 'two'], 'two');
+taskClipboard.select('three', { ctrlKey: true });
+assert.deepEqual([...taskClipboard.selected.value], ['one', 'two', 'three'], 'Ctrl adds an individual task to the bracket selection');
+taskClipboard.select('two', { ctrlKey: true });
+const selectedToolbar = { closest: selector => {
+  if (selector === '[data-task-id]') return { dataset: { taskId: 'three' } };
+  return selector === '.task-meta, .task-check' ? {} : null;
+} };
+listeners.get('focusin')({ target: selectedToolbar });
+assert.deepEqual(taskClipboard.actionTasks(store.get('three')).map(task => task.id), ['one', 'three']);
+assert.deepEqual(taskClipboard.actionTasks(store.get('two')).map(task => task.id), ['two']);
 
 rejectClipboard = true;
 await assert.rejects(() => taskClipboard.copy(true), /denied/);

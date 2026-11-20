@@ -32,7 +32,7 @@ import {
   isDocEmptyParagraph,
   isInListItem,
   isOutermostListItem,
-  splitAtSelection
+  splitAtSelection, CHECKBOX_EMPTY, CHECKBOX_CHECKED
 } from "../utils/editorListUtils.js";
 import ResizableImage from "../utils/resizableImage.js";
 import { revealCaret } from "../utils/editorVisibility.js";
@@ -332,6 +332,8 @@ const editorRef = useEditor({
             if (splitPayload) {
               void Promise.resolve(props.onSplitToNewTask({
                 title: splitPayload.title,
+                originalTitle: splitPayload.originalTitle,
+                completed: splitPayload.completed,
                 content: splitPayload.newTaskContent,
                 titleSelection: splitPayload.titleSelection,
                 remainingContent: splitPayload.remainingContent
@@ -397,8 +399,6 @@ const editLinkAtSelection = (editor) => {
   return true;
 };
 
-const CHECKBOX_EMPTY = "☐";
-const CHECKBOX_CHECKED = "☑";
 const STAR_MARK = "⭐";
 const LEGACY_STAR_MARK = "★";
 const STAR_MARKS = new Set([STAR_MARK, LEGACY_STAR_MARK]);

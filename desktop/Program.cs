@@ -101,7 +101,7 @@ internal static class Program
 
         window.RegisterWebMessageReceivedHandler(HandleWebMessage);
         RegisterZoom(window);
-        window.WindowCreated += (_, _) => { RegisterWindowIdentity(window); RestoreWindowPlacement(window, savedPlacement); };
+        RegisterWindowFrame(window, savedPlacement);
 
         window.WindowClosing += (_, _) => RequestWindowClose(window);
 
@@ -301,6 +301,25 @@ internal static class Program
         window.WindowSizeChanged += (_, _) => SyncZoom(window);
     }
 
+    private static void RegisterWindowFrame(PhotinoWindow window, SavedWindowPlacement? placement)
+    {
+        window.WindowCreated += (_, _) =>
+        {
+            RegisterWindowIdentity(window);
+            RestoreWindowPlacement(window, placement);
+        };
+        window.WindowSizeChanged += (_, _) => SendWindowFrame(window);
+    }
+
+    private static void SendWindowFrame(PhotinoWindow window, bool force = false)
+    {
+        if (!Windows.TryGetValue(window.Id, out var state) || !state.CustomTitleBar) return;
+        if (!force && state.Maximized is null) return; // Wait for the Vue view to subscribe.
+        var maximized = WindowsTitleBar.IsZoomed(window.WindowHandle);
+        if ((force || state.Maximized != maximized) && TrySend(window, new { type = "windowFrame", maximized, percent = state.ZoomPercent }))
+            state.Maximized = maximized;
+    }
+
     private static void SyncZoom(PhotinoWindow window, bool force = false, int? requested = null)
     {
         if (!Windows.TryGetValue(window.Id, out var state) || (!state.ZoomReady && !force)) return;
@@ -349,7 +368,19 @@ internal static class Program
                     break;
                 case "getWindowRole":
                     if (Windows.TryGetValue(window.Id, out var roleState))
+                    {
                         TrySend(window, new { type = "windowRole", role = roleState.IsPrimary ? "main" : "helper" });
+                        // Keep the native caption until the loaded UI can supply window controls.
+                        if (OperatingSystem.IsWindows() && GetBoolean(root, "customTitleBar"))
+                        {
+                            if (!roleState.CustomTitleBar)
+                                roleState.CustomTitleBar = WindowsTitleBar.TryEnable(window.WindowHandle);
+                            SendWindowFrame(window, force: true);
+                        }
+                    }
+                    break;
+                case "windowCommand" when Windows.TryGetValue(window.Id, out var frameState) && frameState.CustomTitleBar:
+                    WindowsTitleBar.RunCommand(window.WindowHandle, GetString(root, "command"));
                     break;
                 case "zoomSync":
                     SyncZoom(window, force: true);
@@ -438,7 +469,7 @@ internal static class Program
                 .SetResizable(true);
             child.RegisterWebMessageReceivedHandler(HandleWebMessage);
             RegisterZoom(child);
-            child.WindowCreated += (_, _) => { RegisterWindowIdentity(child); RestoreWindowPlacement(child, parentPlacement); };
+            RegisterWindowFrame(child, parentPlacement);
             child.WindowClosing += (_, _) => RequestWindowClose(child);
             if (!string.IsNullOrWhiteSpace(_iconPath) && File.Exists(_iconPath))
             {
@@ -772,6 +803,8 @@ internal static class Program
         public PhotinoWindow Window { get; }
         public bool IsPrimary { get; }
         public bool AllowClose { get; set; }
+        public bool CustomTitleBar { get; set; }
+        public bool? Maximized { get; set; }
         public bool ZoomReady { get; set; }
         public string? ZoomMonitor { get; set; }
         public int ZoomPercent { get; set; } = 100;

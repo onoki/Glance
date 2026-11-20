@@ -7,7 +7,7 @@ import { createClipboardHistory, sameClipboardTask } from './taskClipboardHistor
 
 const clone = value => JSON.parse(JSON.stringify(value));
 export const taskClipboard = {
-  selected: shallowRef(new Set()), busy: shallowRef(false), rows: new Map(), anchor: null, scope: null,
+  selected: shallowRef(new Set()), busy: shallowRef(false), rows: new Map(), anchor: null, groupAnchor: [], scope: null,
   register(id, row) {
     this.rows.set(id, row);
     return () => {
@@ -20,7 +20,23 @@ export const taskClipboard = {
     return [...this.rows.entries()].filter(([, row]) => row.element()?.isConnected)
       .sort((a, b) => a[1].element().compareDocumentPosition(b[1].element()) & 4 ? -1 : 1);
   },
-  clear() { this.selected.value = new Set(); },
+  actionTasks(task) {
+    const adapter = this.rows.get(task.id)?.adapter;
+    if (!adapter || !this.selected.value.has(task.id)) return [task];
+    return this.ordered()
+      .filter(([id, row]) => row.adapter === adapter && this.selected.value.has(id))
+      .map(([, row]) => row.task());
+  },
+  clear() { this.selected.value = new Set(); this.groupAnchor = []; },
+  selectGroup(ids, anchor, focus = true) {
+    const row = this.rows.get(anchor);
+    if (!row || this.busy.value) return;
+    this.anchor = anchor;
+    this.groupAnchor = [...ids];
+    this.selected.value = new Set(this.groupAnchor);
+    window.getSelection()?.removeAllRanges();
+    if (focus) row.handle()?.focus();
+  },
   select(id, event = {}) {
     const ordered = this.ordered();
     const row = this.rows.get(id);
@@ -28,11 +44,12 @@ export const taskClipboard = {
     const next = event.ctrlKey || event.metaKey ? new Set(this.selected.value) : new Set();
     if (event.shiftKey && this.anchor && this.rows.get(this.anchor)?.adapter === row.adapter) {
       const ids = ordered.filter(([, item]) => item.adapter === row.adapter).map(([key]) => key);
-      const a = ids.indexOf(this.anchor), b = ids.indexOf(id);
-      for (const key of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(key);
+      const range = [this.anchor, id, ...this.groupAnchor].map(key => ids.indexOf(key)).filter(index => index >= 0);
+      for (const key of ids.slice(Math.min(...range), Math.max(...range) + 1)) next.add(key);
     } else {
       if (next.has(id)) next.delete(id); else next.add(id);
       this.anchor = id;
+      this.groupAnchor = [];
     }
     this.selected.value = next;
     window.getSelection()?.removeAllRanges();
@@ -125,6 +142,12 @@ export const taskClipboard = {
       if (event.key === 'Escape' && this.selected.value.size) {
         event.preventDefault(); const focused = row || this.rows.get(this.anchor); this.clear(); focused?.focusEditor(); return;
       }
+      if (row && this.selected.value.size && event.target?.closest?.('.task-select-handle')
+        && ['Delete', 'Backspace'].includes(event.key) && row.deleteSelected) {
+        event.preventDefault();
+        report(row.deleteSelected());
+        return;
+      }
       if (row && event.target?.closest?.('.task-select-handle') && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
         const rows = this.ordered().filter(([, item]) => item.adapter === row.adapter);
         const index = rows.findIndex(([, item]) => item === row);
@@ -147,7 +170,13 @@ export const taskClipboard = {
       if (!row) return;
       event.preventDefault(); event.stopImmediatePropagation(); report(this.paste(data, row));
     };
-    const onFocus = event => { if (!event.target?.closest?.('.task-select-handle')) { this.clear(); this.anchor = null; } };
+    const onFocus = event => {
+      if (event.target?.closest?.('.task-select-handle, .task-group-handle')) return;
+      const id = event.target?.closest?.('[data-task-id]')?.dataset.taskId;
+      if (this.selected.value.has(id) && (event.target.closest('.task-meta, .task-check') || event.target.closest('.recurrence-row'))) return;
+      this.clear();
+      this.anchor = null;
+    };
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('copy', onCopy, true);
     document.addEventListener('cut', onCopy, true);

@@ -364,6 +364,31 @@ const listItemToTitleDoc = (listItem) => {
   };
 };
 
+export const CHECKBOX_EMPTY = "☐";
+export const CHECKBOX_CHECKED = "☑";
+
+const promotedTitle = (title) => {
+  const paragraph = title.content[0];
+  const [first] = paragraph.content;
+  const marker = first?.type === "text" ? first.text[0] : null;
+  if (marker !== CHECKBOX_EMPTY && marker !== CHECKBOX_CHECKED) return { title, removed: 0 };
+  const content = [...paragraph.content];
+  let removed = 1;
+  let skip = 1;
+  while (content[0]?.type === "text") {
+    const node = content[0];
+    const text = node.text.slice(skip).replace(/^[\t\p{Zs}]+/u, "");
+    removed += node.text.length - skip - text.length;
+    if (text.length) {
+      content[0] = { ...node, text };
+      break;
+    }
+    content.shift();
+    skip = 0;
+  }
+  return { title: { ...title, content: [{ ...paragraph, content }] }, removed, completed: marker === CHECKBOX_CHECKED };
+};
+
 export const splitAtSelection = (editor) => {
   if (!editor) {
     return null;
@@ -394,7 +419,8 @@ export const splitAtSelection = (editor) => {
   const before = listContent.slice(0, listIndex);
   const current = listContent[listIndex];
   const after = listContent.slice(listIndex + 1);
-  const titleDoc = listItemToTitleDoc(current);
+  const originalTitle = listItemToTitleDoc(current);
+  const { title, removed, completed = current.type === "taskItem" && !!current.attrs?.checked } = promotedTitle(originalTitle);
   // Flattening paragraph boundaries into hard breaks changes document positions.
   // Count inline node sizes, not text lengths, so images and breaks also retain
   // their position relative to the caret in the promoted title.
@@ -414,8 +440,8 @@ export const splitAtSelection = (editor) => {
     return result ?? Math.max(1, titlePosition - 1);
   };
   const titleSelection = {
-    from: mapTitlePosition(editor.state.selection.from),
-    to: mapTitlePosition(editor.state.selection.to)
+    from: Math.max(1, mapTitlePosition(editor.state.selection.from) - removed),
+    to: Math.max(1, mapTitlePosition(editor.state.selection.to) - removed)
   };
   const emptyDoc = {
     type: "doc",
@@ -446,5 +472,8 @@ export const splitAtSelection = (editor) => {
       ]
     }
     : emptyDoc;
-  return { remainingContent: remaining, newTaskContent, title: titleDoc, titleSelection };
+  return {
+    remainingContent: remaining, newTaskContent, title, titleSelection,
+    ...(removed ? { originalTitle } : {}), ...(completed ? { completed } : {})
+  };
 };

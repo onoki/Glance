@@ -49,6 +49,11 @@ const api = {
     Object.assign(task, clone(payload), { updatedAt: ++clock });
     return { updatedAt: task.updatedAt };
   },
+  updateTasks: async updates => Promise.all(updates.map(async ({ taskId, update, delete: deleted }) => {
+    if (!deleted) return api.updateTask(taskId, update);
+    await api.deleteTask(taskId);
+    return { updatedAt: ++clock };
+  })),
   deleteTask: async (id) => {
     const index = store.findIndex((task) => task.id === id);
     if (index >= 0) {
@@ -248,3 +253,59 @@ for (const forward of [false,true]) {
   await joinedPerson.redo();
   assert.equal(store.some(task=>task.id===lowerId),false);
 }
+
+const groupPerson = 'group-person';
+const groupIds = ['group-first', 'group-middle', 'group-last'];
+for (const [index, id] of groupIds.entries()) {
+  store.push({ id, page: 'people:main', ownerPersonId: groupPerson, title: textDoc(id),
+    content: emptyDoc(), position: index, updatedAt: ++clock, completedAt: null });
+}
+const groupedPeople = usePeopleTasks({ selectedPersonId: ref(groupPerson), api });
+await groupedPeople.loadTasks();
+const groupRow = id => groupedPeople.tasks.value.find(task => task.id === id);
+const middle = () => groupRow(groupIds[1]);
+await assert.rejects(groupedPeople.changeTaskGroup(middle(), new Set(groupIds.slice(1).concat('outside')), 'create'), /selection changed/);
+await groupedPeople.changeTaskGroup(middle(), new Set(groupIds), 'create');
+const groupId = middle().groupId;
+assert.ok(groupId);
+await groupedPeople.changeTaskGroup(middle(), new Set([middle().id]), 'detach');
+assert.deepEqual(groupedPeople.tasks.value.map(task => task.id), [groupIds[0], groupIds[2], groupIds[1]]);
+assert.equal(middle().groupId, null);
+await groupedPeople.undo();
+assert.deepEqual(groupedPeople.tasks.value.map(task => task.id), groupIds);
+assert.equal(middle().groupId, groupId);
+await groupedPeople.redo();
+await groupedPeople.changeTaskGroup(middle(), new Set(), 'attach-above');
+await groupedPeople.loadTasks();
+assert.ok(groupedPeople.tasks.value.every(task => task.groupId === groupId));
+
+const extraId = await groupedPeople.createTaskBelow(groupRow(groupIds[0]));
+const extraPosition = groupRow(extraId).position;
+await assert.rejects(groupedPeople.changeTaskGroup(groupRow(extraId), new Set([extraId, middle().id]), 'extend'), /selection changed/);
+await groupedPeople.changeTaskGroup(middle(), new Set([...groupIds, extraId]), 'extend');
+assert.equal(groupRow(extraId).groupId, groupId);
+assert.equal(groupRow(extraId).position, extraPosition, 'an adjacent addition keeps its current position');
+await groupedPeople.undo();
+assert.equal(groupRow(extraId).groupId, null);
+await groupedPeople.redo();
+assert.equal(groupRow(extraId).groupId, groupId);
+const selected = () => groupIds.map(groupRow);
+await groupedPeople.applyTaskAction(selected(), 'privacy');
+assert.ok(selected().every(task => task.isPrivate));
+assert.equal(!!groupRow(extraId).isPrivate, false);
+await groupedPeople.undo();
+assert.ok(selected().every(task => !task.isPrivate));
+await groupedPeople.redo();
+assert.ok(selected().every(task => task.isPrivate));
+await groupedPeople.applyTaskAction([...selected(), groupRow(extraId)], 'complete');
+assert.equal(groupRow(extraId), undefined, 'completing an empty selected note uses recoverable deletion');
+assert.ok(selected().every(task => task.completedAt));
+await groupedPeople.undo();
+assert.ok(groupRow(extraId));
+assert.ok(selected().every(task => task.completedAt === null));
+await groupedPeople.redo();
+const selectedCompletedAt = groupRow(groupIds[0]).completedAt;
+await groupedPeople.applyTaskAction(selected(), 'delete');
+assert.ok(groupIds.every(id => !groupRow(id)));
+await groupedPeople.undo();
+assert.ok(selected().every(task => task.completedAt === selectedCompletedAt));

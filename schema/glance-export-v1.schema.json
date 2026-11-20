@@ -50,7 +50,8 @@
         "recurrence_json": { "$ref": "#/$defs/nullableString" }, "owner_person_id": { "$ref": "#/$defs/nullableString" },
         "status_input_at": { "$ref": "#/$defs/nullableInteger" }, "origin_label": { "$ref": "#/$defs/nullableString" },
         "send_marker_dismissed_at": { "$ref": "#/$defs/nullableInteger" }, "deleted_at": { "$ref": "#/$defs/nullableInteger" },
-        "history_archived_at": { "$ref": "#/$defs/nullableInteger" }, "is_private": { "type": "integer", "enum": [0, 1] }
+        "history_archived_at": { "$ref": "#/$defs/nullableInteger" }, "is_private": { "type": "integer", "enum": [0, 1] },
+        "group_id": { "type": ["string", "null"] }
       }
     },
     "person": {

@@ -27,7 +27,6 @@ body { font-size: var(--font-size-body); font-synthesis: none; }
 .next-step { color: var(--text-main); border-left: 2px solid var(--focus-outline); padding-left: 4px; }
 /* One final rule for both groups: imported legacy styles must not split them. */
 #app .top-nav :is(.tabs, .brand) { gap: 1px; }
-#app .brand-version { margin-right: 7px; }
 #app .task-item .ProseMirror { color: var(--text-main); }
 #app .task-item.completed .ProseMirror { color: var(--text-muted); }
 #app :is(button, summary, input, select, textarea) {

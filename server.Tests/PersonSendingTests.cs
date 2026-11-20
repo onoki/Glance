@@ -4,6 +4,32 @@ namespace Glance.Server.Tests;
 public sealed class PersonSendingTests
 {
     [Fact]
+    public async Task GroupSendPreservesOrderAndRollsBackWhenASourceIsMissing()
+    {
+        await using var app = TestAppFixture.Create();
+        var from = await app.People.CreatePersonAsync("From", default);
+        var to = await app.People.CreatePersonAsync("To", default);
+        var first = await app.Tasks.CreateTaskAsync(new(TaskPages.PeopleMain, TestAppFixture.CreateTitle("First"),
+            TestAppFixture.CreateContent("Private content"), 1, null, null, from.Id, IsPrivate: true), default);
+        var second = await app.Tasks.CreateTaskAsync(new(TaskPages.PeopleMain, TestAppFixture.CreateTitle("Second"),
+            TestAppFixture.CreateContent("Content"), 2, null, null, from.Id), default);
+        var request = new TaskSendToPeopleRequest(new[] { from.Id, to.Id }, null, true);
+        Assert.Null(await app.Tasks.SendToPeopleAsync(new[] { first.TaskId, "missing" }, request, default));
+        Assert.Empty(await app.Tasks.GetPersonTasksAsync(to.Id, 0, default));
+        Assert.Empty(await app.Tasks.GetSendEventsAsync(first.TaskId, default));
+
+        var response = await app.Tasks.SendToPeopleAsync(new[] { first.TaskId, second.TaskId }, request, default);
+        Assert.Equal(4, response!.Created);
+        var received = await app.Tasks.GetPersonTasksAsync(to.Id, 0, default);
+        Assert.Equal(new[] { response.TaskIds[0], response.TaskIds[2] }, received.Select(task => task.Id));
+        Assert.True(received[0].IsPrivate);
+        Assert.False(received[1].IsPrivate);
+        Assert.Equal(2, (await app.Tasks.GetPersonTasksAsync(from.Id, 0, default)).Count);
+        Assert.Equal(2, (await app.Tasks.GetSendEventsAsync(first.TaskId, default)).Count);
+        Assert.Equal(2, (await app.Tasks.GetSendEventsAsync(second.TaskId, default)).Count);
+    }
+
+    [Fact]
     public async Task UnifiedSendIncludesDashboardAndPeopleAndPreservesPrivacy()
     {
         await using var app = TestAppFixture.Create();

@@ -1,7 +1,7 @@
 import { atVerticalDocumentEdge, verticalCaretIntent } from "../utils/taskNavigation.js";
 import { isAtDocumentEdge, joinFirstContentLine, lastParagraph } from "../utils/taskJoin.js";
 import { nextTick, onBeforeUnmount } from "vue";
-import { isDocEmptyJson, isListItemEmpty } from "../utils/taskDocUtils.js";
+import { isDocEmptyJson, isListItemEmpty, isSingleEmptyBullet } from "../utils/taskDocUtils.js";
 import { getListItemDepth, isListNodeName, removeEmptyListItem, removeBlankBulletBoundary } from "../utils/editorListUtils.js";
 import { splitTitleDocAtOffsets } from "../utils/titleSplitUtils.js";
 import { emptyContentDoc, mergeTitleDocs, normalizeContent } from "../utils/taskUtils.js";
@@ -217,9 +217,15 @@ export const useTaskEditing = (options) => {
           options.revealContent?.();
           const current = normalizeContent(contentRef.value);
           const items = current?.content?.[0]?.type === "bulletList" ? current.content[0].content : [];
-          contentRef.value = { type: "doc", content: [{ type: "bulletList", content: [...items, { type: "listItem", content: [{ type: "paragraph" }] }] }] };
-          options.onContentChanged?.();
-          void nextTick().then(() => { contentEditorRef.value?.focusListItem(items.length); void saveNow(true); });
+          const reuse = isSingleEmptyBullet(current);
+          if (!reuse) {
+            contentRef.value = { type: "doc", content: [{ type: "bulletList", content: [...items, { type: "listItem", content: [{ type: "paragraph" }] }] }] };
+            options.onContentChanged?.();
+          }
+          void nextTick().then(() => {
+            contentEditorRef.value?.focusListItem(reuse ? 0 : items.length);
+            if (!reuse) void saveNow(true);
+          });
         } else {
           const creation = creatingBelow;
           return join(event, async () => {
@@ -315,18 +321,22 @@ export const useTaskEditing = (options) => {
           }
         }
       }
-      if (editor && editor.state.selection.empty && isSelectionAtEnd(editor) && hasSubcontent.value) {
+      const reuse = isSingleEmptyBullet(contentRef.value);
+      if (editor && editor.state.selection.empty && isSelectionAtEnd(editor) && (hasSubcontent.value || reuse)) {
         event.preventDefault();
-        const content = JSON.parse(JSON.stringify(normalizeContent(contentRef.value)));
-        content.content[0].content.unshift({ type: "listItem", content: [{ type: "paragraph" }] });
-        contentRef.value = content;
+        options.revealContent?.();
+        if (!reuse) {
+          const content = JSON.parse(JSON.stringify(normalizeContent(contentRef.value)));
+          content.content[0].content.unshift({ type: "listItem", content: [{ type: "paragraph" }] });
+          contentRef.value = content;
+          options.onContentChanged?.();
+        }
         pendingSubcontentFocus = true;
-        options.onContentChanged?.();
         void nextTick().then(() => {
           contentEditorRef.value?.focusListItem(0, "start");
           if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => { pendingSubcontentFocus = false; });
           else pendingSubcontentFocus = false;
-          void saveNow(true);
+          if (!reuse) void saveNow(true);
         });
         return true;
       }

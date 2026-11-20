@@ -45,6 +45,22 @@ assert.deepEqual(split([rich], 0, 8).titleSelection, { from: 9, to: 9 });
 assert.deepEqual(split([paragraph([schema.text('First')]), rich], 1, 8).titleSelection, { from: 15, to: 15 });
 assert.deepEqual(split([rich], 0, 6, 10).titleSelection, { from: 7, to: 11 });
 assert.deepEqual(split([paragraph([])], 0, 0).titleSelection, { from: 1, to: 1 });
+for (const marker of ['☐', '☑']) {
+  const marked = paragraph([
+    schema.text(`${marker} `), schema.text('   Review', [schema.marks.bold.create()]),
+    schema.node('image'), schema.node('hardBreak'), schema.text('☐ Keep this one')
+  ]);
+  const promoted = split([marked], 0, 2, 8);
+  assert.deepEqual(promoted.titleSelection, { from: 1, to: 4 });
+  assert.deepEqual(promoted.title.content[0].content.map(node => node.text ?? node.type), [
+    'Review', 'image', 'hardBreak', '☐ Keep this one'
+  ]);
+  assert.equal(promoted.title.content[0].content[0].marks[0].type, 'bold');
+  assert.equal(!!promoted.completed, marker === '☑');
+  assert.deepEqual(promoted.originalTitle.content[0], marked.toJSON());
+}
+assert.deepEqual(split([paragraph([schema.text('☐  ')])], 0, 3).title.content[0].content, []);
+assert.equal(split([paragraph([schema.text('Use ☐ in text')])], 0, 0).title.content[0].content[0].text, 'Use ☐ in text');
 console.log('Outdent preserves caret and selection across rich inline content and paragraphs');
 
 const nestedDoc = schema.node('doc', null, [schema.node('bulletList', null, [

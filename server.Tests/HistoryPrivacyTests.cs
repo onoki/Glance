@@ -17,16 +17,17 @@ public sealed class HistoryPrivacyTests
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = "ALTER TABLE tasks DROP COLUMN is_private; ALTER TABLE tasks DROP COLUMN history_archived_at; INSERT OR IGNORE INTO schema_migrations VALUES(5, 0); DELETE FROM schema_migrations WHERE version = 6;";
+            command.CommandText = "ALTER TABLE tasks DROP COLUMN group_id; ALTER TABLE tasks DROP COLUMN is_private; ALTER TABLE tasks DROP COLUMN history_archived_at; INSERT OR IGNORE INTO schema_migrations VALUES(5, 0); DELETE FROM schema_migrations WHERE version >= 6;";
             await command.ExecuteNonQueryAsync();
         }
         new DatabaseInitializer(app.Paths, Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseInitializer>.Instance).Initialize();
-        Assert.Equal(6, await app.Meta.GetSchemaVersionAsync(default));
+        Assert.Equal(7, await app.Meta.GetSchemaVersionAsync(default));
         var after = Assert.Single(await app.Tasks.GetHistoryTasksAsync(default));
         Assert.Equal(before.Title.GetRawText(), after.Title.GetRawText());
         Assert.Equal(before.Content.GetRawText(), after.Content.GetRawText());
         Assert.Equal(before.CompletedAt, after.CompletedAt);
         Assert.False(after.IsPrivate); Assert.Null(after.HistoryArchivedAt);
+        Assert.Null(after.GroupId);
     }
 
     [Fact]
@@ -70,6 +71,10 @@ public sealed class HistoryPrivacyTests
         Assert.Single(await app.Tasks.GetTasksByPageAsync(TaskPages.DashboardNew, start, default));
         Assert.Single(await app.Tasks.GetTasksByPageAsync(TaskPages.DashboardMain, start, default));
         Assert.Single(await app.Tasks.GetPersonTasksAsync(person.Id, start, default));
+        var pastNotes = await app.Tasks.GetPersonTasksAsync(person.Id, start, default, past: true);
+        Assert.Equal(new long?[] { start + 1000, start - 1000 }, pastNotes.Select(task => task.CompletedAt));
+        Assert.All(pastNotes, task => Assert.True(task.IsPrivate));
+        Assert.Empty(await app.Tasks.GetPersonTasksAsync("another-person", start, default, past: true));
         var archived = history.First(task => task.OwnerPersonId == person.Id);
         var recheck = await app.Tasks.SetCompletionAsync(archived.Id, true, default);
         Assert.Equal(archived.CompletedAt, recheck!.CompletedAt);

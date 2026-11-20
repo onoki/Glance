@@ -1,7 +1,10 @@
-export function createTaskClipboardAdapter({ tasks, record, refresh, defaultTask }) {
+import { taskGroup } from "../utils/taskGroups.js";
+
+export function createTaskClipboardAdapter({ tasks, groupRows = tasks, record, refresh, defaultTask }) {
   return {
     record, refresh, defaultTask,
     destination(target, count) {
+      target = taskGroup(groupRows(target), target).at(-1) || target;
       const next = tasks().filter(task => task.page === target.page && (task.ownerPersonId ?? null) === (target.ownerPersonId ?? null) && task.position > target.position)
         .sort((a, b) => a.position - b.position)[0];
       const base = target.position ?? Date.now();

@@ -54,30 +54,7 @@ internal static class TaskEndpoints
 
         app.MapPut("/api/tasks/{taskId}", async (string taskId, TaskUpdateRequest request, TaskRepository tasks, CancellationToken token) =>
         {
-            if (request.Title.HasValue)
-            {
-                var validation = TaskValidation.ValidateTaskInput(request.Title.Value, request.Content);
-                if (validation != null)
-                {
-                    return validation;
-                }
-            }
-            else if (request.Content.HasValue && TaskTextExtractor.ContainsHeading(request.Content.Value))
-            {
-                return Results.BadRequest(new { error = "ValidationError", message = "Task content must not contain heading nodes" });
-            }
-
-            var scheduleValidation = TaskValidation.ValidateScheduledDate(request.ScheduledDate.HasValue ? request.ScheduledDate.Value : null);
-            if (scheduleValidation != null)
-            {
-                return scheduleValidation;
-            }
-
-            var recurrenceValidation = TaskValidation.ValidateRecurrence(request.Recurrence);
-            if (recurrenceValidation != null)
-            {
-                return recurrenceValidation;
-            }
+            if (ValidateUpdate(request) is { } validation) return validation;
 
             TaskUpdateResponse? response;
             try
@@ -102,6 +79,38 @@ internal static class TaskEndpoints
                 await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
             }
             return Results.Ok(response);
+        });
+
+        app.MapPut("/api/tasks/batch", async (TaskBatchUpdateItem[] updates, TaskRepository tasks, CancellationToken token) =>
+        {
+            if (updates.Length == 0 || updates.Any(item => item?.Update is null || string.IsNullOrWhiteSpace(item.TaskId))
+                || updates.Select(item => item.TaskId).Distinct().Count() != updates.Length)
+            {
+                return Results.BadRequest(new { error = "ValidationError", message = "Select distinct tasks to update." });
+            }
+            foreach (var item in updates)
+            {
+                if (ValidateUpdate(item.Update) is { } validation) return validation;
+            }
+
+            IReadOnlyList<TaskUpdateResponse>? responses;
+            try
+            {
+                responses = await tasks.UpdateTasksAsync(updates, token);
+            }
+            catch (TaskWriteConflictException ex)
+            {
+                return Results.Conflict(new { error = "Conflict", message = ex.Message, currentUpdatedAt = ex.CurrentUpdatedAt });
+            }
+            if (responses is null)
+            {
+                return Results.NotFound(new { error = "NotFound", message = "A selected task no longer exists." });
+            }
+            if (updates.Any(item => !item.Delete && item.Update.Recurrence is { ValueKind: JsonValueKind.Object }))
+            {
+                await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
+            }
+            return Results.Ok(responses);
         });
 
         app.MapPost("/api/tasks/{taskId}/complete", async (string taskId, TaskCompleteRequest request, TaskRepository tasks, CancellationToken token) =>
@@ -154,5 +163,32 @@ internal static class TaskEndpoints
             var created = await tasks.GenerateRecurringTasksAsync(TimeProvider.Now, token);
             return Results.Ok(new { ok = true, created });
         });
+    }
+
+    private static IResult? ValidateUpdate(TaskUpdateRequest request)
+    {
+        if (request.CompletedAt is { } completed && completed.ValueKind != JsonValueKind.Null
+            && (completed.ValueKind != JsonValueKind.Number || !completed.TryGetInt64(out var timestamp) || timestamp <= 0))
+        {
+            return Results.BadRequest(new { error = "ValidationError", message = "Completion time must be a positive integer or null." });
+        }
+        if (request.GroupId is { } group && group.ValueKind != System.Text.Json.JsonValueKind.Null
+            && (group.ValueKind != System.Text.Json.JsonValueKind.String || !group.TryGetGuid(out _)))
+        {
+            return Results.BadRequest(new { error = "ValidationError", message = "Task group must be a UUID or null." });
+        }
+
+        if (request.Title.HasValue)
+        {
+            var validation = TaskValidation.ValidateTaskInput(request.Title.Value, request.Content);
+            if (validation != null) return validation;
+        }
+        else if (request.Content.HasValue && TaskTextExtractor.ContainsHeading(request.Content.Value))
+        {
+            return Results.BadRequest(new { error = "ValidationError", message = "Task content must not contain heading nodes" });
+        }
+
+        return TaskValidation.ValidateScheduledDate(request.ScheduledDate)
+            ?? TaskValidation.ValidateRecurrence(request.Recurrence);
     }
 }

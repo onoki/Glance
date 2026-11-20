@@ -31,20 +31,47 @@ public sealed partial class TaskRepository
         await connection.OpenAsync(cancellationToken);
 
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now, scheduledDate, recurrenceJson, request.OwnerPersonId, statusInputAt, request.OriginLabel, request.IsPrivate);
+        long? completedAt = request.Completed ? now : null;
+        await InsertTaskAsync(connection, transaction, taskId, request.Page, titleText, titleJson, contentJson, request.Position, now, scheduledDate, recurrenceJson, request.OwnerPersonId, statusInputAt, request.OriginLabel, request.IsPrivate, completedAt);
         await UpdateSearchAsync(connection, transaction, taskId, request.Title, request.Content, cancellationToken);
         await InsertChangeAsync(connection, transaction, taskId, "create", now);
         await transaction.CommitAsync(cancellationToken);
 
-        return new TaskCreateResponse(taskId, now);
+        return new TaskCreateResponse(taskId, now, completedAt);
     }
 
     public async Task<TaskUpdateResponse?> UpdateTaskAsync(string taskId, TaskUpdateRequest request, CancellationToken cancellationToken)
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var result = await UpdateTaskAsync(connection, transaction, taskId, request, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
 
-        var existing = await GetTaskRowAsync(connection, taskId, cancellationToken);
+    public async Task<IReadOnlyList<TaskUpdateResponse>?> UpdateTasksAsync(IReadOnlyList<TaskBatchUpdateItem> updates, CancellationToken token)
+    {
+        await using var connection = new SqliteConnection(_paths.ConnectionString);
+        await connection.OpenAsync(token);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
+        var results = new List<TaskUpdateResponse>(updates.Count);
+        foreach (var item in updates)
+        {
+            var result = item.Delete
+                ? await DeleteTaskAsync(connection, transaction, item.TaskId, token, item.Update.BaseUpdatedAt)
+                : await UpdateTaskAsync(connection, transaction, item.TaskId, item.Update, token);
+            if (result is null) return null;
+            results.Add(result);
+        }
+        await transaction.CommitAsync(token);
+        return results;
+    }
+
+    private static async Task<TaskUpdateResponse?> UpdateTaskAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string taskId, TaskUpdateRequest request, CancellationToken cancellationToken)
+    {
+        var existing = await GetTaskRowAsync(connection, taskId, cancellationToken, transaction);
         if (existing == null)
         {
             return null;
@@ -84,21 +111,23 @@ public sealed partial class TaskRepository
         }
 
         var newStatusInputAt = StatusMarkerExtractor.GetEarliestTimestamp(newTitleJson, contentElement);
+        var groupId = request.GroupId is { } group
+            ? group.ValueKind == JsonValueKind.Null ? null : group.GetGuid().ToString("D")
+            : existing.GroupId;
+        var completedAt = request.CompletedAt is { } completion
+            ? completion.ValueKind == JsonValueKind.Null ? (long?)null : completion.GetInt64()
+            : existing.CompletedAt;
 
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         var updated = await UpdateTaskAsync(
             connection, transaction, taskId, newPage, newTitleText, newTitleJson.GetRawText(),
             newContentJson, newPosition, now, newScheduledDate, newRecurrenceJson,
-            newStatusInputAt, request.BaseUpdatedAt, request.IsPrivate ?? existing.IsPrivate);
+            newStatusInputAt, request.BaseUpdatedAt, request.IsPrivate ?? existing.IsPrivate, groupId, completedAt, request.DismissSendMarker);
         if (updated == 0)
         {
-            await transaction.RollbackAsync(cancellationToken);
-            var current = await GetTaskRowAsync(connection, taskId, cancellationToken);
-            throw new TaskWriteConflictException(taskId, current?.UpdatedAt ?? existing.UpdatedAt);
+            throw new TaskWriteConflictException(taskId, existing.UpdatedAt);
         }
         await UpdateSearchAsync(connection, transaction, taskId, newTitleJson, contentElement, cancellationToken);
         await InsertChangeAsync(connection, transaction, taskId, "update", now);
-        await transaction.CommitAsync(cancellationToken);
 
         return new TaskUpdateResponse(now, false);
     }
@@ -148,16 +177,21 @@ public sealed partial class TaskRepository
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(cancellationToken);
-
-        var exists = await TaskExistsAsync(connection, taskId, cancellationToken);
-        if (!exists)
-        {
-            return false;
-        }
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var result = await DeleteTaskAsync(connection, transaction, taskId, cancellationToken, baseUpdatedAt);
+        await transaction.CommitAsync(cancellationToken);
+        return result is not null;
+    }
+
+    private static async Task<TaskUpdateResponse?> DeleteTaskAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string taskId,
+        CancellationToken cancellationToken, long? baseUpdatedAt)
+    {
+        var existing = await GetTaskRowAsync(connection, taskId, cancellationToken, transaction);
+        if (existing is null) return null;
+        if (baseUpdatedAt.HasValue && existing.UpdatedAt != baseUpdatedAt)
+            throw new TaskWriteConflictException(taskId, existing.UpdatedAt);
+        var now = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), existing.UpdatedAt + 1);
         await using (var deleteSearch = connection.CreateCommand())
         {
             deleteSearch.Transaction = transaction;
@@ -189,9 +223,7 @@ public sealed partial class TaskRepository
         }
 
         await InsertChangeAsync(connection, transaction, taskId, "delete", now);
-        await transaction.CommitAsync(cancellationToken);
-
-        return true;
+        return new TaskUpdateResponse(now, false);
     }
 
     public async Task<TaskRestoreResponse?> RestoreTaskAsync(string taskId, CancellationToken cancellationToken)
@@ -353,7 +385,7 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at, t.group_id
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.page = $page
@@ -383,7 +415,7 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at, t.group_id
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.page = $page
@@ -413,7 +445,7 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at, t.group_id
             FROM tasks t
             LEFT JOIN people p ON p.id = t.owner_person_id
             WHERE t.completed_at IS NOT NULL

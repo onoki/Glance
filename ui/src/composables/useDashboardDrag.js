@@ -1,32 +1,41 @@
 import { planningWeekDays } from "../utils/categoryUtils.js";
 import { ref } from "vue";
 import { DASHBOARD_MAIN_PAGE, DASHBOARD_NEW_PAGE } from "../utils/pageConstants.js";
-import { isTaskDrag } from "../utils/taskDrag.js";
+import { isTaskDrag, taskDropPositions } from "../utils/taskDrag.js";
+import { detachBeforeMove, incompleteTaskGroup, taskGroupDrop } from "../utils/taskGroups.js";
 
 export const useDashboardDrag = (options) => {
   const activeTab = options?.activeTab;
   const dashboardColumnsRef = options?.dashboardColumnsRef;
   const getCategoryTasks = options?.getCategoryTasks;
+  const taskGroupRows = options?.taskGroupRows || (() => []);
   const findTaskById = options?.findTaskById;
   const applyTaskMove = options?.applyTaskMove;
+  const applyTaskMoves = options?.applyTaskMoves;
 
   const dragState = ref(null);
   const dragOver = ref({ id: null, position: "before" });
   const dragOverDay = ref(null);
+  let hoveredTaskId = null;
   const isDashboardDragging = ref(false);
   const dashboardDragState = ref({ active: false, startX: 0, startScrollLeft: 0, pointerId: null });
 
   const setDragOver = (taskId, position) => {
     dragOverDay.value = null;
-    if (!dragState.value || dragState.value.taskId === taskId) {
+    hoveredTaskId = taskId;
+    if (!dragState.value || dragState.value.ids.includes(taskId)) {
       dragOver.value = { id: null, position: "before" };
       return;
     }
-    dragOver.value = { id: taskId, position: position || "before" };
+    const task = findTaskById?.(taskId);
+    const rows = taskGroupRows(task);
+    const drop = taskGroupDrop(rows, task, position || "before", draggedTasks(), taskGroupRows);
+    dragOver.value = drop ? { id: drop.task?.id ?? taskId, position: drop.position } : { id: null, position: "before" };
   };
 
   const clearDragOver = (taskId) => {
-    if (dragOver.value.id === taskId) {
+    if (hoveredTaskId === taskId) {
+      hoveredTaskId = null;
       dragOver.value = { id: null, position: "before" };
     }
   };
@@ -34,7 +43,8 @@ export const useDashboardDrag = (options) => {
   const setWeekdayDragOver = (dateKey, event) => {
     if (!dragState.value || !isTaskDrag(event)) return;
     dragOver.value = { id: null, position: "before" };
-    dragOverDay.value = planningWeekDays().some(day => day.dateKey === dateKey && !day.isPast) ? dateKey : null;
+    dragOverDay.value = !incompleteTaskGroup(draggedTasks(event), taskGroupRows)
+      && planningWeekDays().some(day => day.dateKey === dateKey && !day.isPast) ? dateKey : null;
   };
 
   const clearWeekdayDragOver = (dateKey, event) => {
@@ -44,9 +54,9 @@ export const useDashboardDrag = (options) => {
     if (dragOverDay.value === dateKey) dragOverDay.value = null;
   };
 
-  const startDrag = (task, event) => {
+  const startDrag = (task, event, tasks = [task]) => {
     dragOverDay.value = null;
-    dragState.value = { taskId: task.id, page: task.page };
+    dragState.value = { ids: tasks.map(row => row.id) };
     dragOver.value = { id: null, position: "before" };
     if (event?.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
@@ -55,46 +65,59 @@ export const useDashboardDrag = (options) => {
   };
 
   const endDrag = () => {
+    hoveredTaskId = null;
     dragOverDay.value = null;
     dragState.value = null;
     dragOver.value = { id: null, position: "before" };
   };
 
+  const draggedTasks = (event) => {
+    const ids = dragState.value?.ids || [event?.dataTransfer?.getData("text/plain")];
+    const tasks = ids.map(id => id ? findTaskById?.(id) : null);
+    return tasks.every(Boolean) ? tasks : [];
+  };
+
+  const applyDrop = (tasks, categoryId, previous, next, date) => {
+    const positions = taskDropPositions(tasks.length, previous, next);
+    return tasks.length === 1 ? applyTaskMove?.(tasks[0], categoryId, positions[0], date)
+      : applyTaskMoves?.(tasks, categoryId, positions, date);
+  };
+
   const dropOnTask = async (targetTask, categoryId, event) => {
-    const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
-    const dragged = dragId ? findTaskById?.(dragId) : null;
-    if (!dragged || dragged.id === targetTask.id) {
+    const tasks = draggedTasks(event);
+    const ids = new Set(tasks.map(task => task.id));
+    if (!tasks.length || ids.has(targetTask.id)) {
       return;
     }
     const day = planningWeekDays().find(day => day.dateKey === targetTask.scheduledDate);
-    if (day?.isPast && dragged.scheduledDate !== targetTask.scheduledDate) return;
+    if (day?.isPast && tasks.some(task => task.scheduledDate !== targetTask.scheduledDate)) return;
 
-    const list = getCategoryTasks?.(targetTask.page, categoryId);
-    const filtered = list.filter((item) => item.id !== dragged.id && (!categoryId?.startsWith("week-") || item.scheduledDate === targetTask.scheduledDate));
-    const targetIndex = filtered.findIndex((item) => item.id === targetTask.id);
+    const dropPosition = hoveredTaskId === targetTask.id && dragOver.value.id ? dragOver.value.position : "before";
+    const drop = taskGroupDrop(taskGroupRows(targetTask), targetTask, dropPosition, tasks, taskGroupRows);
+    if (!drop) throw new Error(detachBeforeMove);
+    const list = getCategoryTasks?.(targetTask.page, categoryId) || [];
+    const filtered = list.filter((item) => !ids.has(item.id) && (!categoryId?.startsWith("week-") || item.scheduledDate === targetTask.scheduledDate));
+    const targetIndex = filtered.findIndex((item) => item.id === drop.task.id);
     if (targetIndex < 0) {
       return;
     }
-    const dropPosition = dragOver.value.id === targetTask.id ? dragOver.value.position : "before";
-    const before = dropPosition === "before";
+    const before = drop.position === "before";
     const prev = before ? (targetIndex > 0 ? filtered[targetIndex - 1] : null) : filtered[targetIndex];
     const next = before ? filtered[targetIndex] : (targetIndex + 1 < filtered.length ? filtered[targetIndex + 1] : null);
-    const position = next && prev ? (prev.position + next.position) / 2 : prev ? prev.position + 1 : next.position - 1;
     const scheduledDateOverride = categoryId?.startsWith("week-") ? targetTask.scheduledDate : null;
-    await applyTaskMove?.(dragged, categoryId, position, scheduledDateOverride);
+    await applyDrop(tasks, categoryId, prev, next, scheduledDateOverride);
   };
 
   const dropOnCategory = async (categoryId, page, event, scheduledDateOverride = null) => {
     dragOverDay.value = null;
-    const dragId = dragState.value?.taskId || event?.dataTransfer?.getData("text/plain");
-    const dragged = dragId ? findTaskById?.(dragId) : null;
-    if (!dragged) {
+    const tasks = draggedTasks(event);
+    if (!tasks.length) {
       return;
     }
-    const list = getCategoryTasks?.(page, categoryId).filter((item) => item.id !== dragged.id && (!scheduledDateOverride || item.scheduledDate === scheduledDateOverride));
-    const last = list[list.length - 1] || null;
-    const position = last ? last.position + 1 : Date.now();
-    await applyTaskMove?.(dragged, categoryId, position, scheduledDateOverride);
+    if (incompleteTaskGroup(tasks, taskGroupRows)) throw new Error(detachBeforeMove);
+    const ids = new Set(tasks.map(task => task.id));
+    const list = getCategoryTasks?.(page, categoryId).filter((item) => !ids.has(item.id) && (!scheduledDateOverride || item.scheduledDate === scheduledDateOverride));
+    await applyDrop(tasks, categoryId, list.at(-1), null, scheduledDateOverride);
   };
 
   const dropOnCategoryFromView = (categoryId, event, scheduledDateOverride = null) => {
@@ -117,7 +140,7 @@ export const useDashboardDrag = (options) => {
       return;
     }
     const target = event.target;
-    if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button, label, summary, a, .task-meta, .floating-menu")) {
+    if (target?.closest?.(".ProseMirror") || target?.closest?.("input, textarea, select, button, label, summary, a, .task-meta, .floating-menu, .title-start-target")) {
       return;
     }
     if (target?.closest?.(".drag-handle")) {

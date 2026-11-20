@@ -24,7 +24,8 @@ public sealed record PersonTagUpdateRequest(string? Name, double? Position, stri
 public sealed record TaskSendToPeopleRequest(
     IReadOnlyList<string>? PersonIds,
     IReadOnlyList<string>? TagIds,
-    bool IncludeDashboard = false
+    bool IncludeDashboard = false,
+    IReadOnlyList<string>? TaskIds = null
 );
 
 public sealed record TaskSendEventItem(

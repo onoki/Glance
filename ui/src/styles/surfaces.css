@@ -14,7 +14,6 @@
   background: var(--bg-header);
 }
 #app .brand { font-weight: 400; letter-spacing: 0; text-transform: none; }
-#app .brand-version { font-weight: 400; }
 #app .top-nav .tab, #app .people-tabs .tab {
   background: transparent;
   border-color: transparent;
@@ -107,4 +106,72 @@
 @media (max-width: 700px) {
   #app .content { padding: 0; }
   #app .top-nav { gap: 2px; flex-direction: row; align-items: center; }
+}
+
+#app .desktop-title-bar {
+  position: relative;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto minmax(24px, 1fr) auto auto;
+  grid-template-areas: "nav drag tools caption";
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 0 4px;
+}
+#app .desktop-title-bar .tabs { grid-area: nav; }
+#app .desktop-title-bar .brand { grid-area: tools; }
+.title-drag-region {
+  grid-area: drag;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.title-drag-region > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-drag-region::after {
+  content: "";
+  grid-column: 2;
+  width: 15px;
+  height: 10px;
+  background: radial-gradient(circle, currentColor 1px, transparent 1.25px) 0 0 / 5px 5px;
+}
+.title-drag-region:hover { background: var(--bg-tab-hover); }
+.window-caption-buttons {
+  grid-area: caption;
+  justify-self: end;
+  align-self: start;
+  display: flex;
+}
+#app .window-caption-buttons button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#app .window-caption-buttons button:focus-visible { outline-offset: -2px; }
+#app .window-caption-buttons button:not(:disabled):hover { background: var(--bg-tab-hover); }
+#app .window-caption-buttons .window-close-button:not(:disabled):hover { background: #c42b1c; color: #fff; }
+
+@media (max-width: 380px) {
+  #app .desktop-title-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "drag caption" "nav tools";
+    padding-bottom: 2px;
+  }
+  #app .desktop-title-bar .brand { flex-wrap: wrap; margin-left: 0; }
+}
+
+@media (max-width: 250px) {
+  #app .desktop-title-bar { grid-template-areas: "drag caption" "nav nav" "tools tools"; }
+  #app .window-caption-buttons button { width: min(30px, 29vw); }
 }

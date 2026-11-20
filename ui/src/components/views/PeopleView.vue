@@ -109,15 +109,32 @@
         </details>
         <button type="button" class="ghost" @click="renamePerson">Rename</button>
         <button type="button" class="ghost" @click="archivePerson">Archive</button>
+        <button type="button" class="tab past-notes-toggle" :class="{ active: showPast }" :aria-pressed="showPast" @click="showPast = !showPast">Past notes</button>
       </header>
 
-      <div class="person-task-list task-list">
-        <TransitionGroup :key="selectedId" name="task-move" tag="div" class="task-list-group">
+      <div v-if="showPast" class="person-task-list task-list" aria-label="Past notes">
+        <p v-if="pastError" class="empty-message" role="alert">{{ pastError }}</p>
+        <p v-else-if="pastLoading" class="empty-message" role="status">Loading past notes…</p>
+        <p v-else-if="!pastGroups.length" class="empty-message">No past notes for this person.</p>
+        <section v-for="group in pastGroups" :key="group.date" class="past-note-group">
+          <h3 class="history-date">{{ group.date }}</h3>
+          <TaskItem
+            v-for="task in group.tasks" :key="task.id" :task="task"
+            read-only :allow-toggle="false" :allow-delete="false" :show-owner-person="false"
+            v-bind="pastNoteHandlers"
+          />
+        </section>
+      </div>
+      <div v-else class="person-task-list task-list">
+        <div :key="selectedId" class="task-list-group">
           <TaskItem
             v-for="(task, index) in tasks"
             :key="task.id"
             :task="task"
             :clipboard-adapter="peopleClipboard"
+            :group-rows="tasks"
+            :on-change-group="changeTaskGroup"
+            :on-task-action="applyTaskAction"
             :show-owner-person="false"
             :draggable="true"
             :is-last-in-category="index === tasks.length - 1"
@@ -150,11 +167,11 @@
             :allow-dashboard-send="true"
             :send-people="activePeople.filter(person => person.id !== selectedId)"
             :send-tags="directory.tags"
-            :on-send-to-people="sendPeople"
+            :on-send-to-people="sendTaskCopies"
             :on-load-send-events="loadSendEvents"
             :on-dismiss-send-marker="dismissSend"
           />
-        </TransitionGroup>
+        </div>
         <button class="task-list-tail" type="button" aria-label="Add a note for this person" @click="appendPersonTask"><span>+ Add note</span></button>
         <p v-if="!tasks.length" class="empty-message">Preparing an empty note…</p>
       </div>
@@ -175,16 +192,20 @@ import {
   createPerson,
   createPersonTag,
   deletePersonTag,
+  fetchPastPersonTasks,
   fetchPeople,
   setPersonTags,
   updatePerson,
   updatePersonTag
 } from "../../api/people.js";
-import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople } from "../../api/taskSend.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskCopies } from "../../api/taskSend.js";
 import { usePeopleTasks } from "../../composables/usePeopleTasks.js";
 import { tagColor, createTagColorSaver } from "../../utils/tagColor.js";
 import { keepTaskListsLeft } from "../../utils/taskListScroll.js";
 import { flushAllSaves } from "../../services/saveCoordinator.js";
+import { formatDateKey } from "../../utils/dateUtils.js";
+import { normalizeTask } from "../../utils/taskUtils.js";
+import { TASK_HIGHLIGHT_MS } from "../../utils/taskNavigation.js";
 
 const props = defineProps({
   taskHistory: { type: Object, default: () => ({ undo: [], redo: [] }) },
@@ -201,6 +222,38 @@ watch(selectedId, (id) => {
   else sessionStorage.removeItem("glance.selectedPerson");
 });
 const viewMode = ref("person");
+const showPast = ref(false);
+const pastGroups = ref([]);
+const pastLoading = ref(false);
+const pastError = ref("");
+let pastRequest = 0;
+const noop = () => {};
+const pastNoteHandlers = {
+  onSave: noop, onComplete: noop, onDirty: noop, onCreateBelow: noop, onTabToPrevious: noop,
+  onSplitToNewTask: noop, onFocusPrevTaskFromTitle: noop, onFocusNextTaskFromContent: noop, onDelete: noop
+};
+const loadPastNotes = async () => {
+  const request = ++pastRequest;
+  const personId = selectedId.value;
+  if (!showPast.value || viewMode.value !== "person" || !personId) return;
+  try {
+    const { tasks } = await fetchPastPersonTasks(personId);
+    if (request !== pastRequest) return;
+    const byDay = Map.groupBy(tasks.map(normalizeTask), task => formatDateKey(new Date(task.completedAt)));
+    pastGroups.value = Array.from(byDay, ([date, tasks]) => ({ date, tasks }));
+    pastError.value = "";
+  } catch {
+    if (request === pastRequest) pastError.value = "Could not load past notes.";
+  } finally {
+    if (request === pastRequest) pastLoading.value = false;
+  }
+};
+watch([selectedId, viewMode, showPast], () => {
+  pastGroups.value = [];
+  pastError.value = "";
+  pastLoading.value = showPast.value && viewMode.value === "person" && !!selectedId.value;
+  void loadPastNotes();
+});
 const personTagsMenu = ref(null);
 const closeTagsMenu = (event) => {
   const menu = personTagsMenu.value;
@@ -220,6 +273,7 @@ const archiveNavigationNotice = ref("");
 const archivedNavigationPersonId = ref(null);
 const navigationHighlightId = ref(null);
 const navigationHighlightNonce = ref(0);
+let navigationHighlightTimer;
 const personDragId = ref(null);
 const personDropId = ref(null);
 const personDropPosition = ref("before");
@@ -252,6 +306,8 @@ const {
   undoSignal,
   focusContentTarget,
   dragOver,
+  changeTaskGroup,
+  applyTaskAction,
   loadTasks,
   undo,
   redo,
@@ -364,11 +420,14 @@ const applyNavigationTarget = async (target) => {
   archiveNavigationNotice.value = "";
   archivedNavigationPersonId.value = null;
   viewMode.value = "person";
+  showPast.value = false;
   selectedId.value = person.id;
   await loadTasks();
   if (sequence !== navigationSequence) return;
   navigationHighlightId.value = target.taskId;
   navigationHighlightNonce.value += 1;
+  clearTimeout(navigationHighlightTimer);
+  navigationHighlightTimer = setTimeout(() => { navigationHighlightId.value = null; }, TASK_HIGHLIGHT_MS);
   await nextTick();
   scrollToElement("[data-task-id]", target.taskId);
 };
@@ -380,6 +439,7 @@ const addPerson = async () => {
   await loadDirectory();
   selectedId.value = person.id;
   viewMode.value = "person";
+  showPast.value = false;
   await loadTasks();
 };
 
@@ -491,11 +551,6 @@ const tagNamesFor = (person) => {
 };
 const tagsFor = (person) => directory.value.tags.filter((tag) => (person.tagIds || []).includes(tag.id));
 
-const sendPeople = async (task, personIds, tagIds, includeDashboard = false) => {
-  const response = await sendTaskToPeople(task.id, personIds, tagIds, includeDashboard);
-  if (response.created > 0) task.sendMarkerVisible = true;
-  return response;
-};
 const loadSendEvents = (task) => fetchTaskSendEvents(task.id);
 const dismissSend = async (task) => {
   await dismissTaskSendMarker(task.id);
@@ -508,6 +563,7 @@ const poll = async () => {
   try {
     await loadDirectory();
     if (viewMode.value === "person") await loadTasks();
+    if (showPast.value) await loadPastNotes();
   } catch {
     // A later poll or a local action will retry.
   } finally {
@@ -542,6 +598,9 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  pastRequest += 1;
+  navigationSequence += 1;
+  clearTimeout(navigationHighlightTimer);
   document.removeEventListener("click", closeTagsMenu);
   if (pollTimer) window.clearInterval(pollTimer);
 });
@@ -699,7 +758,10 @@ defineExpose({ undo: undoFromShortcut, redo: redoFromShortcut, clipboardTarget }
 }
 
 .person-task-list > .task-list-group,
-.person-task-list > .task-list-tail { max-width: 900px; width: 100%; }
+.person-task-list > .task-list-tail,
+.past-note-group { max-width: 900px; width: 100%; }
+
+.past-notes-toggle { margin-left: auto; }
 
 .archive-panel {
   flex: 1;

@@ -1,14 +1,18 @@
 import { applyTaskHistory, taskRevision } from "../utils/taskHistory.js";
+import { taskActionChanges, taskActionUpdates } from "../utils/taskActions.js";
 import { horizontalTaskTarget } from "../utils/taskNavigation.js";
 import { indentTaskDocuments, joinTaskDocuments, createTaskActionQueue } from "../utils/taskJoin.js";
 import { saveCoordinator } from "../services/saveCoordinator.js";
 import { nextTick, ref } from "vue";
+import { taskDropPositions } from "../utils/taskDrag.js";
+import { detachBeforeMove, taskGroupChanges, taskGroupDrop, taskInsertionPosition } from "../utils/taskGroups.js";
 import {
   completeTask as completeTaskApi,
   createTask as createTaskApi,
   deleteTask as deleteTaskApi,
   restoreTask as restoreTaskApi,
-  updateTask as updateTaskApi
+  updateTask as updateTaskApi,
+  updateTasks as updateTasksApi
 } from "../api/tasks.js";
 import { fetchPersonTasks as fetchPersonTasksApi } from "../api/people.js";
 import { shouldDeleteEmptyOnComplete } from "../utils/taskCompletionUtils.js";
@@ -28,6 +32,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   const deleteTask = api.deleteTask || deleteTaskApi;
   const restoreTask = api.restoreTask || restoreTaskApi;
   const updateTask = api.updateTask || updateTaskApi;
+  const updateTasks = api.updateTasks || updateTasksApi;
   const fetchPersonTasks = api.fetchPersonTasks || fetchPersonTasksApi;
   const tasks = ref([]);
   const focusTaskId = ref(null);
@@ -40,7 +45,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   const undoStack = history.undo;
   const redoStack = history.redo;
   const undoLimit = 100;
-  let dragTaskId = null;
+  let dragTaskIds = [];
+  let hoveredTaskId = null;
   let loadSequence = 0;
   let creatingBlankFor = null;
 
@@ -68,12 +74,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   const resolveTask = (task) => dirtySnapshots.get(task.id) || task;
 
   const positionAfter = (task, before = false) => {
-    const index = task ? tasks.value.findIndex((item) => item.id === task.id) : tasks.value.length - 1;
-    const previous = index >= 0 ? tasks.value[index] : null;
-    const next = index >= 0 ? tasks.value[index + (before ? -1 : 1)] : null;
-    if (previous && next) return (previous.position + next.position) / 2;
-    if (previous) return previous.position + (before ? -1 : 1);
-    return Date.now();
+    const current = task ? tasks.value.find(row => row.id === task.id) : tasks.value.at(-1);
+    return current ? taskInsertionPosition(tasks.value, current, before) : Date.now();
   };
 
   const createTaskBelowInternal = async (sourceTask = null, ...args) => {
@@ -88,7 +90,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       content: normalizeContent(overrides?.content ?? emptyContentDoc()),
       position: positionAfter(sourceTask, options.before),
       ownerPersonId: personId,
-      isPrivate: !!sourceTask?.isPrivate
+      isPrivate: !!sourceTask?.isPrivate,
+      ...(overrides?.completed ? { completed: true } : {})
     };
     const response = await createTask(payload);
     if (selectedPersonId.value !== personId) return response.taskId;
@@ -97,7 +100,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       id: response.taskId,
       createdAt: Date.now(),
       updatedAt: response.updatedAt,
-      completedAt: null
+      completedAt: response.completedAt ?? null
     }));
     sortTasks();
     persistedTasks.set(response.taskId, cloneTask(tasks.value.find((task) => task.id === response.taskId)));
@@ -200,6 +203,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
 
   const historyDiffs = entry => {
     const diff = (before, after) => ({ id: (before || after).id, before, after });
+    if (entry.diffs) return entry.diffs;
     if (entry.type === 'merge') return [diff(entry.task, entry.after), diff(entry.source, null)];
     if (entry.type === 'split') return [diff(entry.source, entry.afterSource), diff(null, entry.task)];
     if (entry.type === 'edit') return [diff(entry.task, entry.after)];
@@ -213,7 +217,7 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
       if (entry.clipboard) return await entry.clipboard[direction]();
       return await applyTaskHistory(historyDiffs(entry), direction, {
         fetchTasks: async () => (await fetchPersonTasks(selectedPersonId.value)).tasks.map(normalizeTask),
-        resolveId: diff => diff.id, restoreTask, updateTask, deleteTask,
+        resolveId: diff => diff.id, restoreTask, updateTask, updateTasks, deleteTask,
         forget: id => saveCoordinator.forget(id)
       });
     } finally {
@@ -353,14 +357,15 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
 
   const splitSubcontentToNewTask = (task, payload) => splitTitleToNewTask(task, null, {
     newTitle: payload?.title, newContent: payload?.content,
-    titleSelection: payload?.titleSelection, commitSource: payload?.commitSource
+    titleSelection: payload?.titleSelection, commitSource: payload?.commitSource, completed: payload?.completed
   });
 
   const splitTitleToNewTask = queueTaskAction(async (task, _categoryId, payload) => {
     if (!(await saveCoordinator.flushAll()).ok) return null;
     const source = cloneTask(resolveTask(tasks.value.find(row => row.id === task.id) || task));
     const newId = await createTaskBelowInternal(source, null, {
-      title: payload?.newTitle ?? emptyTitleDoc(), content: payload?.newContent ?? emptyContentDoc(), titleSelection: payload?.titleSelection
+      title: payload?.newTitle ?? emptyTitleDoc(), content: payload?.newContent ?? emptyContentDoc(),
+      titleSelection: payload?.titleSelection, completed: payload?.completed
     });
     if (!newId) return null;
     const created = cloneTask(persistedTasks.get(newId));
@@ -381,8 +386,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     return newId;
   });
 
-  const startDrag = (task, event) => {
-    dragTaskId = task.id;
+  const startDrag = (task, event, selection = [task]) => {
+    dragTaskIds = selection.map(row => row.id);
     dragOver.value = { id: null, position: "before" };
     if (event?.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
@@ -391,58 +396,134 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
   };
 
   const endDrag = () => {
-    dragTaskId = null;
+    dragTaskIds = [];
+    hoveredTaskId = null;
     dragOver.value = { id: null, position: "before" };
   };
 
   const setDragOver = (id, position) => {
-    if (!dragTaskId || dragTaskId === id) {
+    hoveredTaskId = id;
+    if (!dragTaskIds.length || dragTaskIds.includes(id)) {
       dragOver.value = { id: null, position: "before" };
       return;
     }
-    dragOver.value = {
-      id,
-      position: position || (dragOver.value.id === id ? dragOver.value.position : "before")
-    };
+    const list = tasks.value;
+    const dragged = dragTaskIds.map(taskId => list.find(row => row.id === taskId)).filter(Boolean);
+    const drop = taskGroupDrop(list, list.find(row => row.id === id), position || "before", dragged, () => list);
+    dragOver.value = { id: drop?.task?.id ?? null, position: drop?.position || "before" };
   };
 
   const clearDragOver = (id) => {
-    if (dragOver.value.id === id) dragOver.value = { id: null, position: "before" };
+    if (hoveredTaskId === id) {
+      hoveredTaskId = null;
+      dragOver.value = { id: null, position: "before" };
+    }
   };
 
-  const dropOnTask = async (target, _categoryId, event) => {
-    const id = dragTaskId || event?.dataTransfer?.getData("text/plain");
-    const after = dragOver.value.id === target.id && dragOver.value.position === "after";
-    if (!(await saveCoordinator.flushAll()).ok) { endDrag(); return; }
-    const dragged = tasks.value.find((task) => task.id === id);
-    if (!dragged || dragged.id === target.id) {
-      endDrag();
-      return;
-    }
-    const list = tasks.value.filter((task) => task.id !== dragged.id);
-    const targetIndex = list.findIndex((task) => task.id === target.id);
-    if (targetIndex < 0) {
-      endDrag();
-      return;
-    }
-    const previous = after ? list[targetIndex] : list[targetIndex - 1] || null;
-    const next = after ? list[targetIndex + 1] || null : list[targetIndex];
-    const position = previous && next
-      ? (previous.position + next.position) / 2
-      : previous
-        ? previous.position + 1
-        : next.position - 1;
-    const response = await updateTask(dragged.id, {
-      baseUpdatedAt: dragged.updatedAt,
-      position
+  const updateTaskMetadata = async (changes, personId, type) => {
+    const writes = changes.map(({ task, ...fields }) => ({
+      before: { ...cloneTask(task), groupId: task.groupId ?? null },
+      fields
+    }));
+    const updates = writes.map(({ before, fields }) => ({
+      taskId: before.id, update: { baseUpdatedAt: taskRevision(before), ...fields }
+    }));
+    const responses = updates.length === 1 ? [await updateTask(updates[0].taskId, updates[0].update)]
+      : await updateTasks(updates);
+    const diffs = writes.map(({ before: task, fields }, index) => {
+      const updated = { ...task, ...fields, updatedAt: responses[index].updatedAt };
+      persistedTasks.set(task.id, updated);
+      return { id: task.id, before: task, after: updated };
     });
-    dragged.position = position;
-    dragged.updatedAt = response.updatedAt;
-    persistedTasks.set(dragged.id, cloneTask(dragged));
-    sortTasks();
-    endDrag();
+    if (personId === selectedPersonId.value) {
+      for (const { id, after } of diffs) {
+        const row = tasks.value.find(task => task.id === id);
+        if (row) Object.assign(row, { position: after.position, groupId: after.groupId, updatedAt: after.updatedAt });
+      }
+      sortTasks();
+    }
+    const changed = diffs.filter(diff => diff.before.position !== diff.after.position
+      || (diff.before.groupId ?? null) !== (diff.after.groupId ?? null));
+    if (changed.length) {
+      undoStack.push({ type, task: changed[0].before, diffs: changed });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    }
     // Let the editor acknowledge the metadata revision before another edit.
     await nextTick();
+    return changed.length > 0;
+  };
+
+  const changeTaskGroup = queueTaskAction(async (task, selectedIds, action, personId) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before changing the group.");
+    if (personId !== selectedPersonId.value) return false;
+    const row = tasks.value.find(item => item.id === task.id);
+    if (!row) return false;
+    const changed = await updateTaskMetadata(taskGroupChanges(tasks.value, row, selectedIds, action), personId, "group");
+    return changed && personId === selectedPersonId.value;
+  });
+
+  const applyTaskAction = queueTaskAction(async (selection, action, value, personId) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before updating the selected tasks.");
+    if (selectedPersonId.value !== personId) throw new Error("The selected person changed. Select the notes again.");
+    const selected = selection.map(({ id }) => {
+      const row = tasks.value.find(task => task.id === id);
+      if (!row) throw new Error("A selected note is no longer available.");
+      return { ...cloneTask(row), isPrivate: !!row.isPrivate, completedAt: row.completedAt ?? null };
+    });
+    const changes = taskActionChanges(selected, action, value);
+    const responses = await updateTasks(taskActionUpdates(changes));
+    const diffs = changes.map(({ task, fields, deleted }, index) => ({
+      id: task.id, before: task,
+      after: deleted ? null : {
+        ...task, ...(action === "dismiss-send" ? { sendMarkerVisible: false } : fields),
+        updatedAt: responses[index].updatedAt
+      }
+    }));
+    if (action !== "dismiss-send") {
+      undoStack.push({ type: action, task: selected[0], diffs });
+      if (undoStack.length > undoLimit) undoStack.shift();
+      redoStack.length = 0;
+    }
+    const deletedIds = new Set(changes.filter(change => change.deleted).map(change => change.task.id));
+    for (const id of deletedIds) {
+      saveCoordinator.forget(id);
+      dirtySnapshots.delete(id);
+      persistedTasks.delete(id);
+    }
+    for (const diff of diffs.filter(diff => diff.after)) persistedTasks.set(diff.id, cloneTask(diff.after));
+    if (selectedPersonId.value === personId) {
+      const next = tasks.value.find(task => !deletedIds.has(task.id));
+      if (deletedIds.size) focusTaskId.value = next ? { taskId: next.id, selection: { from: 1, to: 1 } } : null;
+      const patches = new Map(diffs.map(diff => [diff.id, diff.after]));
+      tasks.value = tasks.value.filter(task => !deletedIds.has(task.id)).map(task => patches.get(task.id) || task);
+      await ensureBlankTask(personId);
+    }
+    if (action === "complete" || deletedIds.size) onHistoryChange?.();
+    await nextTick();
+  });
+
+  const reorderTasks = queueTaskAction(async (ids, target, after, personId) => {
+    if (!(await saveCoordinator.flushAll()).ok) throw new Error("Could not save edits before reordering the notes.");
+    if (personId !== selectedPersonId.value || ids.includes(target.id)) return;
+    const dragged = ids.map(id => tasks.value.find(task => task.id === id));
+    const current = tasks.value.find(row => row.id === target.id);
+    if (!current || !dragged.length || dragged.some(task => !task)) return;
+    const drop = taskGroupDrop(tasks.value, current, after ? "after" : "before", dragged, () => tasks.value);
+    if (!drop) throw new Error(detachBeforeMove);
+    const list = tasks.value.filter(task => !ids.includes(task.id));
+    const targetIndex = list.findIndex(row => row.id === drop.task.id);
+    const previous = after ? list[targetIndex] : list[targetIndex - 1];
+    const next = after ? list[targetIndex + 1] : list[targetIndex];
+    const positions = taskDropPositions(dragged.length, previous, next);
+    return updateTaskMetadata(dragged.map((task, index) => ({ task, position: positions[index] })), personId, "reorder");
+  });
+
+  const dropOnTask = (target, _categoryId, event) => {
+    const ids = dragTaskIds.length ? dragTaskIds : [event?.dataTransfer?.getData("text/plain")].filter(Boolean);
+    const after = hoveredTaskId === target.id && dragOver.value.position === "after";
+    endDrag();
+    return reorderTasks(ids, target, after, selectedPersonId.value);
   };
 
   return {
@@ -456,6 +537,8 @@ export const usePeopleTasks = ({ selectedPersonId, onHistoryChange, api = {}, hi
     undoSignal,
     focusContentTarget,
     dragOver,
+    changeTaskGroup: (task, selectedIds, action) => changeTaskGroup(task, selectedIds, action, selectedPersonId.value),
+    applyTaskAction: (tasks, action, value) => applyTaskAction(tasks, action, value, selectedPersonId.value),
     loadTasks,
     undo,
     redo,

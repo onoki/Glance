@@ -6,6 +6,8 @@ After copying an updated build to its final folder, run `glance.exe` once. If Wi
 
 A single window is titled **Glance**. With multiple windows, captions are **G - Main** and **G - Secondary**. The helper has a slightly darker neutral navigation bar and plain Helper window label, matching the Notepad palette. Closing a helper saves and closes that helper. Closing Main with helpers open first asks whether to close all windows (No is the default); accepting uses the existing coordinated save/close flow, and a failed save cancels closing. Restore-triggered restart uses its existing confirmation and save flow.
 
+On Windows, the navigation and app controls share the title bar with the window buttons. Drag the blank title area to move the window, double-click it to maximize or restore, or right-click it for the window menu. The window buttons use the existing Windows resize frame and Glance close flow. Settings → About shows the version.
+
 Tests: `WindowPresentationTests` covers caption/count policy and actual Windows shortcut property-store round-tripping; `desktopLifecycle.test.js` covers save-before-close behavior. Live taskbar placement still requires checking the destination computer's existing pin and Windows taskbar configuration.
 
 Reference: [Microsoft AppUserModelID guidance](https://learn.microsoft.com/en-us/windows/win32/shell/appids) describes matching process and shortcut identities for taskbar grouping.

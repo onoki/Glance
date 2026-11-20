@@ -40,12 +40,17 @@ for (const subcontent of [false, true]) {
     assert.equal(undo(view.state, view.dispatch), true);
     assert.equal(view.state.doc.textContent, "before after");
     for (const [editable, modifiers] of [[false, {}], [true, { shiftKey: false }],
-      [true, { altKey: false }], [true, { ctrlKey: true }], [true, { isComposing: true }]]) {
+      [true, { altKey: false }], [true, { ctrlKey: true }], [true, { isComposing: true }],
+      [true, { getModifierState: (key) => key === "AltGraph" }]]) {
       prevented = false;
       assert.equal(insertDateShortcut(view, { ...event, ...modifiers }, editable, localMidnight), false);
       assert.equal(prevented, false);
       assert.equal(view.state.doc.textContent, "before after");
     }
+    assert.equal(insertDateShortcut(view, { ...event, key: "в", code: "KeyD" }, true, localMidnight), true);
+    assert.equal(undo(view.state, view.dispatch), true);
+    assert.equal(insertDateShortcut(view, { ...event, altKey: false, ctrlKey: true }, true, localMidnight), true);
+    assert.equal(view.state.selection.from, from + 10);
   }
 }
 console.log("Local date shortcut: titles, subcontent, selections, caret, undo and read-only protection passed");

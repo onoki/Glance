@@ -5,18 +5,19 @@ namespace Glance.Server;
 
 public sealed partial class TaskRepository
 {
-    public async Task<TaskSendResponse?> SendToPeopleAsync(
+    public Task<TaskSendResponse?> SendToPeopleAsync(
         string sourceTaskId,
+        TaskSendToPeopleRequest request,
+        CancellationToken token) => SendToPeopleAsync(new[] { sourceTaskId }, request, token);
+
+    public async Task<TaskSendResponse?> SendToPeopleAsync(
+        IReadOnlyList<string> sourceTaskIds,
         TaskSendToPeopleRequest request,
         CancellationToken token)
     {
         await using var connection = new SqliteConnection(_paths.ConnectionString);
         await connection.OpenAsync(token);
-        var source = await GetTaskRowAsync(connection, sourceTaskId, token);
-        if (source is null)
-        {
-            return null;
-        }
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
 
         var requestedPersonIds = (request.PersonIds ?? Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         var personIds = requestedPersonIds.ToHashSet(StringComparer.Ordinal);
@@ -24,6 +25,7 @@ public sealed partial class TaskRepository
         if (tagIds.Length > 0)
         {
             await using var membership = connection.CreateCommand();
+            membership.Transaction = transaction;
             var parameters = new List<string>();
             for (var index = 0; index < tagIds.Length; index += 1)
             {
@@ -42,8 +44,8 @@ public sealed partial class TaskRepository
         var recipients = new List<(string Id, string Name)>();
         foreach (var personId in personIds)
         {
-            if (personId == source.OwnerPersonId) continue;
             await using var person = connection.CreateCommand();
+            person.Transaction = transaction;
             person.CommandText = "SELECT display_name FROM people WHERE id = $id AND archived_at IS NULL;";
             person.Parameters.AddWithValue("$id", personId);
             var name = await person.ExecuteScalarAsync(token) as string;
@@ -52,16 +54,56 @@ public sealed partial class TaskRepository
                 recipients.Add((personId, name));
             }
         }
-        var includeDashboard = request.IncludeDashboard && source.OwnerPersonId is not null;
-        if (recipients.Count == 0 && !includeDashboard)
+        var tags = new List<(string Kind, string? Id, string Label)>();
+        foreach (var tagId in tagIds.Distinct(StringComparer.Ordinal))
         {
-            return new TaskSendResponse(0, Array.Empty<string>());
+            await using var tag = connection.CreateCommand();
+            tag.Transaction = transaction;
+            tag.CommandText = "SELECT name FROM person_tags WHERE id = $id;";
+            tag.Parameters.AddWithValue("$id", tagId);
+            if (await tag.ExecuteScalarAsync(token) is string name) tags.Add(("tag", tagId, name));
         }
 
+        var createdIds = new List<string>();
+        var nextPosition = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach (var sourceTaskId in sourceTaskIds)
+        {
+            var source = await GetTaskRowAsync(connection, sourceTaskId, token, transaction);
+            if (source is null) return null;
+            var destinations = recipients.Where(recipient => recipient.Id != source.OwnerPersonId).ToList();
+            var includeDashboard = request.IncludeDashboard && source.OwnerPersonId is not null;
+            if (destinations.Count == 0 && !includeDashboard) continue;
+            var auditDestinations = destinations
+                .Where(recipient => requestedPersonIds.Contains(recipient.Id))
+                .Select(recipient => (Kind: "person", Id: (string?)recipient.Id, Label: recipient.Name))
+                .Concat(tags);
+            var sentAt = await GetNextSendTimestampAsync(connection, sourceTaskId, token, transaction);
+            var position = Math.Max(nextPosition, sentAt);
+            await SendToPeopleAsync(connection, transaction, source, destinations, auditDestinations, includeDashboard, sentAt, position, createdIds, token);
+            nextPosition = position + destinations.Count + (includeDashboard ? 1 : 0);
+        }
+        await transaction.CommitAsync(token);
+        return new TaskSendResponse(createdIds.Count, createdIds);
+    }
+
+    private static async Task SendToPeopleAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        TaskRow source,
+        List<(string Id, string Name)> recipients,
+        IEnumerable<(string Kind, string? Id, string Label)> auditDestinations,
+        bool includeDashboard,
+        long now,
+        long position,
+        List<string> createdIds,
+        CancellationToken token)
+    {
+        var sourceTaskId = source.Id;
         var originLabel = "From Dashboard";
         if (!string.IsNullOrWhiteSpace(source.OwnerPersonId))
         {
             await using var owner = connection.CreateCommand();
+            owner.Transaction = transaction;
             owner.CommandText = "SELECT display_name FROM people WHERE id = $id;";
             owner.Parameters.AddWithValue("$id", source.OwnerPersonId);
             var ownerName = await owner.ExecuteScalarAsync(token) as string ?? "People";
@@ -71,23 +113,6 @@ public sealed partial class TaskRepository
         var title = StatusMarkerExtractor.RemoveMarkers(ParseTitleJson(source.TitleJson, source.TitleText));
         using var contentDocument = JsonDocument.Parse(source.ContentJson);
         var content = StatusMarkerExtractor.RemoveMarkers(contentDocument.RootElement);
-        var now = await GetNextSendTimestampAsync(connection, sourceTaskId, token);
-        var createdIds = new List<string>();
-        var auditDestinations = recipients
-            .Where(recipient => requestedPersonIds.Contains(recipient.Id))
-            .Select(recipient => (Kind: "person", Id: (string?)recipient.Id, Label: recipient.Name))
-            .ToList();
-        foreach (var tagId in tagIds.Distinct(StringComparer.Ordinal))
-        {
-            await using var tag = connection.CreateCommand();
-            tag.CommandText = "SELECT name FROM person_tags WHERE id = $id;";
-            tag.Parameters.AddWithValue("$id", tagId);
-            if (await tag.ExecuteScalarAsync(token) is string name)
-            {
-                auditDestinations.Add(("tag", tagId, name));
-            }
-        }
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(token);
         for (var index = 0; index < recipients.Count; index += 1)
         {
             var recipient = recipients[index];
@@ -100,7 +125,7 @@ public sealed partial class TaskRepository
                 TaskTextExtractor.ExtractPlainText(title),
                 title.GetRawText(),
                 content.GetRawText(),
-                now + index,
+                position + index,
                 now,
                 null,
                 null,
@@ -116,7 +141,7 @@ public sealed partial class TaskRepository
             var taskId = Guid.NewGuid().ToString("D");
             await InsertTaskAsync(connection, transaction, taskId, TaskPages.DashboardNew,
                 TaskTextExtractor.ExtractPlainText(title), title.GetRawText(), content.GetRawText(),
-                now + recipients.Count, now, null, null, null, null, originLabel, source.IsPrivate);
+                position + recipients.Count, now, null, null, null, null, originLabel, source.IsPrivate);
             await UpdateSearchAsync(connection, transaction, taskId, title, content, token);
             await InsertChangeAsync(connection, transaction, taskId, "create", now);
             await InsertSendEventAsync(connection, transaction, sourceTaskId, "dashboard", null, "Dashboard", "people-to-dashboard", now);
@@ -127,8 +152,6 @@ public sealed partial class TaskRepository
             await InsertSendEventAsync(connection, transaction, sourceTaskId, destination.Kind, destination.Id, destination.Label, direction, now);
         }
         await InsertChangeAsync(connection, transaction, sourceTaskId, "send", now);
-        await transaction.CommitAsync(token);
-        return new TaskSendResponse(createdIds.Count, createdIds);
     }
 
     public async Task<TaskSendResponse?> SendToDashboardAsync(string sourceTaskId, CancellationToken token)
@@ -252,9 +275,10 @@ public sealed partial class TaskRepository
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<long> GetNextSendTimestampAsync(SqliteConnection connection, string sourceTaskId, CancellationToken token)
+    private static async Task<long> GetNextSendTimestampAsync(SqliteConnection connection, string sourceTaskId, CancellationToken token, SqliteTransaction? transaction = null)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "SELECT COALESCE(send_marker_dismissed_at, 0) FROM tasks WHERE id = $id;";
         command.Parameters.AddWithValue("$id", sourceTaskId);
         var dismissed = Convert.ToInt64(await command.ExecuteScalarAsync(token) ?? 0L);

@@ -8,7 +8,8 @@ public sealed partial class TaskRepository
     public async Task<IReadOnlyList<TaskItem>> GetPersonTasksAsync(
         string personId,
         long startOfToday,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool past = false)
     {
         var tasks = new List<TaskItem>();
         await using var connection = new SqliteConnection(_paths.ConnectionString);
@@ -17,17 +18,19 @@ public sealed partial class TaskRepository
         command.CommandText = """
             SELECT t.id, t.page, t.title, t.title_json, t.content_json, t.position, t.created_at, t.updated_at, t.completed_at, t.scheduled_date, t.recurrence_json,
                    t.owner_person_id, p.display_name, t.status_input_at, t.origin_label,
-                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at
+                   EXISTS(SELECT 1 FROM task_send_events e WHERE e.source_task_id = t.id AND e.sent_at > COALESCE(t.send_marker_dismissed_at, 0)), t.is_private, t.history_archived_at, t.group_id
             FROM tasks t
             JOIN people p ON p.id = t.owner_person_id
             WHERE t.owner_person_id = $personId
               AND t.page = 'people:main'
               AND t.deleted_at IS NULL
-              AND (t.completed_at IS NULL OR (t.completed_at >= $startOfToday AND t.history_archived_at IS NULL))
-            ORDER BY t.position ASC;
+              AND (($past = 0 AND (t.completed_at IS NULL OR (t.completed_at >= $startOfToday AND t.history_archived_at IS NULL)))
+                OR ($past = 1 AND t.completed_at IS NOT NULL AND (t.completed_at < $startOfToday OR t.history_archived_at IS NOT NULL)))
+            ORDER BY CASE WHEN $past = 1 THEN t.completed_at END DESC, t.position ASC;
             """;
         command.Parameters.AddWithValue("$personId", personId);
         command.Parameters.AddWithValue("$startOfToday", startOfToday);
+        command.Parameters.AddWithValue("$past", past);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {

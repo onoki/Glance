@@ -249,6 +249,44 @@ for (const [page,createdAt,expected] of [
   assert.equal(actionState.creationDate,expected,'People uses the original creation date; other task dates are unchanged');
   datedApp.unmount();
 }
+const { hoveredGroupTaskId } = await import('../src/services/taskGroupHover.js');
+const { taskClipboard } = await import('../src/services/taskClipboard.js');
+const taskRender = TaskItem.render;
+const groupStates = new Map();
+TaskItem.render = () => {
+  const instance = getCurrentInstance();
+  groupStates.set(instance.props.task.id, instance.setupState);
+  return h('task');
+};
+const hoverRows = ref(['first', 'second', 'separate', 'third', 'fourth'].map(id => ({
+  ...task, id, groupId: id === 'separate' ? null : 'same-id'
+})));
+const hoverApp = renderer.createApp({ render: () => h('tasks', hoverRows.value.map(row =>
+  h(TaskItem, { ...bindings, key: row.id, task: row, groupRows: hoverRows.value,
+    onChangeGroup: noop, onSave: async () => ({ updatedAt: 2 }) })
+)) });
+hoverApp.mount(node('root'));
+const firstGroupRow = groupStates.get('first');
+firstGroupRow.handleWindowBlur();
+firstGroupRow.hoverGroup();
+assert.equal(firstGroupRow.groupHovered, true);
+assert.equal(groupStates.get('second').groupHovered, true);
+assert.equal(groupStates.get('third').groupHovered, false, 'a separate run with the same group id stays independent');
+assert.equal(groupStates.get('separate').groupHovered, false);
+assert.equal(firstGroupRow.actionsDismissed, true, 'bracket hover preserves dismissed action bars');
+firstGroupRow.handleWindowBlur();
+assert.equal(groupStates.get('second').groupHovered, false, 'window blur clears the whole hover');
+taskClipboard.busy.value = true;
+firstGroupRow.hoverGroup();
+assert.equal(hoveredGroupTaskId.value, null, 'a disabled bracket cannot start hover');
+taskClipboard.busy.value = false;
+firstGroupRow.hoverGroup();
+hoverRows.value = hoverRows.value.slice(1);
+await nextTick();
+assert.equal(hoveredGroupTaskId.value, null, 'removing the hovered task cannot leave stale group feedback');
+hoverApp.unmount();
+TaskItem.render = taskRender;
+
 const { privacyMode, revealedPrivateTask } = await import('../src/composables/usePrivacy.js');
 const sent = [], saved = [], alerts = [];
 const originalAnimationFrame = globalThis.requestAnimationFrame;
@@ -467,15 +505,16 @@ for (const area of ['title','content']) {
 console.log('Vertical arrows cross visual edges at exact caret positions and preserve wrapped-line navigation');
 
 // Enter at title end adds a leading bullet, preserving every existing line.
-for (const mode of ['end','middle','readOnly']) {
-  let handlers, focused, split, saved=0, created=0;
+for (const mode of ['end','middle','readOnly','singleBlank']) {
+  let handlers, focused, split, saved=0, created=0, revealed=false;
   const title=ref(structuredClone(boundaryTitle));
   const original=structuredClone(boundaryContent);
-  original.content[0].content[0].content.push({type:'bulletList',content:[itemDoc('Nested retained')]});
+  if (mode === 'singleBlank') original.content[0].content = [{type:'listItem',content:[{type:'paragraph'}]}];
+  else original.content[0].content[0].content.push({type:'bulletList',content:[itemDoc('Nested retained')]});
   const content=ref(structuredClone(original));
   const harness=renderer.createApp({setup(){
     handlers=useTaskEditing({props:{task:{id:'enter'},readOnly:mode==='readOnly',onCreateBelow:()=>{created++;},onSplitTitleToNewTask:(_task,_category,payload)=>{split=payload;}},
-      titleRef:title,contentRef:content,titleEditorRef:ref(null),contentEditorRef:ref({focusListItem:(...args)=>{focused=args;}}),hasSubcontent:ref(true),saveNow:async()=>{saved++;return true;},onContentChanged(){}});
+      titleRef:title,contentRef:content,titleEditorRef:ref(null),contentEditorRef:ref({focusListItem:(...args)=>{focused=args;}}),hasSubcontent:ref(mode!=='singleBlank'),saveNow:async()=>{saved++;return true;},onContentChanged(){},revealContent:()=>{revealed=true;}});
     return ()=>h('test');
   }}); harness.mount(node('root'));
   const doc=boundarySchema.nodeFromJSON(boundaryTitle);
@@ -491,6 +530,12 @@ for (const mode of ['end','middle','readOnly']) {
     assert.deepEqual(title.value,boundaryTitle);
     assert.deepEqual(focused,[0,'start']);
     assert.equal(saved,1);
+  } else if (mode === 'singleBlank') {
+    assert.equal(handled, true);
+    assert.equal(revealed, true);
+    assert.deepEqual(content.value, original);
+    assert.deepEqual(focused, [0, 'start']);
+    assert.equal(saved, 0);
   } else if(mode==='middle') {
     assert.deepEqual(split.newContent,original);
     assert.equal(boundarySchema.nodeFromJSON(split.newTitle).textContent,'tle');

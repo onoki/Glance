@@ -3,6 +3,7 @@ import { ref } from 'vue';
 // Each window starts protected. The task flag is durable; revealing is only UI
 // state and never changes the documents or another window's presentation.
 export const privacyMode = ref(true);
+export const privacyPresentationKey = Symbol('privacy presentation');
 export const revealedPrivateTask = ref(null);
 export const revealPrivateTask = id => { revealedPrivateTask.value = id; };
 

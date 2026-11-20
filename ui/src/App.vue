@@ -1,7 +1,7 @@
 <template>
   <div class="app-shell">
-    <header class="top-nav" :class="{ 'helper-window-nav': isHelperWindow }">
-      <nav class="tabs">
+    <header class="top-nav" :class="{ 'helper-window-nav': isHelperWindow, 'desktop-title-bar': customTitleBar }">
+      <nav class="tabs" aria-label="Main navigation">
         <button
           v-for="tab in tabs"
           :key="tab"
@@ -15,23 +15,44 @@
           <span class="pixel-text">{{ tab }}</span>
         </button>
       </nav>
-      <div class="brand">
+      <div
+        v-if="customTitleBar" class="title-drag-region"
+        title="Drag to move the window. Double-click to maximize or restore."
+        @pointerdown="beginTitleDrag" @pointermove="moveTitleDrag" @pointerup="endTitleDrag"
+        @pointercancel="endTitleDrag" @lostpointercapture="endTitleDrag"
+        @dblclick.prevent="runWindowCommand('toggleMaximize')"
+        @contextmenu.prevent="runWindowCommand('menu')"
+      >
         <span v-if="isHelperWindow" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper window</span>
-        <span class="brand-version">Version: {{ appVersion || "Unknown" }} UTC</span>
+      </div>
+      <div class="brand">
+        <span v-if="isHelperWindow && !customTitleBar" class="helper-window-badge" title="Helper window — closing this window leaves the other Glance windows open.">Helper window</span>
         <ZoomControls />
         <button
-          class="tab header-icon-button" type="button" :class="{ active: privacyMode }" :aria-pressed="privacyMode"
-          :aria-label="privacyMode ? 'Turn privacy off' : 'Turn privacy on'"
-          :title="privacyMode ? 'Privacy on: private subcontent stays hidden unless its task is focused. Click to reveal all.' : 'Privacy off: all subcontent is visible. Click to protect private tasks.'"
+          class="tab header-icon-button" type="button" :class="{ active: privacyEnabled }" :aria-pressed="privacyEnabled"
+          :disabled="!canTogglePrivacy"
+          :aria-label="canTogglePrivacy ? (privacyEnabled ? 'Turn privacy off' : 'Turn privacy on') : 'Privacy mode'"
+          :title="privacyTooltip"
           @click="privacyMode = !privacyMode"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1" /><path :d="privacyMode ? 'M5 7V4a3 3 0 0 1 6 0v3' : 'M5 7V4a3 3 0 0 1 6 0'" /></svg>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1" /><path :d="privacyEnabled ? 'M5 7V4a3 3 0 0 1 6 0v3' : 'M5 7V4a3 3 0 0 1 6 0'" /></svg>
         </button>
         <button class="tab header-icon-button" :class="{ active: activeTab === 'Settings' }" type="button" aria-label="Settings" title="Settings" :aria-pressed="activeTab === 'Settings'" @click="selectTab('Settings')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 3 1-2h4l1 2 2 1 2-1 3 3-1 2 1 2 2 1v4l-2 1-1 2 1 2-3 3-2-1-2 1-1 2h-4l-1-2-2-1-2 1-3-3 1-2-1-2-2-1v-4l2-1 1-2-1-2 3-3 2 1z" transform="translate(1 0) scale(.9)" /><circle cx="12" cy="12" r="3" /></svg>
         </button>
         <button class="tab new-window-tab header-icon-button" type="button" aria-label="New window" title="Open another view of these notes" @click="openNewWindow">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 3V1h10v10h-2M1 5h10v10H1zM3 8h6" /></svg>
+        </button>
+      </div>
+      <div v-if="customTitleBar" class="window-caption-buttons" role="group" aria-label="Window controls" :style="{ zoom: captionScale }">
+        <button type="button" aria-label="Minimize window" title="Minimize window" @click="runWindowCommand('minimize')">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1 6.5h10" /></svg>
+        </button>
+        <button type="button" :aria-label="maximizeLabel" :title="maximizeLabel" @click="runWindowCommand('toggleMaximize')">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><path :d="maximized ? 'M3.5 3.5v-2h7v7h-2M1.5 3.5h7v7h-7z' : 'M1.5 1.5h9v9h-9z'" /></svg>
+        </button>
+        <button type="button" class="window-close-button" aria-label="Close window" title="Close window" @click="runWindowCommand('close')">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" aria-hidden="true"><path d="m1.5 1.5 9 9m0-9-9 9" /></svg>
         </button>
       </div>
     </header>
@@ -137,7 +158,7 @@
       <span v-if="saveSummary.failures.length">{{ saveSummary.failures.length }} task(s) need saving — see the task warning.</span>
       <span v-else-if="saveSummary.saving">Saving…</span>
       <span v-else-if="saveSummary.dirty">Unsaved changes</span>
-      <span v-if="taskClipboard.selected.value.size">{{ taskClipboard.selected.value.size }} task(s) selected · Ctrl+C copy · Ctrl+X cut · Esc cancel</span>
+      <span v-if="taskClipboard.selected.value.size">{{ taskClipboard.selected.value.size }} selected · Drag to reorder · {{ activeTab === 'Dashboard' ? 'Move or Send' : 'Send' }} from task actions · Ctrl+C copy · Ctrl+X cut · Esc cancel</span>
       <span v-if="actionFeedback">{{ actionFeedback.text }}</span>
       <button v-if="actionFeedback?.undo && actionFeedback.canUndo()" type="button" @click="undoFeedback">Undo</button>
       <button v-if="actionFeedback" type="button" aria-label="Dismiss notification" @click="dismissAction">×</button>
@@ -148,16 +169,15 @@
 <script setup>
 import { installExternalLinkActivation } from "./utils/externalLinkActivation.js";
 import { installDayRollover } from "./utils/dayRollover.js";
-import { installPrivacy, privacyMode, revealPrivateTask } from "./composables/usePrivacy.js";
+import { installPrivacy, privacyMode, privacyPresentationKey, revealPrivateTask } from "./composables/usePrivacy.js";
 import { formatDateKey } from "./utils/dateUtils.js";
 import { useWindowRole } from "./composables/useWindowRole.js";
-const { isHelperWindow } = useWindowRole();
 import ZoomControls from "./components/ZoomControls.vue";
 import { taskClipboard } from './services/taskClipboard.js';
 import { actionFeedback, dismissAction } from './services/actionFeedback.js';
 import { flushAllSaves, subscribeToSaveSummary } from './services/saveCoordinator.js';
 import { createTaskClipboardAdapter } from './services/taskClipboardAdapter.js';
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { moveCompletedToHistory as apiMoveCompletedToHistory } from "./api/tasks.js";
 import DashboardView from "./components/views/DashboardView.vue";
 import HistoryView from "./components/views/HistoryView.vue";
@@ -165,7 +185,7 @@ import SearchView from "./components/views/SearchView.vue";
 import SettingsView from "./components/views/SettingsView.vue";
 import PeopleView from "./components/views/PeopleView.vue";
 import { fetchPeople } from "./api/people.js";
-import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskToPeople } from "./api/taskSend.js";
+import { dismissTaskSendMarker, fetchTaskSendEvents, sendTaskCopies } from "./api/taskSend.js";
 import { categoryWeekGroups, isPlanningWeekCategory } from "./utils/categoryUtils.js";
 import { emptyContentDoc, emptyTitleDoc } from "./utils/taskUtils.js";
 import { DASHBOARD_NEW_PAGE } from "./utils/pageConstants.js";
@@ -187,6 +207,15 @@ import {
 
 const tabs = ["Dashboard", "People", "Search", "History"];
 const activeTab = ref("Dashboard");
+const { isHelperWindow, customTitleBar, maximized, captionScale, runWindowCommand, beginTitleDrag, moveTitleDrag, endTitleDrag } = useWindowRole();
+const maximizeLabel = computed(() => maximized.value ? "Restore window" : "Maximize window");
+const canTogglePrivacy = computed(() => activeTab.value === "Dashboard" || activeTab.value === "People");
+const privacyEnabled = computed(() => !canTogglePrivacy.value || privacyMode.value);
+provide(privacyPresentationKey, privacyEnabled);
+const privacyTooltip = computed(() => {
+  if (!canTogglePrivacy.value) return "Privacy mode can be changed in Dashboard and People.";
+  return privacyEnabled.value ? "Show private subcontent in Dashboard and People" : "Protect private subcontent";
+});
 const peopleDirectory = ref({ people: [], tags: [] });
 const searchReturnContext = ref(null);
 const searchNavigationTarget = ref(null);
@@ -339,6 +368,8 @@ const {
   toggleComplete,
   moveNewToMain,
   setTaskCategory,
+  changeTaskGroup,
+  applyTaskAction,
   setTaskRecurrence,
   splitSubcontentToNewTask,
   splitTitleToNewTask,
@@ -350,8 +381,10 @@ const {
   focusNextTaskFromContent,
   handleDirtyChange,
   applyTaskMove,
+  applyTaskMoves,
   findTaskById,
   getCategoryTasks,
+  taskGroupRows,
   createTask,
   undoSignal,
   pollChanges,
@@ -475,12 +508,14 @@ const {
   activeTab,
   dashboardColumnsRef,
   getCategoryTasks,
+  taskGroupRows,
   findTaskById,
-  applyTaskMove
+  applyTaskMove,
+  applyTaskMoves
 });
 
 const dashboardClipboard = createTaskClipboardAdapter({
-  tasks: () => [...newTasks.value, ...mainTasks.value], record: recordClipboard, refresh: loadDashboard
+  tasks: () => [...newTasks.value, ...mainTasks.value], groupRows: taskGroupRows, record: recordClipboard, refresh: loadDashboard
 });
 const dashboardHistory = async (operation) => {
   try { await operation(); } catch (error) { window.alert(error.message); }
@@ -510,6 +545,9 @@ const isLastTaskId = (task, list) => {
 const getTaskItemBindings = (task, list, options) => ({
   task,
   onSetCategory: setTaskCategory,
+  onChangeGroup: changeTaskGroup,
+  onTaskAction: applyTaskAction,
+  groupRows: options.groupRows ?? list,
   showRecurrenceControls: options.showRecurrenceControls,
   onSetRecurrence: setTaskRecurrence,
   draggable: true,
@@ -544,7 +582,7 @@ const getTaskItemBindings = (task, list, options) => ({
   onDelete: deleteTask,
   sendPeople: peopleDirectory.value.people.filter((person) => !person.archivedAt),
   sendTags: peopleDirectory.value.tags,
-  onSendToPeople: sendToPeople,
+  onSendToPeople: sendTaskCopies,
   onLoadSendEvents: loadTaskSendEvents,
   onDismissSendMarker: dismissSendMarker
 });
@@ -554,11 +592,6 @@ const loadPeopleDirectory = async () => {
   catch { peopleDirectory.value = { people: [], tags: [] }; }
 };
 
-const sendToPeople = async (task, personIds, tagIds) => {
-  const response = await sendTaskToPeople(task.id, personIds, tagIds);
-  if (response.created > 0) task.sendMarkerVisible = true;
-  return response;
-};
 const loadTaskSendEvents = (task) => fetchTaskSendEvents(task.id);
 const dismissSendMarker = async (task) => {
   const response = await dismissTaskSendMarker(task.id);

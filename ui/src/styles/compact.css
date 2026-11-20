@@ -186,6 +186,7 @@ body {
 }
 
 .dashboard .column-header {
+  top: calc(-1 * var(--pad-xs));
   padding: var(--pad-xs) 0;
   margin-bottom: var(--pad-xs);
 }

@@ -1,6 +1,8 @@
 import { lastParagraph } from './taskJoin.js';
 import { normalizeContent } from './taskUtils.js';
 
+export const TASK_HIGHLIGHT_MS = 5800;
+
 export function horizontalTaskTarget(list, task, direction) {
   const index = list.findIndex(row => row.id === task.id);
   const target = index < 0 ? null : list[index + direction];

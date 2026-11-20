@@ -25,7 +25,7 @@
             </div>
           </header>
 
-          <div class="task-list" @dragover.prevent @drop.prevent="onDropOnCategory('new', $event)">
+          <div class="task-list" @dragover.prevent @drop.prevent="dropOnCategory('new', $event)">
             <button
               v-if="newTasks.length === 0"
               type="button"
@@ -35,7 +35,7 @@
             >
               ...
             </button>
-            <TransitionGroup name="task-move" tag="div" class="task-list-group">
+            <div class="task-list-group">
               <TaskItem
                 v-for="task in newTasks"
                 :key="task.id"
@@ -45,7 +45,7 @@
                   showRecurrenceControls: false
                 })"
               />
-            </TransitionGroup>
+            </div>
             <button class="task-list-tail" type="button" aria-label="Add task to New tasks" @click="appendTask(newTasks, 'new')"><span>+ Add task</span></button>
           </div>
         </section>
@@ -64,7 +64,7 @@
           @dragleave="handleWeekdayBackgroundLeave(category, $event)"
           @drop.capture="handleWeekdayBackgroundDrop(category, $event)"
           @dragover.prevent
-          @drop.prevent="onDropOnCategory(category.id, $event)"
+          @drop.prevent="dropOnCategory(category.id, $event)"
         >
           <section class="list-card" :data-category-id="category.id">
             <header class="column-header">
@@ -91,21 +91,22 @@ v-if="!group.isPast" type="button" class="weekday-add"
 </button>
                   </div>
                   <div v-if="dragOverDay === group.dateKey" class="weekday-drop-indicator" aria-hidden="true"></div>
-                  <TransitionGroup name="task-move" tag="div" class="task-list-group">
+                  <div class="task-list-group">
                     <TaskItem
                       v-for="task in group.tasks"
                       :key="task.id"
                       v-bind="getTaskItemBindings(task, category.tasks, {
                         categoryId: category.id,
+                        groupRows: group.tasks,
                         dragCategoryId: category.id,
                         showRecurrenceControls: category.id === 'repeatable'
                       })"
                     />
-                  </TransitionGroup>
+                  </div>
                 </div>
               </template>
               <template v-else>
-                <TransitionGroup name="task-move" tag="div" class="task-list-group">
+                <div class="task-list-group">
                   <TaskItem
                     v-for="task in category.tasks"
                     :key="task.id"
@@ -115,7 +116,7 @@ v-if="!group.isPast" type="button" class="weekday-add"
                       showRecurrenceControls: category.id === 'repeatable'
                     })"
                   />
-                </TransitionGroup>
+                </div>
               </template>
               <button class="task-list-tail" type="button" :aria-label="`Add task to ${category.label}`" @click="appendTask(category.tasks, category.id)"><span>+ Add task</span></button>
             </div>
@@ -307,12 +308,21 @@ const handleWeekdayBackgroundLeave = (category, event) => {
   if (ownsMarker) props.onDragLeaveWeekday(props.dragOverDay, event);
 };
 
+const dropOnCategory = async (categoryId, event, day) => {
+  try {
+    if (day) await props.onDropOnWeekday(categoryId, day, event);
+    else await props.onDropOnCategory(categoryId, event);
+  } catch (error) {
+    window.alert(error?.message || "Could not reorder the tasks.");
+  }
+};
+
 const handleWeekdayBackgroundDrop = (category, event) => {
   const day = weekdayBackgroundTarget(category, event);
   if (!day) return;
   event.preventDefault();
   event.stopPropagation();
-  return props.onDropOnWeekday(category.id, day.dateKey, event);
+  return dropOnCategory(category.id, event, day.dateKey);
 };
 
 const loadColumnWidths = () => {
