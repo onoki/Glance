@@ -8,6 +8,8 @@ A single window is titled **Glance**. With multiple windows, captions are **G - 
 
 On Windows, the navigation and app controls share the title bar with the window buttons. Drag the blank title area to move the window, double-click it to maximize or restore, or right-click it for the window menu. The window buttons use the existing Windows resize frame and Glance close flow. Settings → About shows the version.
 
+Maximized bounds use the destination monitor's work area during `WM_WINDOWPOSCHANGING`, after Windows has applied its monitor adjustments. Keep `WM_GETMINMAXINFO` under the native sizing path because its maximize values are based on the primary display. Supplying a larger secondary display's dimensions there can make Windows apply the size difference twice. `NativeWindowPlacementTests` checks final outer/client bounds, simulated size differences, moves between available monitors, minimized positions and preserved restore bounds. [Microsoft's maximize coordinate rules](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-minmaxinfo)
+
 Tests: `WindowPresentationTests` covers caption/count policy and actual Windows shortcut property-store round-tripping; `desktopLifecycle.test.js` covers save-before-close behavior. Live taskbar placement still requires checking the destination computer's existing pin and Windows taskbar configuration.
 
 Reference: [Microsoft AppUserModelID guidance](https://learn.microsoft.com/en-us/windows/win32/shell/appids) describes matching process and shortcut identities for taskbar grouping.
